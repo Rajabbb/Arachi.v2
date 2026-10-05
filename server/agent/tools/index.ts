@@ -3,6 +3,7 @@ import { currentDateTime } from "./datetime";
 import { createRfq, listRfqs } from "./rfq";
 import { autofillRfq } from "./autofill";
 import { listOutbox, sendRfqToCarriers } from "./send";
+import { getQuoteLink } from "./quoteLink";
 import { addCarriers, importCarriers, listCarriers, removeCarriers } from "./carriers";
 
 /**
@@ -23,4 +24,6 @@ export const tools = new ToolRegistry()
   .register(addCarriers)
   .register(importCarriers)
   .register(listCarriers)
-  .register(removeCarriers);
+  .register(removeCarriers)
+  // 5. Carrier quote page
+  .register(getQuoteLink);

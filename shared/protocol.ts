@@ -46,3 +46,47 @@ export interface ChatResponse {
 export interface ChatError {
   error: string;
 }
+
+/** GET /api/quote/:token — what a carrier sees on their personal quote page. */
+export interface QuotePageData {
+  rfq: {
+    id: number;
+    origin: string;
+    destination: string;
+    cargo_type: string;
+    weight_kg: number;
+    volume_m3: number;
+    pallets: number;
+    transport_type: string;
+    loading_date: string;
+    delivery_date: string;
+    currency: string;
+    offer_deadline: string;
+    notes: string;
+    /** False once a winner is chosen; the form is then closed. */
+    open: boolean;
+  };
+  carrier: { name: string; language: "az" | "en" };
+  status: string;
+  /** The carrier's own offers for this RFQ, oldest version first. */
+  offers: {
+    version: number;
+    price: number;
+    currency: string;
+    transit_days: number;
+    valid_until: string;
+    notes: string;
+    created_at: string;
+    documents: Download[];
+  }[];
+}
+
+/** POST /api/quote/:token — a carrier's offer (a new version each time). */
+export interface QuoteSubmission {
+  price: number;
+  currency: string;
+  transit_days: number;
+  valid_until?: string;
+  notes?: string;
+  files?: UploadedFile[];
+}

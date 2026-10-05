@@ -46,7 +46,7 @@ export async function sendToAgent(req: AgentRequest): Promise<AgentResponse> {
   return data;
 }
 
-async function toUploadedFile(file: File): Promise<UploadedFile> {
+export async function toUploadedFile(file: File): Promise<UploadedFile> {
   const bytes = new Uint8Array(await file.arrayBuffer());
   let binary = "";
   const chunk = 0x8000;

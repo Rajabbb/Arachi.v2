@@ -77,4 +77,33 @@ export const migrations: string[] = [
     UNIQUE (rfq_id, carrier_id)
   );
   `,
+
+  // 5: carrier offers (every submission is a new version) and stored files.
+  `
+  CREATE TABLE offers (
+    id INTEGER PRIMARY KEY,
+    rfq_id INTEGER NOT NULL REFERENCES rfqs (id),
+    carrier_id INTEGER NOT NULL REFERENCES carriers (id),
+    dispatch_id INTEGER REFERENCES dispatches (id),
+    version INTEGER NOT NULL,
+    price REAL NOT NULL,
+    currency TEXT NOT NULL,
+    transit_days INTEGER NOT NULL,
+    valid_until TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (rfq_id, carrier_id, version)
+  );
+  CREATE TABLE files (
+    id INTEGER PRIMARY KEY,
+    owner_kind TEXT NOT NULL,
+    owner_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    type TEXT NOT NULL,
+    data BLOB NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX files_owner ON files (owner_kind, owner_id);
+  `,
 ];

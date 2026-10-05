@@ -19,7 +19,8 @@ export interface Dispatch {
   id: number;
   rfq_id: number;
   carrier_id: number;
-  channel: Channel;
+  /** "link" when the user shares the link by hand. */
+  channel: Channel | "link";
   status: DispatchStatus;
   error: string | null;
   sent_at: string;
@@ -53,7 +54,7 @@ export function findDispatchFor(rfqId: number, carrierId: number): Dispatch | un
 export function saveDispatch(
   rfqId: number,
   carrierId: number,
-  channel: Channel,
+  channel: Dispatch["channel"],
   status: DispatchStatus,
   error: string | null,
 ): Dispatch {
