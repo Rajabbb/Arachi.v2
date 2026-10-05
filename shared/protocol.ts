@@ -67,7 +67,10 @@ export interface QuotePageData {
     open: boolean;
   };
   carrier: { name: string; language: "az" | "en" };
+  /** Azerbaijani status label, e.g. "Baxıldı". */
   status: string;
+  /** sent | delivered | viewed | offered | failed */
+  statusCode: string;
   /** The carrier's own offers for this RFQ, oldest version first. */
   offers: {
     version: number;
@@ -89,4 +92,34 @@ export interface QuoteSubmission {
   valid_until?: string;
   notes?: string;
   files?: UploadedFile[];
+}
+
+/** GET /api/dashboard?days=N — numbers for the analytics panel. */
+export interface DashboardData {
+  generatedAt: string;
+  periodDays: number;
+  /** RFQs still collecting offers (all time). */
+  activeRfqs: number;
+  /** RFQs with a chosen winner, i.e. booked shipments (all time). */
+  awardedRfqs: number;
+  rfqsCreated: number;
+  carriers: number;
+  offersReceived: number;
+  /** Percent of carriers reached that sent an offer; null when nothing was sent. */
+  responseRate: number | null;
+  statuses: { status: string; label: string; count: number }[];
+  awardedValue: { currency: string; total: number }[];
+  recentOffers: {
+    id: number;
+    rfq_id: number;
+    origin: string;
+    destination: string;
+    carrier: string;
+    version: number;
+    price: number;
+    currency: string;
+    transit_days: number;
+    created_at: string;
+    winner: boolean;
+  }[];
 }

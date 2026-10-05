@@ -64,6 +64,10 @@ export default function App() {
       <header className="header">
         <span className="logo">Arachi</span>
         <span className="badge">V2</span>
+        <nav className="nav">
+          <a href="/" aria-current="page">Söhbət</a>
+          <a href="/panel">Panel</a>
+        </nav>
       </header>
       <MessageList messages={messages} busy={busy} />
       <Composer disabled={busy} onSend={handleSend} />

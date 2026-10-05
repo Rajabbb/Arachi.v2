@@ -71,6 +71,14 @@ const t = {
   },
 };
 
+const statusEn: Record<string, string> = {
+  sent: "Sent",
+  delivered: "Delivered",
+  viewed: "Viewed",
+  offered: "Offer received",
+  failed: "Not delivered",
+};
+
 const transportEn: Record<string, string> = { Quru: "Road", "Dəniz": "Sea", Hava: "Air", "Dəmiryolu": "Rail" };
 
 async function request(token: string, body?: QuoteSubmission): Promise<QuotePageData> {
@@ -144,7 +152,7 @@ export default function QuotePage({ token }: { token: string }) {
         [s.delivery_date, rfq.delivery_date || s.flexible],
         [s.deadline, rfq.offer_deadline],
         ...(rfq.notes ? [[s.notes, rfq.notes] as [string, string]] : []),
-        [s.status, data!.status],
+        [s.status, lang === "en" ? (statusEn[data!.statusCode] ?? data!.status) : data!.status],
       ]
     : [];
 

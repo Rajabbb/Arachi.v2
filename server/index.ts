@@ -6,6 +6,7 @@ import { AgentError, runTurn } from "./agent/loop";
 import { HttpError, readJson, send } from "./http";
 import { handleQuote } from "./routes/quote";
 import { handleFile } from "./routes/files";
+import { handleDashboard } from "./routes/dashboard";
 
 function parseChatRequest(body: unknown): ChatRequest {
   const b = body as Partial<ChatRequest> | null;
@@ -71,6 +72,8 @@ const server = createServer(async (req, res) => {
       send(res, 200, { ok: true });
     } else if (quote) {
       await handleQuote(req, res, quote[1]);
+    } else if (req.method === "GET" && path === "/api/dashboard") {
+      handleDashboard(req, res);
     } else if (file && req.method === "GET") {
       handleFile(res, file[1]);
     } else {

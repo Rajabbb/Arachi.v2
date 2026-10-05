@@ -66,6 +66,7 @@ export function pageData(dispatch: Dispatch): QuotePageData {
     },
     carrier: { name: carrier.name, language: carrier.language },
     status: statusLabels[fresh.status],
+    statusCode: fresh.status,
     offers: offerVersions(rfq.id, carrier.id).map((o) => ({
       version: o.version,
       price: o.price,
