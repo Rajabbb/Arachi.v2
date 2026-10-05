@@ -29,6 +29,17 @@ export default function MessageList({ messages, busy }: Props) {
                 ))}
               </ul>
             )}
+            {m.downloads && m.downloads.length > 0 && (
+              <ul className="attachments">
+                {m.downloads.map((d) => (
+                  <li key={d.url}>
+                    <a className="chip download" href={d.url} download={d.name}>
+                      ⬇ {d.name}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </div>
       ))}

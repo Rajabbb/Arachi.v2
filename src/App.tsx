@@ -38,6 +38,7 @@ export default function App() {
           role: "assistant",
           text: res.reply,
           attachments: [],
+          downloads: res.downloads,
           createdAt: Date.now(),
         },
       ]);

@@ -8,6 +8,7 @@ import { listOffers, recordOffer } from "./offers";
 import { compareOffers, selectWinner } from "./compare";
 import { sendReminders } from "./reminders";
 import { offerHistory } from "./history";
+import { createCustomerQuote, exportRfqs } from "./customerQuote";
 import { addCarriers, importCarriers, listCarriers, removeCarriers } from "./carriers";
 
 /**
@@ -40,4 +41,7 @@ export const tools = new ToolRegistry()
   // 8. Reminders
   .register(sendReminders)
   // 9. Offer version history
-  .register(offerHistory);
+  .register(offerHistory)
+  // 10. Customer quote PDF and Excel/PDF export
+  .register(createCustomerQuote)
+  .register(exportRfqs);
