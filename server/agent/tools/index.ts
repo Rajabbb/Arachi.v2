@@ -2,6 +2,7 @@ import { ToolRegistry } from "./registry";
 import { currentDateTime } from "./datetime";
 import { createRfq, listRfqs } from "./rfq";
 import { autofillRfq } from "./autofill";
+import { listOutbox, sendRfqToCarriers } from "./send";
 import { addCarriers, importCarriers, listCarriers, removeCarriers } from "./carriers";
 
 /**
@@ -15,6 +16,9 @@ export const tools = new ToolRegistry()
   .register(listRfqs)
   // 2. AI auto-fill from documents
   .register(autofillRfq)
+  // 3. Send to carriers
+  .register(sendRfqToCarriers)
+  .register(listOutbox)
   // 4. Carrier base
   .register(addCarriers)
   .register(importCarriers)

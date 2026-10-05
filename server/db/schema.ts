@@ -60,4 +60,21 @@ export const migrations: string[] = [
   );
   CREATE UNIQUE INDEX carriers_email ON carriers (lower(email)) WHERE email IS NOT NULL;
   `,
+
+  // 4: an RFQ sent to one carrier, with its personal link and delivery status.
+  `
+  CREATE TABLE dispatches (
+    id INTEGER PRIMARY KEY,
+    rfq_id INTEGER NOT NULL REFERENCES rfqs (id),
+    carrier_id INTEGER NOT NULL REFERENCES carriers (id),
+    channel TEXT NOT NULL,
+    status TEXT NOT NULL,
+    error TEXT,
+    sent_at TEXT NOT NULL,
+    viewed_at TEXT,
+    reminder_count INTEGER NOT NULL DEFAULT 0,
+    last_reminder_at TEXT,
+    UNIQUE (rfq_id, carrier_id)
+  );
+  `,
 ];
