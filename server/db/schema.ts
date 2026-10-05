@@ -42,4 +42,22 @@ export const migrations: string[] = [
     created_at TEXT NOT NULL
   );
   `,
+
+  // 3: carrier base.
+  `
+  CREATE TABLE carriers (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT,
+    phone TEXT NOT NULL DEFAULT '',
+    whatsapp TEXT NOT NULL DEFAULT '',
+    telegram TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL,
+    subcategory TEXT NOT NULL DEFAULT '',
+    language TEXT NOT NULL DEFAULT 'az',
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX carriers_email ON carriers (lower(email)) WHERE email IS NOT NULL;
+  `,
 ];

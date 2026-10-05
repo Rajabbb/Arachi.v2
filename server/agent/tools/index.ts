@@ -2,6 +2,7 @@ import { ToolRegistry } from "./registry";
 import { currentDateTime } from "./datetime";
 import { createRfq, listRfqs } from "./rfq";
 import { autofillRfq } from "./autofill";
+import { addCarriers, importCarriers, listCarriers, removeCarriers } from "./carriers";
 
 /**
  * Every tool the agent can use. To add a process, write an AgentTool
@@ -13,4 +14,9 @@ export const tools = new ToolRegistry()
   .register(createRfq)
   .register(listRfqs)
   // 2. AI auto-fill from documents
-  .register(autofillRfq);
+  .register(autofillRfq)
+  // 4. Carrier base
+  .register(addCarriers)
+  .register(importCarriers)
+  .register(listCarriers)
+  .register(removeCarriers);
