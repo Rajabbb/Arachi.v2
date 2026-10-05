@@ -4,6 +4,7 @@ import { createRfq, listRfqs } from "./rfq";
 import { autofillRfq } from "./autofill";
 import { listOutbox, sendRfqToCarriers } from "./send";
 import { getQuoteLink } from "./quoteLink";
+import { listOffers, recordOffer } from "./offers";
 import { addCarriers, importCarriers, listCarriers, removeCarriers } from "./carriers";
 
 /**
@@ -26,4 +27,7 @@ export const tools = new ToolRegistry()
   .register(listCarriers)
   .register(removeCarriers)
   // 5. Carrier quote page
-  .register(getQuoteLink);
+  .register(getQuoteLink)
+  // 6. Incoming offers and statuses
+  .register(listOffers)
+  .register(recordOffer);
