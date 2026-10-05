@@ -72,6 +72,6 @@ export const listRfqs: AgentTool = {
   async run({ status, limit }) {
     const where = status === "all" ? "" : "WHERE status = ?";
     const args = status === "all" ? [limit as number] : [status as string, limit as number];
-    return db().prepare(`SELECT * FROM rfqs ${where} ORDER BY id DESC LIMIT ?`).all(...args);
+    return db().all(`SELECT * FROM rfqs ${where} ORDER BY id DESC LIMIT ?`, ...args);
   },
 };

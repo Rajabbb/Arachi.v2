@@ -44,7 +44,7 @@ export function addDays(days: number, from = new Date()): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function insertRfq(input: NewRfq): Rfq {
+export async function insertRfq(input: NewRfq): Promise<Rfq> {
   if (!input.origin.trim() || !input.destination.trim()) {
     throw new Error("Yükləmə və boşaltma yeri boş ola bilməz.");
   }
@@ -57,37 +57,34 @@ export function insertRfq(input: NewRfq): Rfq {
   checkDate("Çatdırılma tarixi", input.delivery_date);
   checkDate("Təklif son tarixi", input.offer_deadline);
 
-  const { lastInsertRowid } = db()
-    .prepare(
-      `INSERT INTO rfqs (origin, destination, cargo_type, weight_kg, volume_m3, pallets,
-         transport_type, loading_date, delivery_date, currency, offer_deadline, notes, source, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(
-      input.origin.trim(),
-      input.destination.trim(),
-      input.cargo_type.trim(),
-      input.weight_kg,
-      input.volume_m3,
-      input.pallets,
-      input.transport_type,
-      input.loading_date,
-      input.delivery_date,
-      input.currency,
-      input.offer_deadline,
-      input.notes,
-      input.source,
-      now(),
-    );
-  return getRfq(Number(lastInsertRowid));
+  const inserted = await db().get<{ id: number }>(
+    `INSERT INTO rfqs (origin, destination, cargo_type, weight_kg, volume_m3, pallets,
+       transport_type, loading_date, delivery_date, currency, offer_deadline, notes, source, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+    input.origin.trim(),
+    input.destination.trim(),
+    input.cargo_type.trim(),
+    input.weight_kg,
+    input.volume_m3,
+    input.pallets,
+    input.transport_type,
+    input.loading_date,
+    input.delivery_date,
+    input.currency,
+    input.offer_deadline,
+    input.notes,
+    input.source,
+    now(),
+  );
+  return getRfq(inserted!.id);
 }
 
-export function findRfq(id: number): Rfq | undefined {
-  return db().prepare("SELECT * FROM rfqs WHERE id = ?").get(id) as Rfq | undefined;
+export function findRfq(id: number): Promise<Rfq | undefined> {
+  return db().get<Rfq>("SELECT * FROM rfqs WHERE id = ?", id);
 }
 
-export function getRfq(id: number): Rfq {
-  const rfq = findRfq(id);
+export async function getRfq(id: number): Promise<Rfq> {
+  const rfq = await findRfq(id);
   if (!rfq) throw new Error(`RFQ #${id} tapılmadı.`);
   return rfq;
 }

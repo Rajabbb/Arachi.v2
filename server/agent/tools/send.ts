@@ -10,7 +10,7 @@ import {
   statusLabels,
 } from "../../domain/dispatches";
 import { getRfq } from "../../domain/rfqs";
-import { channels, deliver, type Channel } from "../../notify";
+import { channels, deliver, logOnlyNote, type Channel } from "../../notify";
 import { db } from "../../db";
 
 /** Process 3: send an RFQ to carriers, each with a personal signed link. */
@@ -39,19 +39,19 @@ export const sendRfqToCarriers: AgentTool = {
     resend: { type: "boolean", description: "Send again to carriers that already got this RFQ.", default: false },
   },
   async run(p) {
-    const rfq = getRfq(p.rfq_id as number);
+    const rfq = await getRfq(p.rfq_id as number);
     if (rfq.status !== "open") throw new Error(`RFQ #${rfq.id} artıq açıq deyil (${rfq.status}).`);
 
     const audience = p.audience as string;
     const subcategory = (p.subcategory as string) || undefined;
-    const carriers =
+    const carriers = await (
       audience === "specific"
         ? findCarriers({ ids: p.carrier_ids as number[] })
         : audience === "category"
           ? findCarriers({ category: (p.category as string) || undefined, subcategory })
           : audience === "matching"
             ? findCarriers({ category: rfq.transport_type, subcategory })
-            : findCarriers({ subcategory });
+            : findCarriers({ subcategory }));
     if (carriers.length === 0) {
       throw new Error("Seçimə uyğun aktiv daşıyıcı tapılmadı. Əvvəlcə daşıyıcı bazasına daşıyıcı əlavə edin.");
     }
@@ -60,18 +60,18 @@ export const sendRfqToCarriers: AgentTool = {
     if (preferred.length === 0) throw new Error("Ən azı bir kanal seçilməlidir.");
     const results = [];
     for (const carrier of carriers) {
-      if (!p.resend && findDispatchFor(rfq.id, carrier.id)) {
+      if (!p.resend && (await findDispatchFor(rfq.id, carrier.id))) {
         results.push({ carrier_id: carrier.id, name: carrier.name, skipped: "artıq göndərilib" });
         continue;
       }
       const channel = preferred.find((c) => addressFor(carrier, c)) ?? preferred[0];
       const to = addressFor(carrier, channel);
       // Create the dispatch first: the link is signed with its id.
-      const pending = saveDispatch(rfq.id, carrier.id, channel, "sent", null);
-      const link = quoteLink(pending.id);
+      const pending = await saveDispatch(rfq.id, carrier.id, channel, "sent", null);
+      const link = await quoteLink(pending.id);
       const message = rfqMessage(rfq, carrier, link);
       const delivery = await deliver({ channel, to, ...message });
-      const dispatch = saveDispatch(
+      const dispatch = await saveDispatch(
         rfq.id,
         carrier.id,
         channel,
@@ -95,7 +95,7 @@ export const sendRfqToCarriers: AgentTool = {
       sent: sent.length,
       failed: sent.filter((r) => "error" in r && r.error).length,
       skipped: results.length - sent.length,
-      note: "Mesajlar hələ real göndərilmir: hər biri serverin jurnalına və outbox cədvəlinə yazılır.",
+      note: logOnlyNote(sent.map((r) => r.channel as Channel)),
       results,
     };
   },
@@ -106,6 +106,6 @@ export const listOutbox: AgentTool = {
   description: "Shows the latest outgoing messages (emails, WhatsApp, Telegram) recorded by the system.",
   params: { limit: { type: "integer", description: "How many messages.", default: 20 } },
   async run({ limit }) {
-    return db().prepare("SELECT * FROM outbox ORDER BY id DESC LIMIT ?").all(limit as number);
+    return db().all("SELECT * FROM outbox ORDER BY id DESC LIMIT ?", limit as number);
   },
 };

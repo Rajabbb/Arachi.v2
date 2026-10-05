@@ -3,7 +3,7 @@ import { beforeEach, test } from "node:test";
 import { call, freshDb } from "../../test/helpers";
 
 beforeEach(async () => {
-  freshDb();
+  await freshDb();
   await call("create_rfq", { origin: "Bakı", destination: "Berlin", cargo_type: "Avadanlıq", weight_kg: 9000 });
   await call("add_carriers", { carriers: [{ name: "Cheap", email: "c@x.az" }, { name: "Fast", email: "f@x.az" }, { name: "Euro", email: "e@x.az" }] });
   await call("send_rfq_to_carriers", { rfq_id: 1 });
@@ -29,7 +29,7 @@ test("ranks by price, transit or a balanced score", async () => {
 test("select_winner picks the best offer, closes the RFQ and notifies the winner", async () => {
   const { result } = await call("select_winner", { rfq_id: 1 });
   assert.equal(result.winner.carrier, "Cheap");
-  assert.deepEqual(result.notified, [{ carrier: "Cheap", delivered: true }]);
+  assert.deepEqual(result.notified, [{ carrier: "Cheap", channel: "email", delivered: true }]);
   await assert.rejects(call("select_winner", { rfq_id: 1 }));
   await assert.rejects(call("record_offer", { rfq_id: 1, carrier_id: 2, price: 1, transit_days: 1 }));
   assert.equal((await call("compare_offers", { rfq_id: 1 })).result.winner_offer_id, result.winner.offer_id);

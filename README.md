@@ -8,6 +8,8 @@ Arachi platformasının AI ilə işləyən yeni versiyası. İstifadəçi AI age
 
 - React 19 + TypeScript + Vite (interfeys)
 - Node + Anthropic SDK (agent serveri, Claude `claude-opus-5-5`)
+- Supabase (Postgres) verilənlər bazası; Supabase qurulmayıbsa yerli SQLite faylı
+- Resend ilə email göndərmə; açar yoxdursa email yalnız jurnala yazılır
 
 ## İşə salmaq
 
@@ -16,8 +18,36 @@ npm install
 cp .env.example .env   # ANTHROPIC_API_KEY dəyərini yazın
 npm run server         # agent serveri, http://localhost:8787
 npm run dev            # interfeys; /api sorğuları serverə yönləndirilir
-npm test               # alətlərin testləri
+npm test               # alətlərin testləri (SQLite)
+npm run test:pg        # eyni testlər Postgres-də (PGlite, Supabase miqrasiyaları ilə)
+npm run migrate        # miqrasiyaları DATABASE_URL bazasına tətbiq edir
 ```
+
+## Supabase və Resend
+
+Açarları heç vaxt chat-a, koda və ya git-ə yazmayın: yalnız serverdəki `.env` faylına. Dəyişənlər boş qalsa, layihə yerli rejimdə işləyir (SQLite faylı və jurnala yazılan email).
+
+### Supabase (verilənlər bazası)
+
+1. Supabase layihəsində yuxarıdakı **Connect** düyməsini basın (və ya **Project Settings → Database**), **Session pooler** connection string-i kopyalayın. Bu variant IPv4 ilə də işləyir.
+2. Sətirdəki `[YOUR-PASSWORD]` yerinə layihəni yaradarkən verdiyiniz verilənlər bazası parolunu yazın. Parolu unutmusunuzsa: **Project Settings → Database → Reset database password**.
+3. `.env`-də: `DATABASE_URL=postgresql://postgres.<layihə-id>:<parol>@aws-0-<region>.pooler.supabase.com:5432/postgres`
+4. `npm run migrate` əmrini işlədin (server də başlayanda yeni miqrasiyaları özü tətbiq edir).
+
+Server bazaya birbaşa qoşulur, Supabase Data API və `anon`/`publishable` açarlar istifadə olunmur. Bütün cədvəllərdə RLS aktivdir və heç bir policy yoxdur, ona görə həmin açarlarla cədvəllərə çatmaq mümkün deyil. Bağlantı TLS ilə şifrələnir. Sertifikatın tam yoxlanması üçün **Project Settings → Database → SSL Configuration**-dan sertifikatı yükləyib yolunu `DATABASE_SSL_CA`-ya yazın.
+
+### Resend (email)
+
+1. **Domains → Add Domain**: göndərəcəyiniz domeni əlavə edin, göstərilən DNS yazılarını (SPF, DKIM) domen panelinizə əlavə edin və **Verify** basın.
+2. **API Keys → Create API Key**: "Sending access" kifayətdir. Açarı `.env`-də `RESEND_API_KEY`-ə yazın.
+3. `EMAIL_FROM`: təsdiqlənmiş domendə ünvan, məsələn `Arachi <rfq@sizin-domen.az>`.
+4. `EMAIL_REPLY_TO` (istəyə görə): daşıyıcılar emailə "Cavab ver" basanda məktub bu ünvana gedir, məsələn komandanın real poçtu.
+
+Daşıyıcılar təklifi emaildəki şəxsi linklə göndərir, ona görə gələn emailləri sistemə qəbul etmək lazım deyil. "Çatdırıldı" statusu hazırda Resend-in məktubu qəbul etməsi deməkdir. Geri qayıdan (bounce) məktubları izləmək üçün növbəti addım Resend webhook-larıdır; hər məktubun Resend id-si bunun üçün `outbox.provider_id`-də saxlanılır. WhatsApp və Telegram hələ yalnız jurnala yazılır.
+
+### Real qoşulmanı yoxlamaq
+
+Açarları `.env`-ə yazdıqdan sonra `npm run migrate` "Database is up to date." yazmalıdır. `npm run server` başlayanda jurnalda `Database: Postgres` və `Email: Resend` görünməlidir. Sonra agentə özünüzü daşıyıcı kimi əlavə etdirib bir RFQ göndərin və emailin gəldiyini yoxlayın.
 
 API açarı yalnız serverdə (`.env`) saxlanılır, brauzerə heç vaxt göndərilmir. `.env` git-ə düşmür.
 
@@ -36,8 +66,8 @@ API açarı yalnız serverdə (`.env`) saxlanılır, brauzerə heç vaxt göndə
   - `agent/tools/index.ts` — bütün alətlərin qeydiyyatı
   - `agent/tools/*.ts` — arachi.co prosesləri (aşağıdakı cədvəl), hər birinin yanında `*.test.ts`
   - `domain/` — RFQ, daşıyıcı, göndərmə, təklif, fayl və analitika məntiqi
-  - `db/` — SQLite (`node:sqlite`), `schema.ts` ardıcıl miqrasiyalardır
-  - `notify/` — email/WhatsApp/Telegram göndərmə interfeysi (hazırda yalnız jurnala yazır)
+  - `db/` — verilənlər bazası: `index.ts` ümumi interfeys (`db().all/get/run`, `transaction`), `postgres.ts` Supabase bağlantısı və miqrasiya icrası, `migrations/*.sql` Postgres sxemi, `sqlite.ts` və `sqliteSchema.ts` yerli SQLite. Sxem dəyişikliyi hər ikisinə əlavə olunur
+  - `notify/` — email/WhatsApp/Telegram göndərmə interfeysi; email Resend ilə (`resend.ts`), qalanları hələ yalnız jurnala yazır
   - `links.ts` — daşıyıcı linkləri üçün imzalı tokenlər
   - `routes/` — daşıyıcı təklif səhifəsi API-si, fayl yükləmə, analitika
 - `src/pages/` — daşıyıcının təklif səhifəsi (`/quote/:token`) və analitika paneli (`/panel`)
@@ -58,7 +88,7 @@ API açarı yalnız serverdə (`.env`) saxlanılır, brauzerə heç vaxt göndə
 | 10 | Rəsmi təklif PDF və ixrac | `create_customer_quote`, `export_rfqs` | Xidmət haqqı 10%, daşıyıcı adı gizli, 7 gün etibarlı; ixrac Excel |
 | 11 | Analitika paneli | `get_dashboard` + `/panel` səhifəsi | Son 30 gün |
 
-Mesajlar hələ real göndərilmir: `server/notify/` hər mesajı server jurnalına və `outbox` cədvəlinə yazır. Real email/WhatsApp/Telegram üçün `setProvider(...)` ilə provayder qoşmaq kifayətdir. Verilənlər `data/arachi.db` faylındadır (git-ə düşmür).
+Hər mesaj `outbox` cədvəlinə yazılır. Email `RESEND_API_KEY` və `EMAIL_FROM` qurulubsa Resend ilə real göndərilir, qurulmayıbsa yalnız jurnala yazılır. WhatsApp/Telegram üçün `setProvider(...)` ilə provayder qoşmaq kifayətdir. Verilənlər `DATABASE_URL` qurulubsa Supabase-də, qurulmayıbsa `data/arachi.db` faylındadır (git-ə düşmür).
 
 Testlər: `npm test`.
 

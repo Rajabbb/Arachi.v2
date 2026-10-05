@@ -36,8 +36,10 @@ export interface OfferInput {
  * Records a carrier's offer. A carrier may revise its offer: every submission
  * is kept as a new version (v1, v2, ...) and the latest one counts.
  */
-export function submitOffer(input: OfferInput): Offer & { documents: ReturnType<typeof filesOf> } {
-  const rfq = getRfq(input.rfqId);
+export async function submitOffer(
+  input: OfferInput,
+): Promise<Offer & { documents: Awaited<ReturnType<typeof filesOf>> }> {
+  const rfq = await getRfq(input.rfqId);
   if (rfq.status !== "open") throw new Error(`RFQ #${rfq.id} üzrə təkliflər artıq qəbul edilmir.`);
   if (!(input.price > 0)) throw new Error("Qiymət müsbət olmalıdır.");
   if (!Number.isInteger(input.transitDays) || input.transitDays <= 0) {
@@ -48,50 +50,45 @@ export function submitOffer(input: OfferInput): Offer & { documents: ReturnType<
   }
   checkDate("Təklifin etibarlılıq tarixi", input.validUntil);
 
-  const id = transaction(() => {
-    const { v } = db()
-      .prepare("SELECT coalesce(max(version), 0) + 1 AS v FROM offers WHERE rfq_id = ? AND carrier_id = ?")
-      .get(input.rfqId, input.carrierId) as { v: number };
-    const { lastInsertRowid } = db()
-      .prepare(
-        `INSERT INTO offers (rfq_id, carrier_id, dispatch_id, version, price, currency, transit_days,
-           valid_until, notes, source, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        input.rfqId, input.carrierId, input.dispatchId, v, input.price, input.currency,
-        input.transitDays, input.validUntil, input.notes.trim(), input.source, now(),
-      );
-    const offerId = Number(lastInsertRowid);
+  const id = await transaction(async () => {
+    const { v } = (await db().get<{ v: number }>(
+      "SELECT coalesce(max(version), 0) + 1 AS v FROM offers WHERE rfq_id = ? AND carrier_id = ?",
+      input.rfqId, input.carrierId,
+    ))!;
+    const inserted = await db().get<{ id: number }>(
+      `INSERT INTO offers (rfq_id, carrier_id, dispatch_id, version, price, currency, transit_days,
+         valid_until, notes, source, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+      input.rfqId, input.carrierId, input.dispatchId, v, input.price, input.currency,
+      input.transitDays, input.validUntil, input.notes.trim(), input.source, now(),
+    );
+    const offerId = inserted!.id;
     for (const f of input.files) {
-      storeFile("offer", offerId, f.name, f.type, Buffer.from(f.data, "base64"));
+      await storeFile("offer", offerId, f.name, f.type, Buffer.from(f.data, "base64"));
     }
-    if (input.dispatchId) markOffered(input.dispatchId);
+    if (input.dispatchId) await markOffered(input.dispatchId);
     return offerId;
   });
-  return { ...getOffer(id), documents: filesOf("offer", id) };
+  return { ...(await getOffer(id)), documents: await filesOf("offer", id) };
 }
 
-export function getOffer(id: number): Offer {
-  const offer = db().prepare("SELECT * FROM offers WHERE id = ?").get(id) as Offer | undefined;
+export async function getOffer(id: number): Promise<Offer> {
+  const offer = await db().get<Offer>("SELECT * FROM offers WHERE id = ?", id);
   if (!offer) throw new Error(`Təklif #${id} tapılmadı.`);
   return offer;
 }
 
 /** The latest version of every carrier's offer for an RFQ. */
-export function latestOffers(rfqId: number): (Offer & { carrier_name: string })[] {
-  return db()
-    .prepare(
-      `SELECT o.*, c.name AS carrier_name FROM offers o JOIN carriers c ON c.id = o.carrier_id
-       WHERE o.rfq_id = ? AND o.version = (
-         SELECT max(version) FROM offers WHERE rfq_id = o.rfq_id AND carrier_id = o.carrier_id)
-       ORDER BY o.price`,
-    )
-    .all(rfqId) as unknown as (Offer & { carrier_name: string })[];
+export function latestOffers(rfqId: number): Promise<(Offer & { carrier_name: string })[]> {
+  return db().all<Offer & { carrier_name: string }>(
+    `SELECT o.*, c.name AS carrier_name FROM offers o JOIN carriers c ON c.id = o.carrier_id
+     WHERE o.rfq_id = ? AND o.version = (
+       SELECT max(version) FROM offers WHERE rfq_id = o.rfq_id AND carrier_id = o.carrier_id)
+     ORDER BY o.price, o.id`,
+    rfqId,
+  );
 }
 
-export function offerVersions(rfqId: number, carrierId: number): Offer[] {
-  return db()
-    .prepare("SELECT * FROM offers WHERE rfq_id = ? AND carrier_id = ? ORDER BY version")
-    .all(rfqId, carrierId) as unknown as Offer[];
+export function offerVersions(rfqId: number, carrierId: number): Promise<Offer[]> {
+  return db().all<Offer>("SELECT * FROM offers WHERE rfq_id = ? AND carrier_id = ? ORDER BY version", rfqId, carrierId);
 }

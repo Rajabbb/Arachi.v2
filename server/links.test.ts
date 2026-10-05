@@ -5,11 +5,11 @@ import { signToken, verifyToken } from "./links";
 
 beforeEach(freshDb);
 
-test("signed token round-trips and rejects tampering", () => {
-  const token = signToken("dispatch", 42);
-  assert.equal(verifyToken("dispatch", token), 42);
-  assert.equal(verifyToken("other", token), null);
+test("signed token round-trips and rejects tampering", async () => {
+  const token = await signToken("dispatch", 42);
+  assert.equal(await verifyToken("dispatch", token), 42);
+  assert.equal(await verifyToken("other", token), null);
   const forged = Buffer.from("dispatch:43").toString("base64url") + "." + token.split(".")[1];
-  assert.equal(verifyToken("dispatch", forged), null);
-  assert.equal(verifyToken("dispatch", "garbage"), null);
+  assert.equal(await verifyToken("dispatch", forged), null);
+  assert.equal(await verifyToken("dispatch", "garbage"), null);
 });

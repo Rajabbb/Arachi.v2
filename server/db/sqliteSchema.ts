@@ -1,6 +1,8 @@
 /**
- * Schema migrations, applied in order and tracked with PRAGMA user_version.
- * Never edit a migration that has shipped; append a new one instead.
+ * SQLite schema (local-development fallback), applied in order and tracked
+ * with PRAGMA user_version. The Postgres schema lives in migrations/*.sql;
+ * a schema change goes into both. Never edit a migration that has shipped;
+ * append a new one instead.
  */
 export const migrations: string[] = [
   // 1: key/value settings and the log of outgoing messages.
@@ -111,5 +113,10 @@ export const migrations: string[] = [
   `
   ALTER TABLE rfqs ADD COLUMN awarded_offer_id INTEGER REFERENCES offers (id);
   ALTER TABLE rfqs ADD COLUMN awarded_at TEXT;
+  `,
+
+  // 7: the email provider's message id, for matching delivery webhooks later.
+  `
+  ALTER TABLE outbox ADD COLUMN provider_id TEXT;
   `,
 ];

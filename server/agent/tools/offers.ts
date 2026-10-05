@@ -21,14 +21,9 @@ export const listOffers: AgentTool = {
     },
   },
   async run(p) {
-    const rfq = getRfq(p.rfq_id as number);
-    const offers = new Map(latestOffers(rfq.id).map((o) => [o.carrier_id, o]));
-    const rows = db()
-      .prepare(
-        `SELECT d.*, c.name AS carrier_name FROM dispatches d JOIN carriers c ON c.id = d.carrier_id
-         WHERE d.rfq_id = ? ORDER BY c.name`,
-      )
-      .all(rfq.id) as unknown as {
+    const rfq = await getRfq(p.rfq_id as number);
+    const offers = new Map((await latestOffers(rfq.id)).map((o) => [o.carrier_id, o]));
+    const rows = await db().all<{
       carrier_id: number;
       carrier_name: string;
       channel: string;
@@ -37,11 +32,15 @@ export const listOffers: AgentTool = {
       sent_at: string;
       viewed_at: string | null;
       reminder_count: number;
-    }[];
+    }>(
+      `SELECT d.*, c.name AS carrier_name FROM dispatches d JOIN carriers c ON c.id = d.carrier_id
+       WHERE d.rfq_id = ? ORDER BY c.name, c.id`,
+      rfq.id,
+    );
 
-    const carriers = rows
+    const carriers = await Promise.all(rows
       .filter((r) => p.status === "all" || r.status === p.status)
-      .map((r) => {
+      .map(async (r) => {
         const offer = offers.get(r.carrier_id);
         return {
           carrier_id: r.carrier_id,
@@ -60,10 +59,10 @@ export const listOffers: AgentTool = {
             transit_days: offer.transit_days,
             valid_until: offer.valid_until,
             notes: offer.notes,
-            documents: filesOf("offer", offer.id),
+            documents: await filesOf("offer", offer.id),
           },
         };
-      });
+      }));
 
     // Offers entered by hand for carriers the RFQ was never sent to.
     const sentTo = new Set(rows.map((r) => r.carrier_id));
@@ -94,12 +93,12 @@ export const recordOffer: AgentTool = {
     attach_files: { type: "boolean", description: "Store the files attached to this message as the offer's documents.", default: false },
   },
   async run(p, ctx) {
-    const rfq = getRfq(p.rfq_id as number);
-    const carrier = getCarrier(p.carrier_id as number);
-    const offer = submitOffer({
+    const rfq = await getRfq(p.rfq_id as number);
+    const carrier = await getCarrier(p.carrier_id as number);
+    const offer = await submitOffer({
       rfqId: rfq.id,
       carrierId: carrier.id,
-      dispatchId: findDispatchFor(rfq.id, carrier.id)?.id ?? null,
+      dispatchId: (await findDispatchFor(rfq.id, carrier.id))?.id ?? null,
       price: p.price as number,
       currency: (p.currency as string) || rfq.currency,
       transitDays: p.transit_days as number,

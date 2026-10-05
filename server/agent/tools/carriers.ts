@@ -36,13 +36,13 @@ const defaultParams = {
   },
 } as const;
 
-function saveAll(rows: CarrierInput[], defaults: { category: string; language: string }) {
+async function saveAll(rows: CarrierInput[], defaults: { category: string; language: string }) {
   const summary = { added: 0, updated: 0, skipped: [] as { row: number; name: string; reason: string }[] };
-  rows.forEach((row, i) => {
-    const r = upsertCarrier(row, defaults);
+  for (const [i, row] of rows.entries()) {
+    const r = await upsertCarrier(row, defaults);
     if (r.outcome === "skipped") summary.skipped.push({ row: i + 1, name: row.name ?? "", reason: r.reason! });
     else summary[r.outcome]++;
-  });
+  }
   return summary;
 }
 
@@ -172,7 +172,7 @@ export const importCarriers: AgentTool = {
         language: get("language"),
       };
     });
-    return { file: file.name, rows: inputs.length, ...saveAll(inputs, { category: p.category as string, language: p.language as string }) };
+    return { file: file.name, rows: inputs.length, ...(await saveAll(inputs, { category: p.category as string, language: p.language as string })) };
   },
 };
 
@@ -184,10 +184,10 @@ export const listCarriers: AgentTool = {
     subcategory: { type: "string", description: "Only this subcategory; empty means all.", default: "" },
   },
   async run(p) {
-    const carriers = findCarriers({ category: p.category as string, subcategory: p.subcategory as string });
-    const byCategory = db()
-      .prepare("SELECT category, subcategory, count(*) AS count FROM carriers WHERE active = 1 GROUP BY 1, 2 ORDER BY 1, 2")
-      .all();
+    const carriers = await findCarriers({ category: p.category as string, subcategory: p.subcategory as string });
+    const byCategory = await db().all(
+      "SELECT category, subcategory, count(*) AS count FROM carriers WHERE active = 1 GROUP BY 1, 2 ORDER BY 1, 2",
+    );
     return { count: carriers.length, carriers, byCategory };
   },
 };
@@ -199,9 +199,7 @@ export const removeCarriers: AgentTool = {
   async run(p) {
     const ids = p.carrier_ids as number[];
     if (ids.length === 0) return { removed: 0 };
-    const { changes } = db()
-      .prepare(`UPDATE carriers SET active = 0 WHERE id IN (${ids.map(() => "?").join(",")})`)
-      .run(...ids);
-    return { removed: Number(changes) };
+    const { changes } = await db().run(`UPDATE carriers SET active = 0 WHERE id IN (${ids.map(() => "?").join(",")})`, ...ids);
+    return { removed: changes };
   },
 };

@@ -15,18 +15,23 @@ export const offerHistory: AgentTool = {
     carrier_id: { type: "integer", description: "Only this carrier; 0 = all carriers that offered.", default: 0 },
   },
   async run(p) {
-    const rfq = getRfq(p.rfq_id as number);
+    const rfq = await getRfq(p.rfq_id as number);
     const carrierIds = p.carrier_id
-      ? [getCarrier(p.carrier_id as number).id]
-      : (db().prepare("SELECT DISTINCT carrier_id FROM offers WHERE rfq_id = ? ORDER BY carrier_id").all(rfq.id) as { carrier_id: number }[]).map(
-          (r) => r.carrier_id,
-        );
+      ? [(await getCarrier(p.carrier_id as number)).id]
+      : (
+          await db().all<{ carrier_id: number }>(
+            "SELECT DISTINCT carrier_id FROM offers WHERE rfq_id = ? ORDER BY carrier_id",
+            rfq.id,
+          )
+        ).map((r) => r.carrier_id);
 
-    const carriers = carrierIds.map((id) => {
-      const versions = offerVersions(rfq.id, id);
-      return {
+    const carriers = [];
+    for (const id of carrierIds) {
+      const versions = await offerVersions(rfq.id, id);
+      const documents = await Promise.all(versions.map((o) => filesOf("offer", o.id)));
+      carriers.push({
         carrier_id: id,
-        carrier: getCarrier(id).name,
+        carrier: (await getCarrier(id)).name,
         versions: versions.map((o, i) => {
           const prev = versions[i - 1];
           const sameCurrency = prev && prev.currency === o.currency;
@@ -40,7 +45,7 @@ export const offerHistory: AgentTool = {
             notes: o.notes,
             source: o.source,
             created_at: o.created_at,
-            documents: filesOf("offer", o.id),
+            documents: documents[i],
             change: prev && {
               price: sameCurrency ? Math.round((o.price - prev.price) * 100) / 100 : undefined,
               price_percent: sameCurrency ? Math.round(((o.price - prev.price) / prev.price) * 1000) / 10 : undefined,
@@ -49,8 +54,8 @@ export const offerHistory: AgentTool = {
             },
           };
         }),
-      };
-    });
+      });
+    }
     return { rfq: rfqTitle(rfq), carriers };
   },
 };

@@ -31,58 +31,54 @@ export interface Dispatch {
 
 const TOKEN_KIND = "dispatch";
 
-export function quoteLink(dispatchId: number): string {
-  return publicUrl(`/quote/${signToken(TOKEN_KIND, dispatchId)}`);
+export async function quoteLink(dispatchId: number): Promise<string> {
+  return publicUrl(`/quote/${await signToken(TOKEN_KIND, dispatchId)}`);
 }
 
-export function dispatchFromToken(token: string): Dispatch | undefined {
-  const id = verifyToken(TOKEN_KIND, token);
+export async function dispatchFromToken(token: string): Promise<Dispatch | undefined> {
+  const id = await verifyToken(TOKEN_KIND, token);
   return id === null ? undefined : findDispatch(id);
 }
 
-export function findDispatch(id: number): Dispatch | undefined {
-  return db().prepare("SELECT * FROM dispatches WHERE id = ?").get(id) as Dispatch | undefined;
+export function findDispatch(id: number): Promise<Dispatch | undefined> {
+  return db().get<Dispatch>("SELECT * FROM dispatches WHERE id = ?", id);
 }
 
-export function findDispatchFor(rfqId: number, carrierId: number): Dispatch | undefined {
-  return db()
-    .prepare("SELECT * FROM dispatches WHERE rfq_id = ? AND carrier_id = ?")
-    .get(rfqId, carrierId) as Dispatch | undefined;
+export function findDispatchFor(rfqId: number, carrierId: number): Promise<Dispatch | undefined> {
+  return db().get<Dispatch>("SELECT * FROM dispatches WHERE rfq_id = ? AND carrier_id = ?", rfqId, carrierId);
 }
 
 /** Creates the dispatch, or resets an existing one when the RFQ is sent again. */
-export function saveDispatch(
+export async function saveDispatch(
   rfqId: number,
   carrierId: number,
   channel: Dispatch["channel"],
   status: DispatchStatus,
   error: string | null,
-): Dispatch {
-  db()
-    .prepare(
-      `INSERT INTO dispatches (rfq_id, carrier_id, channel, status, error, sent_at)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON CONFLICT (rfq_id, carrier_id) DO UPDATE SET
-         channel = excluded.channel, error = excluded.error, sent_at = excluded.sent_at,
-         status = CASE WHEN dispatches.status IN ('viewed', 'offered') THEN dispatches.status ELSE excluded.status END`,
-    )
-    .run(rfqId, carrierId, channel, status, error, now());
-  return findDispatchFor(rfqId, carrierId)!;
+): Promise<Dispatch> {
+  return (await db().get<Dispatch>(
+    `INSERT INTO dispatches (rfq_id, carrier_id, channel, status, error, sent_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT (rfq_id, carrier_id) DO UPDATE SET
+       channel = excluded.channel, error = excluded.error, sent_at = excluded.sent_at,
+       status = CASE WHEN dispatches.status IN ('viewed', 'offered') THEN dispatches.status ELSE excluded.status END
+     RETURNING *`,
+    rfqId, carrierId, channel, status, error, now(),
+  ))!;
 }
 
 /** Status only moves forward: a viewed link stays viewed, an offer stays offered. */
-export function markViewed(dispatch: Dispatch) {
-  db()
-    .prepare(
-      `UPDATE dispatches SET viewed_at = coalesce(viewed_at, ?),
-         status = CASE WHEN status = 'offered' THEN status ELSE 'viewed' END
-       WHERE id = ?`,
-    )
-    .run(now(), dispatch.id);
+export async function markViewed(dispatch: Dispatch) {
+  await db().run(
+    `UPDATE dispatches SET viewed_at = coalesce(viewed_at, ?),
+       status = CASE WHEN status = 'offered' THEN status ELSE 'viewed' END
+     WHERE id = ?`,
+    now(), dispatch.id,
+  );
 }
 
-export function markOffered(dispatchId: number) {
-  db().prepare("UPDATE dispatches SET status = 'offered' WHERE id = ?").run(dispatchId);
+export async function markOffered(dispatchId: number) {
+  await db().run("UPDATE dispatches SET status = 'offered' WHERE id = ?", dispatchId);
 }
 
 /** Address of the carrier on a channel, or "" if it has none. */
