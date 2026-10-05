@@ -30,10 +30,17 @@ export interface ToolCallSummary {
   ok: boolean;
 }
 
+/** A file a tool generated (PDF, Excel, ...) that the user can download. */
+export interface Download {
+  name: string;
+  url: string;
+}
+
 export interface ChatResponse {
   reply: string;
   transcript: unknown[];
   toolCalls: ToolCallSummary[];
+  downloads: Download[];
 }
 
 export interface ChatError {
