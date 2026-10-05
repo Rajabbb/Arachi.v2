@@ -6,6 +6,7 @@ import { listOutbox, sendRfqToCarriers } from "./send";
 import { getQuoteLink } from "./quoteLink";
 import { listOffers, recordOffer } from "./offers";
 import { compareOffers, selectWinner } from "./compare";
+import { sendReminders } from "./reminders";
 import { addCarriers, importCarriers, listCarriers, removeCarriers } from "./carriers";
 
 /**
@@ -34,4 +35,6 @@ export const tools = new ToolRegistry()
   .register(recordOffer)
   // 7. Compare and pick the winner
   .register(compareOffers)
-  .register(selectWinner);
+  .register(selectWinner)
+  // 8. Reminders
+  .register(sendReminders);
