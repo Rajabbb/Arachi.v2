@@ -106,4 +106,10 @@ export const migrations: string[] = [
   );
   CREATE INDEX files_owner ON files (owner_kind, owner_id);
   `,
+
+  // 6: the offer chosen as winner.
+  `
+  ALTER TABLE rfqs ADD COLUMN awarded_offer_id INTEGER REFERENCES offers (id);
+  ALTER TABLE rfqs ADD COLUMN awarded_at TEXT;
+  `,
 ];

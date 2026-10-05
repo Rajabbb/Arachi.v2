@@ -5,6 +5,7 @@ import { autofillRfq } from "./autofill";
 import { listOutbox, sendRfqToCarriers } from "./send";
 import { getQuoteLink } from "./quoteLink";
 import { listOffers, recordOffer } from "./offers";
+import { compareOffers, selectWinner } from "./compare";
 import { addCarriers, importCarriers, listCarriers, removeCarriers } from "./carriers";
 
 /**
@@ -30,4 +31,7 @@ export const tools = new ToolRegistry()
   .register(getQuoteLink)
   // 6. Incoming offers and statuses
   .register(listOffers)
-  .register(recordOffer);
+  .register(recordOffer)
+  // 7. Compare and pick the winner
+  .register(compareOffers)
+  .register(selectWinner);

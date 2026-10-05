@@ -24,9 +24,11 @@ export interface Rfq {
   source: string;
   status: RfqStatus;
   created_at: string;
+  awarded_offer_id: number | null;
+  awarded_at: string | null;
 }
 
-export type NewRfq = Omit<Rfq, "id" | "status" | "created_at">;
+export type NewRfq = Omit<Rfq, "id" | "status" | "created_at" | "awarded_offer_id" | "awarded_at">;
 
 const isoDate = /^\d{4}-\d{2}-\d{2}$/;
 
