@@ -27,7 +27,7 @@ export async function runTurn(
   text: string,
   files: UploadedFile[],
 ): Promise<ChatResponse> {
-  const content = userContent(text, files);
+  const content = await userContent(text, files);
   if (content.length === 0) {
     throw new AgentError("Mesaj boşdur.");
   }
