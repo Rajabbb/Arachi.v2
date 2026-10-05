@@ -34,3 +34,11 @@ test("select_winner picks the best offer, closes the RFQ and notifies the winner
   await assert.rejects(call("record_offer", { rfq_id: 1, carrier_id: 2, price: 1, transit_days: 1 }));
   assert.equal((await call("compare_offers", { rfq_id: 1 })).result.winner_offer_id, result.winner.offer_id);
 });
+
+test("offers all in another currency still compare and can win", async () => {
+  await call("create_rfq", { origin: "Bakı", destination: "Paris", cargo_type: "Xalça", weight_kg: 500 });
+  await call("record_offer", { rfq_id: 2, carrier_id: 1, price: 900, transit_days: 5, currency: "EUR" });
+  await call("record_offer", { rfq_id: 2, carrier_id: 2, price: 800, transit_days: 5, currency: "EUR" });
+  const { result } = await call("select_winner", { rfq_id: 2, notify_winner: false });
+  assert.equal(result.winner.carrier, "Fast");
+});

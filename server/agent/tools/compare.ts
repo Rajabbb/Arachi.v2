@@ -54,17 +54,24 @@ function convert(offer: Offer, rfq: Rfq, rate: number): number | null {
 export function rankOffers(rfq: Rfq, criterion: Criterion, priceWeight: number, rate: number): RankedOffer[] {
   if (priceWeight < 0 || priceWeight > 1) throw new Error("price_weight 0 ilə 1 arasında olmalıdır.");
   const today = now().slice(0, 10);
-  const offers = latestOffers(rfq.id).map((o) => ({
-    ...o,
-    price_in_rfq_currency: convert(o, rfq, rate),
-    expired: Boolean(o.valid_until && o.valid_until < today),
-  }));
-  const priced = offers.filter((o) => o.price_in_rfq_currency !== null);
-  const minPrice = Math.min(...priced.map((o) => o.price_in_rfq_currency!));
+  const latest = latestOffers(rfq.id);
+  // Offers all in one currency compare directly, even if it is not the RFQ's.
+  const singleCurrency = new Set(latest.map((o) => o.currency)).size === 1;
+  const offers = latest.map((o) => {
+    const converted = convert(o, rfq, rate);
+    return {
+      ...o,
+      price_in_rfq_currency: converted,
+      comparable: singleCurrency ? o.price : converted,
+      expired: Boolean(o.valid_until && o.valid_until < today),
+    };
+  });
+  const priced = offers.filter((o) => o.comparable !== null);
+  const minPrice = Math.min(...priced.map((o) => o.comparable!));
   const minTransit = Math.min(...offers.map((o) => o.transit_days));
 
-  const scored = offers.map((o) => {
-    const priceRatio = o.price_in_rfq_currency === null ? Infinity : o.price_in_rfq_currency / minPrice;
+  const scored = offers.map(({ comparable, ...o }) => {
+    const priceRatio = comparable === null ? Infinity : comparable / minPrice;
     const transitRatio = o.transit_days / minTransit;
     const score =
       criterion === "price"
@@ -133,7 +140,7 @@ export const selectWinner: AgentTool = {
       if (winner.rfq_id !== rfq.id) throw new Error(`Təklif #${winner.id} RFQ #${rfq.id}-ə aid deyil.`);
     } else {
       const ranked = rankOffers(rfq, p.criterion as Criterion, p.price_weight as number, p.eur_usd_rate as number);
-      const best = ranked.find((o) => !o.expired && o.price_in_rfq_currency !== null);
+      const best = ranked.find((o) => !o.expired && o.score < 1e9);
       if (!best) throw new Error(`RFQ #${rfq.id} üzrə seçilə bilən etibarlı təklif yoxdur.`);
       winner = best;
     }
