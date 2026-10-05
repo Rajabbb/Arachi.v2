@@ -7,6 +7,7 @@ import { getQuoteLink } from "./quoteLink";
 import { listOffers, recordOffer } from "./offers";
 import { compareOffers, selectWinner } from "./compare";
 import { sendReminders } from "./reminders";
+import { offerHistory } from "./history";
 import { addCarriers, importCarriers, listCarriers, removeCarriers } from "./carriers";
 
 /**
@@ -37,4 +38,6 @@ export const tools = new ToolRegistry()
   .register(compareOffers)
   .register(selectWinner)
   // 8. Reminders
-  .register(sendReminders);
+  .register(sendReminders)
+  // 9. Offer version history
+  .register(offerHistory);
