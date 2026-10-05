@@ -15,6 +15,8 @@ const welcome: Message = {
 export default function App() {
   const [messages, setMessages] = useState<Message[]>([welcome]);
   const [busy, setBusy] = useState(false);
+  // Conversation state owned by the agent server; sent back unchanged each turn.
+  const [transcript, setTranscript] = useState<unknown[]>([]);
 
   async function handleSend(text: string, files: File[]) {
     const userMessage: Message = {
@@ -27,24 +29,26 @@ export default function App() {
     setMessages((prev) => [...prev, userMessage]);
     setBusy(true);
     try {
-      const res = await sendToAgent({ text, files });
+      const res = await sendToAgent({ text, files, transcript });
+      setTranscript(res.transcript);
       setMessages((prev) => [
         ...prev,
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          text: res.text,
+          text: res.reply,
           attachments: [],
           createdAt: Date.now(),
         },
       ]);
-    } catch {
+    } catch (err) {
+      const detail = err instanceof Error ? ` (${err.message})` : "";
       setMessages((prev) => [
         ...prev,
         {
           id: crypto.randomUUID(),
           role: "assistant",
-          text: "Xəta baş verdi, zəhmət olmasa yenidən cəhd edin.",
+          text: `Xəta baş verdi, zəhmət olmasa yenidən cəhd edin.${detail}`,
           attachments: [],
           createdAt: Date.now(),
         },
