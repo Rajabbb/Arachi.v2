@@ -189,4 +189,27 @@ export const migrations: string[] = [
   DROP TABLE offers;
   ALTER TABLE offers_new RENAME TO offers;
   `,
+
+  // 11: chat history: conversations, their messages, and the model's context of the latest turns.
+  `
+  CREATE TABLE conversations (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    context TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX conversations_user ON conversations (user_id, updated_at);
+  CREATE TABLE conversation_messages (
+    id INTEGER PRIMARY KEY,
+    conversation_id INTEGER NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    text TEXT NOT NULL,
+    attachments TEXT NOT NULL DEFAULT '[]',
+    downloads TEXT NOT NULL DEFAULT '[]',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX conversation_messages_conversation ON conversation_messages (conversation_id, id);
+  `,
 ];

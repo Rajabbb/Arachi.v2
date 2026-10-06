@@ -116,13 +116,14 @@ API açarı yalnız serverdə (`.env`) saxlanılır, brauzerə heç vaxt göndə
 ## Struktur
 
 - `src/` — interfeys
-  - `components/` — mesaj siyahısı və mətn/fayl sahəsi
+  - `components/` — mesaj siyahısı, mətn/fayl sahəsi və söhbət tarixçəsi (`ConversationList.tsx`)
   - `lib/agent.ts` — `POST /api/chat` çağırışı (`sendToAgent`)
 - `shared/protocol.ts` — interfeys ilə server arasındakı sorğu/cavab tipləri
 - `server/` — agent serveri
   - `agent/loop.ts` — tool-use dövrəsi: modeli çağırır, istədiyi alətləri işlədir, cavab hazır olana qədər təkrarlayır; provayderdən asılı deyil
   - `agent/providers/` — AI provayderləri: `types.ts` ümumi interfeys, `anthropic.ts` (Claude), `gemini.ts` (Google Gemini), `index.ts` `AI_PROVIDER`-ə görə seçim
   - `agent/prompt.ts` — sistem təlimatı
+  - `agent/history.ts` — saxlanmış söhbətdən modelə nə qədər keçmiş göndərildiyi
   - `agent/files.ts` — əlavə olunmuş faylları modelin oxuya biləcəyi ümumi formaya salır (şəkil, PDF, Excel, mətn/CSV/JSON); hər provayder onu öz formatına çevirir
   - `agent/tools/registry.ts` — alətlər reyestri və "standart parametrlər + istifadəçinin dəyişiklikləri" məntiqi
   - `agent/tools/index.ts` — bütün alətlərin qeydiyyatı
@@ -164,4 +165,9 @@ Testlər: `npm test`.
 
 ## Söhbət tarixçəsi
 
-Server vəziyyət saxlamır. Hər cavabla birlikdə tam söhbət (`transcript`) qaytarılır, interfeys onu dəyişmədən növbəti mesajla geri göndərir. Tarixçə yalnız sona əlavə olunur, köhnə hissələr dəyişdirilmir. Növbəti addımda bu verilənlər bazasına köçürülə bilər.
+Hər istifadəçinin söhbətləri verilənlər bazasında saxlanılır (`conversations`, `conversation_messages`). Söhbət ekranının solunda (telefonda ☰ düyməsi ilə) söhbətlərin siyahısı var: ən son istifadə olunan yuxarıda, "Yeni söhbət" düyməsi və hər söhbət üçün silmə (təsdiqlə). Başlıq ilk mesajdan avtomatik götürülür (60 simvola qədər). Girişdən sonra ən son söhbət açılır, söhbət yoxdursa boş yeni söhbət.
+
+- Mesajlar: mətn, əlavə olunmuş faylların adı/ölçüsü (faylın özü yox) və agentin yaratdığı yükləmə linkləri.
+- AI-ın yaddaşı: köhnə söhbəti davam etdirəndə model həmin söhbətin son 20 addımını görür (`config.historyTurns`). Şəkil və PDF-lər yalnız son 3 addımda saxlanılır (`config.attachmentTurns`), köhnələrin yerinə qeyd qalır ki, baza böyüməsin.
+- Hər sorğu yalnız daxil olmuş istifadəçinin söhbətlərinə baxır; başqasının söhbəti "tapılmadı" (404) qaytarır.
+- API: `GET /api/conversations`, `GET /api/conversations/:id`, `DELETE /api/conversations/:id`; `POST /api/chat` `conversationId` qəbul edir (boşdursa yeni söhbət yaradılır).

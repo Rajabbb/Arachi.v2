@@ -1,4 +1,4 @@
-import type { ChatResponse, ToolCallSummary, UploadedFile } from "../../shared/protocol";
+import type { Download, ToolCallSummary, UploadedFile } from "../../shared/protocol";
 import { config } from "../config";
 import { systemPrompt } from "./prompt";
 import { toAttachment } from "./files";
@@ -8,6 +8,14 @@ import { tools } from "./tools";
 import { emptyContext } from "./tools/registry";
 
 export class AgentError extends Error {}
+
+export interface TurnResult {
+  reply: string;
+  /** The transcript after this turn, in the provider's own message format. */
+  transcript: unknown[];
+  toolCalls: ToolCallSummary[];
+  downloads: Download[];
+}
 
 /**
  * Runs one user turn: appends the user's message to the transcript, calls
@@ -25,7 +33,7 @@ export async function runTurn<M>(
   text: string,
   files: UploadedFile[],
   provider: ModelProvider<M> = defaultProvider() as ModelProvider<M>,
-): Promise<ChatResponse> {
+): Promise<TurnResult> {
   const attachments = await Promise.all(files.map(toAttachment));
   if (attachments.length === 0 && !text.trim()) {
     throw new AgentError("Mesaj boşdur.");
@@ -39,7 +47,7 @@ export async function runTurn<M>(
   const definitions = tools.definitions();
   const ctx = emptyContext(files);
 
-  const abort = (reply: string): ChatResponse => ({
+  const abort = (reply: string): TurnResult => ({
     reply,
     transcript,
     toolCalls,

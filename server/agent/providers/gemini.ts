@@ -2,7 +2,7 @@ import { ApiError, FinishReason, GoogleGenAI, type Content, type GenerateContent
 import { config } from "../../config";
 import type { Attachment } from "../files";
 import { isNetworkError, overloadedMessage, withRetry, type Sleep } from "./retry";
-import type { ModelProvider, ModelStep, ToolCallResult, ToolDefinition } from "./types";
+import { removedNote, type ModelProvider, type ModelStep, type ToolCallResult, type ToolDefinition } from "./types";
 
 /** Image types Gemini accepts inline (GIF is not one of them). */
 const imageTypes = ["image/png", "image/jpeg", "image/webp"];
@@ -73,6 +73,13 @@ export class GeminiProvider implements ModelProvider<Content> {
     const parts = attachments.map(toPart);
     if (text.trim()) parts.push({ text });
     return { role: "user", parts };
+  }
+
+  dropAttachments(message: Content): Content {
+    const parts = (message.parts ?? []).map((p): Part =>
+      p.inlineData ? { text: removedNote(p.inlineData.mimeType === "application/pdf" ? "a PDF file" : "an image") } : p,
+    );
+    return { ...message, parts };
   }
 
   private client(): GenerateContent {

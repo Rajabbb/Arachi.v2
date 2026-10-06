@@ -9,8 +9,18 @@ import type {
 export interface AgentRequest {
   text: string;
   files: File[];
-  /** Conversation state from the previous response; empty for a new chat. */
-  transcript: unknown[];
+  /** The saved conversation to continue; null starts a new one. */
+  conversationId: number | null;
+}
+
+/** A failed message; conversationId is set when the message was saved anyway. */
+export class AgentRequestError extends Error {
+  constructor(
+    message: string,
+    readonly conversationId?: number,
+  ) {
+    super(message);
+  }
 }
 
 export type AgentResponse = ChatResponse;
@@ -21,7 +31,7 @@ export type AgentResponse = ChatResponse;
  */
 export async function sendToAgent(req: AgentRequest): Promise<AgentResponse> {
   const body: ChatRequest = {
-    transcript: req.transcript,
+    conversationId: req.conversationId,
     message: {
       text: req.text,
       files: await Promise.all(req.files.map(toUploadedFile)),
@@ -43,8 +53,9 @@ export async function sendToAgent(req: AgentRequest): Promise<AgentResponse> {
     | ChatError
     | null;
   if (!res.ok || !data || "error" in data) {
-    throw new Error(
+    throw new AgentRequestError(
       data && "error" in data ? data.error : "Serverlə əlaqə qurulmadı.",
+      data && "error" in data ? data.conversationId : undefined,
     );
   }
   return data;
