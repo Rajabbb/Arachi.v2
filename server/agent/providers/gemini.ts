@@ -1,6 +1,7 @@
 import { ApiError, FinishReason, GoogleGenAI, type Content, type GenerateContentParameters, type GenerateContentResponse, type Part } from "@google/genai";
 import { config } from "../../config";
 import type { Attachment } from "../files";
+import { isNetworkError, overloadedMessage, withRetry, type Sleep } from "./retry";
 import type { ModelProvider, ModelStep, ToolCallResult, ToolDefinition } from "./types";
 
 /** Image types Gemini accepts inline (GIF is not one of them). */
@@ -17,6 +18,14 @@ const blocked: string[] = [
 ];
 
 class MissingKeyError extends Error {}
+
+/** API statuses that mean "busy or briefly down, try again later". */
+const transientStatuses = [429, 500, 502, 503, 504];
+
+function isTransient(err: unknown): boolean {
+  if (err instanceof ApiError) return transientStatuses.includes(err.status);
+  return isNetworkError(err);
+}
 
 function toPart(a: Attachment): Part {
   switch (a.kind) {
@@ -40,11 +49,20 @@ export type GenerateContent = (params: GenerateContentParameters) => Promise<Gen
 export class GeminiProvider implements ModelProvider<Content> {
   readonly name = "gemini";
   readonly model: string;
+  /** Used when the main model is still busy after all retries; empty = none. */
+  readonly fallbackModel: string;
   private generateContent?: GenerateContent;
+  private retries: number;
+  private sleep?: Sleep;
 
-  constructor(options: { model?: string; generateContent?: GenerateContent } = {}) {
+  constructor(
+    options: { model?: string; fallbackModel?: string; generateContent?: GenerateContent; retries?: number; sleep?: Sleep } = {},
+  ) {
     this.model = options.model ?? config.geminiModel;
+    this.fallbackModel = options.fallbackModel ?? config.geminiFallbackModel;
     this.generateContent = options.generateContent;
+    this.retries = options.retries ?? config.aiRetries;
+    this.sleep = options.sleep;
   }
 
   ownsTranscript(transcript: unknown[]): transcript is Content[] {
@@ -66,9 +84,32 @@ export class GeminiProvider implements ModelProvider<Content> {
     return this.generateContent;
   }
 
+  /** One call on `model`, retrying transient errors with exponential backoff. */
+  private call(model: string, params: Omit<GenerateContentParameters, "model">): Promise<GenerateContentResponse> {
+    const generate = this.client();
+    return withRetry(() => generate({ ...params, model }), {
+      retries: this.retries,
+      baseDelayMs: 1000,
+      isTransient,
+      sleep: this.sleep,
+      onRetry: (err, attempt, delayMs) =>
+        console.warn(`Gemini (${model}) attempt ${attempt} failed, retrying in ${delayMs} ms:`, err instanceof Error ? err.message : err),
+    });
+  }
+
+  /** Calls the main model, then the fallback model if the main one stays busy. */
+  private async request(params: Omit<GenerateContentParameters, "model">): Promise<GenerateContentResponse> {
+    try {
+      return await this.call(this.model, params);
+    } catch (err) {
+      if (!this.fallbackModel || this.fallbackModel === this.model || !isTransient(err)) throw err;
+      console.warn(`Gemini (${this.model}) still unavailable, switching to ${this.fallbackModel}:`, err instanceof Error ? err.message : err);
+      return this.call(this.fallbackModel, params);
+    }
+  }
+
   async generate(system: string, messages: Content[], tools: ToolDefinition[]): Promise<ModelStep<Content>> {
-    const response = await this.client()({
-      model: this.model,
+    const response = await this.request({
       contents: messages,
       config: {
         systemInstruction: system,
@@ -135,6 +176,7 @@ export class GeminiProvider implements ModelProvider<Content> {
     if (err instanceof MissingKeyError) {
       return { status: 500, message: "Serverdə GEMINI_API_KEY qurulmayıb." };
     }
+    if (isNetworkError(err)) return { status: 503, message: overloadedMessage };
     if (!(err instanceof ApiError)) return null;
     if (err.status === 401 || err.status === 403 || /API key/i.test(err.message)) {
       return { status: 500, message: "Serverdəki GEMINI_API_KEY etibarsızdır və ya bu modelə icazəsi yoxdur." };
@@ -145,6 +187,7 @@ export class GeminiProvider implements ModelProvider<Content> {
     if (err.status === 400 || err.status === 404) {
       return { status: 400, message: `AI sorğunu qəbul etmədi: ${err.message}` };
     }
+    if (err.status >= 500) return { status: 503, message: overloadedMessage };
     return { status: 502, message: "AI xidməti ilə əlaqədə xəta baş verdi." };
   }
 }

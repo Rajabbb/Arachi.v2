@@ -47,6 +47,16 @@ Pulsuz istifadə limitləri və qiymətlər dəyişə bilir, ona görə onları 
 
 Başqa Gemini modeli istəsəniz `GEMINI_MODEL`-ə rəsmi model siyahısındakı ([ai.google.dev/gemini-api/docs/models](https://ai.google.dev/gemini-api/docs/models)) adı yazın, məsələn daha ucuz `gemini-3.5-flash-lite`.
 
+### Müvəqqəti xətalar və ehtiyat model
+
+AI xidməti bəzən müvəqqəti yüklənir (`503 UNAVAILABLE`, "high demand"), limit dolur (`429`) və ya bağlantı qırılır. Server belə hallarda sorğunu avtomatik təkrarlayır: defolt olaraq 3 dəfə, getdikcə artan gözləmə ilə (təxminən 1, 2, 4 saniyə). Səhv sorğu və ya etibarsız açar kimi xətalar təkrarlanmır. Təkrar sayını `AI_MAX_RETRIES` ilə dəyişmək olar (0 = təkrar yoxdur). Claude üçün də eyni say işləyir.
+
+Gemini üçün istəyə görə ehtiyat model də qurmaq olar: əsas model bütün təkrarlardan sonra da cavab vermirsə, sorğu ona göndərilir.
+```
+GEMINI_FALLBACK_MODEL=gemini-3.5-flash-lite
+```
+Ad rəsmi model siyahısından götürülməlidir. Bütün cəhdlər alınmasa, istifadəçi "AI xidməti müvəqqəti yüklənib, bir az sonra yenidən cəhd edin." mesajını görür, real xəta isə server jurnalına yazılır.
+
 Qeydlər:
 - Provayderi dəyişəndə açıq söhbət yenidən başlayır (iki xidmətin söhbət formatı fərqlidir). RFQ-lər, daşıyıcılar və digər məlumatlar bazada qalır.
 - Gemini şəkilləri (PNG, JPEG, WEBP), PDF-ləri, Excel/CSV və mətn fayllarını oxuyur. GIF Gemini-də dəstəklənmir, model bunu istifadəçiyə bildirir.

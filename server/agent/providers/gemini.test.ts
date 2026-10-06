@@ -151,3 +151,71 @@ test("errors are explained in Azerbaijani", () => {
   assert.equal(provider.describeError(new ApiError({ status: 429, message: "quota" }))!.status, 429);
   assert.equal(provider.describeError(new Error("other")), null);
 });
+
+/** A Gemini whose calls follow `script` (an error to throw or a response), without real waiting. */
+function flakyGemini(script: (Error | object)[], options: { fallbackModel?: string; retries?: number } = {}) {
+  const models: string[] = [];
+  const delays: number[] = [];
+  const provider = new GeminiProvider({
+    model: "gemini-main",
+    fallbackModel: options.fallbackModel ?? "",
+    retries: options.retries ?? 3,
+    sleep: async (ms) => {
+      delays.push(ms);
+    },
+    generateContent: async (params) => {
+      models.push(params.model);
+      const next = script.shift();
+      if (!next) throw new Error("no more scripted responses");
+      if (next instanceof Error) throw next;
+      return next as GenerateContentResponse;
+    },
+  });
+  return { provider, models, delays };
+}
+
+const unavailable = () =>
+  new ApiError({ status: 503, message: '{"error":{"code":503,"message":"This model is currently experiencing high demand.","status":"UNAVAILABLE"}}' });
+
+test("retries 503, 429 and dropped connections with growing delays", async () => {
+  const dropped = new TypeError("fetch failed", { cause: Object.assign(new Error("socket"), { code: "ECONNRESET" }) });
+  const { provider, models, delays } = flakyGemini([unavailable(), new ApiError({ status: 429, message: "quota" }), dropped, answer("Salam")]);
+
+  const res = await runTurn([], "Salam", [], provider);
+
+  assert.equal(res.reply, "Salam");
+  assert.deepEqual(models, ["gemini-main", "gemini-main", "gemini-main", "gemini-main"]);
+  assert.equal(delays.length, 3);
+  assert.ok(delays[0] >= 1000 && delays[1] >= 2000 && delays[2] >= 4000, `delays ${delays}`);
+});
+
+test("does not retry request errors", async () => {
+  const { provider, models } = flakyGemini([new ApiError({ status: 400, message: "bad request" }), answer("never")]);
+
+  await assert.rejects(runTurn([], "Salam", [], provider), (err: unknown) => err instanceof ApiError && err.status === 400);
+  assert.deepEqual(models, ["gemini-main"]);
+});
+
+test("switches to GEMINI_FALLBACK_MODEL when the main model stays unavailable", async () => {
+  const { provider, models } = flakyGemini([unavailable(), unavailable(), unavailable(), answer("Ehtiyat modeldən")], {
+    fallbackModel: "gemini-lite",
+    retries: 2,
+  });
+
+  const res = await runTurn([], "Salam", [], provider);
+
+  assert.equal(res.reply, "Ehtiyat modeldən");
+  assert.deepEqual(models, ["gemini-main", "gemini-main", "gemini-main", "gemini-lite"]);
+});
+
+test("gives a clear message once every retry is used up", async () => {
+  const { provider, models } = flakyGemini([unavailable(), unavailable(), unavailable(), unavailable()], { retries: 3 });
+
+  const err = await runTurn([], "Salam", [], provider).catch((e: unknown) => e);
+
+  assert.equal(models.length, 4);
+  assert.deepEqual(provider.describeError(err), {
+    status: 503,
+    message: "AI xidməti müvəqqəti yüklənib, bir az sonra yenidən cəhd edin.",
+  });
+});

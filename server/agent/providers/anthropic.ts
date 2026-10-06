@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../../config";
 import type { Attachment } from "../files";
+import { overloadedMessage } from "./retry";
 import type { ModelProvider, ModelStep, ToolCallResult, ToolDefinition } from "./types";
 
 type MessageParam = Anthropic.Beta.BetaMessageParam;
@@ -45,7 +46,8 @@ export class AnthropicProvider implements ModelProvider<MessageParam> {
   }
 
   async generate(system: string, messages: MessageParam[], tools: ToolDefinition[]): Promise<ModelStep<MessageParam>> {
-    this.client ??= new Anthropic();
+    // The SDK retries 408/409/429/5xx and dropped connections itself, with exponential backoff.
+    this.client ??= new Anthropic({ maxRetries: config.aiRetries });
     const response = await this.client.beta.messages.create({
       model: this.model,
       max_tokens: config.maxTokens,
@@ -115,6 +117,9 @@ export class AnthropicProvider implements ModelProvider<MessageParam> {
     }
     if (err instanceof Anthropic.BadRequestError) {
       return { status: 400, message: `AI sorğunu qəbul etmədi: ${err.message}` };
+    }
+    if (err instanceof Anthropic.APIConnectionError || err instanceof Anthropic.InternalServerError) {
+      return { status: 503, message: overloadedMessage };
     }
     if (err instanceof Anthropic.APIError) {
       return { status: 502, message: "AI xidməti ilə əlaqədə xəta baş verdi." };

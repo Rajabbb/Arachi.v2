@@ -18,6 +18,11 @@ function readProvider(): ProviderName {
   throw new Error(`AI_PROVIDER must be one of: ${providerNames.join(", ")} (got "${value}")`);
 }
 
+function readRetries(): number {
+  const value = Number(process.env.AI_MAX_RETRIES);
+  return Number.isInteger(value) && value >= 0 && value <= 10 ? value : 3;
+}
+
 export const config = {
   port: Number(process.env.PORT ?? 8787),
   /** Which AI model API the agent uses: "anthropic" (Claude) or "gemini". */
@@ -28,6 +33,10 @@ export const config = {
   geminiApiKey: process.env.GEMINI_API_KEY ?? "",
   /** Gemini model, when AI_PROVIDER=gemini. */
   geminiModel: process.env.GEMINI_MODEL || "gemini-3.8-flash",
+  /** Optional Gemini model to switch to when GEMINI_MODEL stays overloaded after all retries. */
+  geminiFallbackModel: (process.env.GEMINI_FALLBACK_MODEL ?? "").trim(),
+  /** Automatic retries of a model call on overload, rate limit or a dropped connection. */
+  aiRetries: readRetries(),
   effort: readEffort(),
   maxTokens: 16000,
   /** Upper bound on model calls per user message (tool-use round trips). */

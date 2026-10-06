@@ -85,7 +85,8 @@ console.log(sendsForReal("email") ? "Email: Resend" : "Email: log only (set RESE
 
 server.listen(config.port, () => {
   const ai = provider();
-  console.log(`AI: ${ai.name} (${ai.model})`);
+  const fallback = ai.name === "gemini" && config.geminiFallbackModel ? `, fallback ${config.geminiFallbackModel}` : "";
+  console.log(`AI: ${ai.name} (${ai.model}${fallback})`);
   const key = ai.name === "gemini" ? "GEMINI_API_KEY" : "ANTHROPIC_API_KEY";
   if (!process.env[key]) {
     console.warn(`${key} is not set; copy .env.example to .env and fill it in.`);
