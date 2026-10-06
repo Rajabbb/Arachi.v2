@@ -1,4 +1,4 @@
-import type { RfqDetailData, RfqListItem } from "../../shared/protocol";
+import type { RfqDetailData, RfqListItem, RfqOfferSummary } from "../../shared/protocol";
 import { db, now } from "../db";
 import { currentUserId } from "../auth/current";
 import { statusLabels, type DispatchStatus } from "./dispatches";
@@ -40,6 +40,29 @@ function bestPrice(rfq: Pick<Rfq, "currency">, offers: Pick<Offer, "currency" | 
   return { price: best.price, currency: best.currency };
 }
 
+/** Each latest offer with how it compares: cheapest, fastest, expired, the winner. */
+function summarize(rfq: Rfq, latest: LatestOffer[]): RfqOfferSummary[] {
+  const today = now().slice(0, 10);
+  const comparable = new Set(priceComparable(rfq, latest) as LatestOffer[]);
+  const minPrice = Math.min(...[...comparable].map((o) => o.price));
+  const minTransit = Math.min(...latest.map((o) => o.transit_days));
+  return latest.map((o) => ({
+    id: o.id,
+    carrier_id: o.carrier_id,
+    carrier: o.carrier_name,
+    version: o.version,
+    price: o.price,
+    currency: o.currency,
+    transit_days: o.transit_days,
+    valid_until: o.valid_until,
+    created_at: o.created_at,
+    expired: Boolean(o.valid_until && o.valid_until < today),
+    cheapest: comparable.has(o) && o.price === minPrice,
+    fastest: o.transit_days === minTransit,
+    winner: rfq.awarded_offer_id !== null && Number(rfq.awarded_offer_id) === Number(o.id),
+  }));
+}
+
 /** The latest version of every carrier's offer, for all of the user's RFQs (or one). */
 function latestOffersOf(rfqId?: number): Promise<LatestOffer[]> {
   return db().all<LatestOffer>(
@@ -68,6 +91,7 @@ function listItem(rfq: Rfq, sent: number, responded: number, offers: LatestOffer
     carriersSent: Number(sent),
     carriersResponded: Number(responded),
     bestPrice: bestPrice(rfq, offers),
+    offers: summarize(rfq, offers),
   };
 }
 
@@ -93,6 +117,10 @@ export async function listRfqs(): Promise<RfqListItem[]> {
   });
 }
 
+function withoutOffers({ offers: _, ...item }: RfqListItem) {
+  return item;
+}
+
 /** Everything about one RFQ of the signed-in user; another user's RFQ is "not found". */
 export async function rfqDetail(id: number): Promise<RfqDetailData> {
   const rfq = await getRfq(id);
@@ -112,28 +140,12 @@ export async function rfqDetail(id: number): Promise<RfqDetailData> {
      WHERE o.rfq_id = ? AND r.user_id = ? ORDER BY o.version DESC`,
     id, user,
   );
-  const today = now().slice(0, 10);
-  const comparable = new Set(priceComparable(rfq, latest) as LatestOffer[]);
-  const minPrice = Math.min(...[...comparable].map((o) => o.price));
-  const minTransit = Math.min(...latest.map((o) => o.transit_days));
-
+  const byId = new Map(latest.map((o) => [o.id, o]));
   const offers = await Promise.all(
-    latest.map(async (o) => ({
-      id: o.id,
-      carrier_id: o.carrier_id,
-      carrier: o.carrier_name,
-      version: o.version,
-      price: o.price,
-      currency: o.currency,
-      transit_days: o.transit_days,
-      valid_until: o.valid_until,
-      notes: o.notes,
-      source: o.source,
-      created_at: o.created_at,
-      expired: Boolean(o.valid_until && o.valid_until < today),
-      cheapest: comparable.has(o) && o.price === minPrice,
-      fastest: o.transit_days === minTransit,
-      winner: rfq.awarded_offer_id !== null && Number(rfq.awarded_offer_id) === Number(o.id),
+    summarize(rfq, latest).map(async (o) => ({
+      ...o,
+      notes: byId.get(o.id)!.notes,
+      source: byId.get(o.id)!.source,
       documents: (await filesOf("offer", o.id)).map((f) => ({ name: f.name, url: f.url })),
       previous: all
         .filter((p) => p.carrier_id === o.carrier_id && p.version < o.version)
@@ -151,7 +163,7 @@ export async function rfqDetail(id: number): Promise<RfqDetailData> {
 
   return {
     rfq: {
-      ...listItem(rfq, carriers.length, latest.length, latest),
+      ...withoutOffers(listItem(rfq, carriers.length, latest.length, latest)),
       volume_m3: rfq.volume_m3,
       pallets: rfq.pallets,
       loading_date: rfq.loading_date,
