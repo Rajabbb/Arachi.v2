@@ -71,20 +71,26 @@ export interface QuotePageData {
   status: string;
   /** sent | delivered | viewed | offered | failed */
   statusCode: string;
-  /** The carrier's own offers for this RFQ, oldest version first. */
+  /** The carrier's own offers for this RFQ (offer 1, 2, ...), each with its versions oldest first. */
   offers: {
-    version: number;
-    price: number;
-    currency: string;
-    transit_days: number;
-    valid_until: string;
-    notes: string;
-    created_at: string;
-    documents: Download[];
+    offer_no: number;
+    versions: {
+      version: number;
+      price: number;
+      currency: string;
+      transit_days: number;
+      valid_until: string;
+      notes: string;
+      created_at: string;
+      documents: Download[];
+    }[];
   }[];
 }
 
-/** POST /api/quote/:token — a carrier's offer (a new version each time). */
+/**
+ * POST /api/quote/:token — a carrier's offer: a new, separate offer, or
+ * (with offer_no) a new version of one of their earlier offers.
+ */
 export interface QuoteSubmission {
   price: number;
   currency: string;
@@ -92,6 +98,8 @@ export interface QuoteSubmission {
   valid_until?: string;
   notes?: string;
   files?: UploadedFile[];
+  /** The carrier's offer to update; omitted or 0 = send a new offer. */
+  offer_no?: number;
 }
 
 /** GET /api/dashboard?days=N — numbers for the analytics panel. */
@@ -117,6 +125,9 @@ export interface DashboardData {
     origin: string;
     destination: string;
     carrier: string;
+    offer_no: number;
+    /** How many separate offers this carrier sent for the RFQ. */
+    carrier_offers: number;
     version: number;
     price: number;
     currency: string;
@@ -152,15 +163,19 @@ export interface RfqListItem {
   carriersResponded: number;
   /** Cheapest latest offer, in the RFQ currency when there is one. */
   bestPrice: { price: number; currency: string } | null;
-  /** Every carrier's latest offer, cheapest first. */
+  /** The latest version of every offer (a carrier may have several), cheapest first. */
   offers: RfqOfferSummary[];
 }
 
-/** A carrier's latest offer for an RFQ, with how it compares to the others. */
+/** The latest version of one carrier offer for an RFQ, with how it compares to the others. */
 export interface RfqOfferSummary {
   id: number;
   carrier_id: number;
   carrier: string;
+  /** The carrier's Nth separate offer for this RFQ. */
+  offer_no: number;
+  /** How many separate offers this carrier sent for the RFQ; offer_no is worth showing when above 1. */
+  carrier_offers: number;
   version: number;
   price: number;
   currency: string;
@@ -205,7 +220,7 @@ export interface RfqDetailData {
     reminder_count: number;
     last_reminder_at: string | null;
   }[];
-  /** Every carrier's latest offer, cheapest first, with its earlier versions. */
+  /** The latest version of every offer, cheapest first, with that offer's earlier versions. */
   offers: (RfqOfferSummary & {
     notes: string;
     source: string;

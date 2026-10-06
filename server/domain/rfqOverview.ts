@@ -4,7 +4,7 @@ import { currentUserId } from "../auth/current";
 import { statusLabels, type DispatchStatus } from "./dispatches";
 import { filesOf } from "./files";
 import { publicUrl } from "../links";
-import type { Offer } from "./offers";
+import { isLatestVersion, type Offer } from "./offers";
 import { getRfq, type Rfq, type RfqStatus } from "./rfqs";
 
 /** Per-RFQ views for the panel: the RFQ list and one RFQ's detail page. */
@@ -40,9 +40,16 @@ function bestPrice(rfq: Pick<Rfq, "currency">, offers: Pick<Offer, "currency" | 
   return { price: best.price, currency: best.currency };
 }
 
+/** Carriers with at least one offer. */
+function respondedCarriers(offers: Pick<Offer, "carrier_id">[]): number {
+  return new Set(offers.map((o) => Number(o.carrier_id))).size;
+}
+
 /** Each latest offer with how it compares: cheapest, fastest, expired, the winner. */
 function summarize(rfq: Rfq, latest: LatestOffer[]): RfqOfferSummary[] {
   const today = now().slice(0, 10);
+  const perCarrier = new Map<number, number>();
+  for (const o of latest) perCarrier.set(Number(o.carrier_id), (perCarrier.get(Number(o.carrier_id)) ?? 0) + 1);
   const comparable = new Set(priceComparable(rfq, latest) as LatestOffer[]);
   const minPrice = Math.min(...[...comparable].map((o) => o.price));
   const minTransit = Math.min(...latest.map((o) => o.transit_days));
@@ -50,6 +57,8 @@ function summarize(rfq: Rfq, latest: LatestOffer[]): RfqOfferSummary[] {
     id: o.id,
     carrier_id: o.carrier_id,
     carrier: o.carrier_name,
+    offer_no: o.offer_no,
+    carrier_offers: perCarrier.get(Number(o.carrier_id)) ?? 1,
     version: o.version,
     price: o.price,
     currency: o.currency,
@@ -63,19 +72,18 @@ function summarize(rfq: Rfq, latest: LatestOffer[]): RfqOfferSummary[] {
   }));
 }
 
-/** The latest version of every carrier's offer, for all of the user's RFQs (or one). */
+/** The latest version of every offer, for all of the user's RFQs (or one). */
 function latestOffersOf(rfqId?: number): Promise<LatestOffer[]> {
   return db().all<LatestOffer>(
     `SELECT o.*, c.name AS carrier_name FROM offers o JOIN carriers c ON c.id = o.carrier_id
        JOIN rfqs r ON r.id = o.rfq_id
-     WHERE r.user_id = ? ${rfqId === undefined ? "" : "AND o.rfq_id = ?"} AND o.version = (
-       SELECT max(version) FROM offers WHERE rfq_id = o.rfq_id AND carrier_id = o.carrier_id)
+     WHERE r.user_id = ? ${rfqId === undefined ? "" : "AND o.rfq_id = ?"} AND ${isLatestVersion}
      ORDER BY o.price, o.id`,
     currentUserId(), ...(rfqId === undefined ? [] : [rfqId]),
   );
 }
 
-function listItem(rfq: Rfq, sent: number, responded: number, offers: LatestOffer[]): RfqListItem {
+function listItem(rfq: Rfq, sent: number, offers: LatestOffer[]): RfqListItem {
   return {
     id: rfq.id,
     origin: rfq.origin,
@@ -89,7 +97,7 @@ function listItem(rfq: Rfq, sent: number, responded: number, offers: LatestOffer
     status: rfq.status,
     statusLabel: rfqStatusLabels[rfq.status] ?? rfq.status,
     carriersSent: Number(sent),
-    carriersResponded: Number(responded),
+    carriersResponded: respondedCarriers(offers),
     bestPrice: bestPrice(rfq, offers),
     offers: summarize(rfq, offers),
   };
@@ -113,7 +121,7 @@ export async function listRfqs(): Promise<RfqListItem[]> {
   }
   return rfqs.map((r) => {
     const offers = offersBy.get(Number(r.id)) ?? [];
-    return listItem(r, sentBy.get(Number(r.id)) ?? 0, offers.length, offers);
+    return listItem(r, sentBy.get(Number(r.id)) ?? 0, offers);
   });
 }
 
@@ -148,7 +156,7 @@ export async function rfqDetail(id: number): Promise<RfqDetailData> {
       source: byId.get(o.id)!.source,
       documents: (await filesOf("offer", o.id)).map((f) => ({ name: f.name, url: f.url })),
       previous: all
-        .filter((p) => p.carrier_id === o.carrier_id && p.version < o.version)
+        .filter((p) => p.carrier_id === o.carrier_id && p.offer_no === o.offer_no && p.version < o.version)
         .map((p) => ({
           id: p.id,
           version: p.version,
@@ -163,7 +171,7 @@ export async function rfqDetail(id: number): Promise<RfqDetailData> {
 
   return {
     rfq: {
-      ...withoutOffers(listItem(rfq, carriers.length, latest.length, latest)),
+      ...withoutOffers(listItem(rfq, carriers.length, latest)),
       volume_m3: rfq.volume_m3,
       pallets: rfq.pallets,
       loading_date: rfq.loading_date,

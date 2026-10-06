@@ -3,14 +3,14 @@ import { db } from "../../db";
 import { currentUserId } from "../../auth/current";
 import { getCarrier } from "../../domain/carriers";
 import { filesOf } from "../../domain/files";
-import { offerVersions } from "../../domain/offers";
+import { groupByOffer, offerVersions } from "../../domain/offers";
 import { getRfq, rfqTitle } from "../../domain/rfqs";
 
-/** Process 9: offer version history (v1, v2, ...) per carrier. */
+/** Process 9: offer version history (v1, v2, ...) per carrier and offer. */
 export const offerHistory: AgentTool = {
   name: "offer_history",
   description:
-    "Shows every version of the carriers' offers for an RFQ (v1, v2, ...) with what changed between versions (price and transit time).",
+    "Shows the carriers' offers for an RFQ (a carrier may have several separate offers) and every version of each (v1, v2, ...) with what changed between versions (price and transit time).",
   params: {
     rfq_id: { type: "integer", description: "RFQ number." },
     carrier_id: { type: "integer", description: "Only this carrier; 0 = all carriers that offered.", default: 0 },
@@ -29,33 +29,36 @@ export const offerHistory: AgentTool = {
 
     const carriers = [];
     for (const id of carrierIds) {
-      const versions = await offerVersions(rfq.id, id);
-      const documents = await Promise.all(versions.map((o) => filesOf("offer", o.id)));
+      const rows = await offerVersions(rfq.id, id);
+      const documents = new Map(await Promise.all(rows.map(async (o) => [o.id, await filesOf("offer", o.id)] as const)));
       carriers.push({
         carrier_id: id,
         carrier: (await getCarrier(id)).name,
-        versions: versions.map((o, i) => {
-          const prev = versions[i - 1];
-          const sameCurrency = prev && prev.currency === o.currency;
-          return {
-            version: `v${o.version}`,
-            offer_id: o.id,
-            price: o.price,
-            currency: o.currency,
-            transit_days: o.transit_days,
-            valid_until: o.valid_until,
-            notes: o.notes,
-            source: o.source,
-            created_at: o.created_at,
-            documents: documents[i],
-            change: prev && {
-              price: sameCurrency ? Math.round((o.price - prev.price) * 100) / 100 : undefined,
-              price_percent: sameCurrency ? Math.round(((o.price - prev.price) / prev.price) * 1000) / 10 : undefined,
-              currency_changed: !sameCurrency || undefined,
-              transit_days: o.transit_days - prev.transit_days,
-            },
-          };
-        }),
+        offers: groupByOffer(rows).map(({ offer_no, versions }) => ({
+          offer_no,
+          versions: versions.map((o, i) => {
+            const prev = versions[i - 1];
+            const sameCurrency = prev && prev.currency === o.currency;
+            return {
+              version: `v${o.version}`,
+              offer_id: o.id,
+              price: o.price,
+              currency: o.currency,
+              transit_days: o.transit_days,
+              valid_until: o.valid_until,
+              notes: o.notes,
+              source: o.source,
+              created_at: o.created_at,
+              documents: documents.get(o.id),
+              change: prev && {
+                price: sameCurrency ? Math.round((o.price - prev.price) * 100) / 100 : undefined,
+                price_percent: sameCurrency ? Math.round(((o.price - prev.price) / prev.price) * 1000) / 10 : undefined,
+                currency_changed: !sameCurrency || undefined,
+                transit_days: o.transit_days - prev.transit_days,
+              },
+            };
+          }),
+        })),
       });
     }
     return { rfq: rfqTitle(rfq), carriers };

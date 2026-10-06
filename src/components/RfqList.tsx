@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { RfqListItem, RfqListData } from "../../shared/protocol";
 import { getJson, money } from "../lib/api";
+import { offerTag } from "../lib/offers";
 
 /**
  * The panel's list of all the user's RFQs (each row opens the RFQ's own
@@ -79,7 +80,7 @@ export default function RfqList() {
                     </a>
                     <span className={`pill pill-${r.status}`}>{r.statusLabel}</span>
                     <span className="muted small">
-                      {r.offers.length} təklif · {r.carriersSent} daşıyıcıya göndərilib
+                      {r.offers.length} təklif ({r.carriersResponded} daşıyıcıdan) · {r.carriersSent} daşıyıcıya göndərilib
                     </span>
                   </div>
                   <div className="table-wrap">
@@ -97,7 +98,7 @@ export default function RfqList() {
                         {r.offers.map((o) => (
                           <tr key={o.id} className={o.winner ? "row-winner" : undefined}>
                             <td>
-                              {o.carrier} <span className="muted">v{o.version}</span>
+                              {o.carrier} <span className="muted">{offerTag(o)}</span>
                               {o.winner && <span className="winner"> ✓ qalib</span>}
                             </td>
                             <td className="num">

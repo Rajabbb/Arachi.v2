@@ -23,7 +23,19 @@ export const listOffers: AgentTool = {
   },
   async run(p) {
     const rfq = await getRfq(p.rfq_id as number);
-    const offers = new Map((await latestOffers(rfq.id)).map((o) => [o.carrier_id, o]));
+    const latest = await latestOffers(rfq.id);
+    const offersOf = (carrierId: number) => latest.filter((o) => o.carrier_id === carrierId);
+    const offerView = async (offer: (typeof latest)[number]) => ({
+      offer_id: offer.id,
+      offer_no: offer.offer_no,
+      version: offer.version,
+      price: offer.price,
+      currency: offer.currency,
+      transit_days: offer.transit_days,
+      valid_until: offer.valid_until,
+      notes: offer.notes,
+      documents: await filesOf("offer", offer.id),
+    });
     const rows = await db().all<{
       carrier_id: number;
       carrier_name: string;
@@ -42,7 +54,6 @@ export const listOffers: AgentTool = {
     const carriers = await Promise.all(rows
       .filter((r) => p.status === "all" || r.status === p.status)
       .map(async (r) => {
-        const offer = offers.get(r.carrier_id);
         return {
           carrier_id: r.carrier_id,
           carrier: r.carrier_name,
@@ -52,16 +63,8 @@ export const listOffers: AgentTool = {
           sent_at: r.sent_at,
           viewed_at: r.viewed_at ?? undefined,
           reminders: r.reminder_count,
-          offer: offer && {
-            offer_id: offer.id,
-            version: offer.version,
-            price: offer.price,
-            currency: offer.currency,
-            transit_days: offer.transit_days,
-            valid_until: offer.valid_until,
-            notes: offer.notes,
-            documents: await filesOf("offer", offer.id),
-          },
+          // Latest version of each separate offer the carrier sent.
+          offers: await Promise.all(offersOf(r.carrier_id).map(offerView)),
         };
       }));
 
@@ -69,20 +72,21 @@ export const listOffers: AgentTool = {
     const sentTo = new Set(rows.map((r) => r.carrier_id));
     const manual =
       p.status === "all" || p.status === "offered"
-        ? [...offers.values()].filter((o) => !sentTo.has(o.carrier_id))
+        ? latest.filter((o) => !sentTo.has(o.carrier_id))
         : [];
 
     const counts = Object.fromEntries(
       (Object.keys(statusLabels) as DispatchStatus[]).map((s) => [statusLabels[s], rows.filter((r) => r.status === s).length]),
     );
-    return { rfq: rfqTitle(rfq), rfq_status: rfq.status, counts, offers_received: offers.size, carriers, manual_offers: manual };
+    return { rfq: rfqTitle(rfq), rfq_status: rfq.status, counts, offers_received: latest.length,
+      carriers_responded: new Set(latest.map((o) => o.carrier_id)).size, carriers, manual_offers: manual };
   },
 };
 
 export const recordOffer: AgentTool = {
   name: "record_offer",
   description:
-    "Records an offer a carrier sent outside the quote page (e.g. by email or phone) that the user pastes or attaches. A carrier's new offer for the same RFQ becomes a new version.",
+    "Records an offer a carrier sent outside the quote page (e.g. by email or phone) that the user pastes or attaches. A carrier may have several separate offers for one RFQ; to record a changed price or terms of one of them, pass its offer_no (from list_offers) and it becomes a new version of that offer.",
   params: {
     rfq_id: { type: "integer", description: "RFQ number." },
     carrier_id: { type: "integer", description: "Carrier id." },
@@ -91,6 +95,11 @@ export const recordOffer: AgentTool = {
     currency: { type: "string", description: "Offer currency; empty means the RFQ's currency.", enum: ["", "USD", "EUR"], default: "" },
     valid_until: { type: "string", description: "Offer valid until, YYYY-MM-DD; empty = not stated.", default: "" },
     notes: { type: "string", description: "Terms and notes from the carrier.", default: "" },
+    offer_no: {
+      type: "integer",
+      description: "Update this earlier offer of the carrier (adds a new version); 0 = record a new, separate offer.",
+      default: 0,
+    },
     attach_files: { type: "boolean", description: "Store the files attached to this message as the offer's documents.", default: false },
   },
   async run(p, ctx) {
@@ -107,6 +116,7 @@ export const recordOffer: AgentTool = {
       notes: p.notes as string,
       source: "manual",
       files: p.attach_files ? ctx.files : [],
+      offerNo: p.offer_no as number,
     });
     return { carrier: carrier.name, ...offer };
   },

@@ -3,6 +3,7 @@ import type { ChatError, DashboardData } from "../../shared/protocol";
 import UserMenu from "../components/UserMenu";
 import type { User } from "../lib/auth";
 import RfqList from "../components/RfqList";
+import { offerTag } from "../lib/offers";
 
 const periods = [7, 30, 90, 365];
 
@@ -160,7 +161,7 @@ export default function PanelPage({ user }: { user: User }) {
                           </td>
                           <td>{o.origin} → {o.destination}</td>
                           <td>
-                            {o.carrier} <span className="muted">v{o.version}</span>
+                            {o.carrier} <span className="muted">{offerTag(o)}</span>
                             {o.winner && <span className="winner"> ✓ qalib</span>}
                           </td>
                           <td className="num">{o.price.toLocaleString("az-AZ")} {o.currency}</td>
