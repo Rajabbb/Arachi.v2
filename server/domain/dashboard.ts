@@ -31,12 +31,21 @@ export async function dashboard(periodDays: number): Promise<DashboardData> {
      FROM dispatches d JOIN rfqs r ON r.id = d.rfq_id WHERE d.sent_at >= ? AND r.user_id = ?`,
     since, user,
   );
-  const statusRows = await db().all<{ status: DispatchStatus; n: number }>(
-    `SELECT d.status, count(*) AS n FROM dispatches d JOIN rfqs r ON r.id = d.rfq_id
-     WHERE d.sent_at >= ? AND r.user_id = ? GROUP BY d.status`,
+  // A funnel: each stage also counts the carriers that went further, so an
+  // offer is also viewed, delivered and sent. "sent" leaves out only messages
+  // that never left (no address, provider error); an email that Resend
+  // accepted and that bounced later was sent, and is counted in "failed" too.
+  const stages = await one<Record<DispatchStatus, number>>(
+    `SELECT
+       count(*) FILTER (WHERE d.status != 'failed' OR EXISTS (
+         SELECT 1 FROM outbox o WHERE o.dispatch_id = d.id AND o.provider_id IS NOT NULL)) AS sent,
+       count(*) FILTER (WHERE d.status IN ('delivered', 'viewed', 'offered')) AS delivered,
+       count(*) FILTER (WHERE d.status IN ('viewed', 'offered') OR (d.viewed_at IS NOT NULL AND d.status != 'failed')) AS viewed,
+       count(*) FILTER (WHERE d.status = 'offered') AS offered,
+       count(*) FILTER (WHERE d.status = 'failed') AS failed
+     FROM dispatches d JOIN rfqs r ON r.id = d.rfq_id WHERE d.sent_at >= ? AND r.user_id = ?`,
     since, user,
   );
-  const counts = new Map(statusRows.map((r) => [r.status, r.n]));
 
   const awardedValue = await db().all<{ currency: string; total: number }>(
     `SELECT o.currency, sum(o.price) AS total FROM rfqs r JOIN offers o ON o.id = r.awarded_offer_id
@@ -71,7 +80,7 @@ export async function dashboard(periodDays: number): Promise<DashboardData> {
     statuses: (Object.keys(statusLabels) as DispatchStatus[]).map((s) => ({
       status: s,
       label: statusLabels[s],
-      count: counts.get(s) ?? 0,
+      count: Number(stages[s] ?? 0),
     })),
     awardedValue,
     failedDeliveries,
