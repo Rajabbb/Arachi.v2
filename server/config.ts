@@ -18,4 +18,10 @@ export const config = {
   maxIterations: 10,
   /** Request body cap; the Claude API itself rejects requests over 32 MB. */
   maxBodyBytes: 30 * 1024 * 1024,
+  /** SQLite file; ":memory:" keeps everything in RAM (tests). */
+  dbPath: process.env.ARACHI_DB_PATH ?? "data/arachi.db",
+  /** Address of the UI, used to build links sent to carriers. */
+  publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "http://localhost:5173").replace(/\/$/, ""),
+  /** Secret for signing carrier links; generated and stored in the DB if unset. */
+  linkSecret: process.env.ARACHI_LINK_SECRET ?? "",
 };

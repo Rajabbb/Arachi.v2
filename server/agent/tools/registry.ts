@@ -1,4 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
+import type { Download, UploadedFile } from "../../../shared/protocol";
 
 /**
  * One parameter of an agent tool. A parameter with a `default` is optional:
@@ -6,17 +7,29 @@ import type Anthropic from "@anthropic-ai/sdk";
  * otherwise the default is used. A parameter without a default is required.
  */
 export interface ParamSpec {
-  type: "string" | "number" | "integer" | "boolean";
+  type: "string" | "number" | "integer" | "boolean" | "array" | "object";
   description: string;
   enum?: readonly (string | number)[];
-  default?: string | number | boolean;
+  /** JSON schema of one element, for `array` parameters. */
+  items?: Record<string, unknown>;
+  /** JSON schema properties, for `object` parameters. */
+  properties?: Record<string, unknown>;
+  default?: unknown;
+}
+
+/** What a tool can see and produce besides its parameters. */
+export interface ToolContext {
+  /** Files the user attached to the current message. */
+  files: UploadedFile[];
+  /** Files the tool generated for the user to download. */
+  downloads: Download[];
 }
 
 export interface AgentTool {
   name: string;
   description: string;
   params: Record<string, ParamSpec>;
-  run(params: Record<string, unknown>): Promise<unknown>;
+  run(params: Record<string, unknown>, ctx: ToolContext): Promise<unknown>;
 }
 
 export interface ToolExecution {
@@ -25,6 +38,10 @@ export interface ToolExecution {
   ok: boolean;
   /** Text sent back to the model as the tool_result. */
   content: string;
+}
+
+export function emptyContext(files: UploadedFile[] = []): ToolContext {
+  return { files, downloads: [] };
 }
 
 export class ToolRegistry {
@@ -43,7 +60,11 @@ export class ToolRegistry {
     return [...this.tools.values()].map(toDefinition);
   }
 
-  async execute(name: string, input: unknown): Promise<ToolExecution> {
+  async execute(
+    name: string,
+    input: unknown,
+    ctx: ToolContext = emptyContext(),
+  ): Promise<ToolExecution> {
     const tool = this.tools.get(name);
     if (!tool) {
       return failure({}, [], `Unknown tool: ${name}`);
@@ -55,7 +76,7 @@ export class ToolRegistry {
     }
 
     try {
-      const result = await tool.run(resolved.params);
+      const result = await tool.run(resolved.params, ctx);
       return {
         ...resolved,
         ok: true,
@@ -90,6 +111,8 @@ function toDefinition(tool: AgentTool): Anthropic.Beta.BetaTool {
       type: spec.type,
       description,
       ...(spec.enum ? { enum: spec.enum } : {}),
+      ...(spec.items ? { items: spec.items } : {}),
+      ...(spec.properties ? { properties: spec.properties } : {}),
     };
     if (spec.default === undefined) required.push(key);
   }
@@ -141,7 +164,9 @@ export function resolveParams(
     const problem = checkValue(spec, value);
     if (problem) return { error: `Parameter "${key}": ${problem}` };
     params[key] = value;
-    if (value !== spec.default) overrides.push(key);
+    if (JSON.stringify(value) !== JSON.stringify(spec.default)) {
+      overrides.push(key);
+    }
   }
 
   return { params, overrides };
@@ -162,6 +187,14 @@ function checkValue(spec: ParamSpec, value: unknown): string | null {
       break;
     case "integer":
       if (!Number.isInteger(value)) return "expected an integer";
+      break;
+    case "array":
+      if (!Array.isArray(value)) return "expected an array";
+      break;
+    case "object":
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return "expected an object";
+      }
       break;
   }
   if (spec.enum && !spec.enum.includes(value as string | number)) {

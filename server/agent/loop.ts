@@ -4,6 +4,7 @@ import { config } from "../config";
 import { systemPrompt } from "./prompt";
 import { userContent } from "./files";
 import { tools } from "./tools";
+import { emptyContext } from "./tools/registry";
 
 type MessageParam = Anthropic.Beta.BetaMessageParam;
 
@@ -26,7 +27,7 @@ export async function runTurn(
   text: string,
   files: UploadedFile[],
 ): Promise<ChatResponse> {
-  const content = userContent(text, files);
+  const content = await userContent(text, files);
   if (content.length === 0) {
     throw new AgentError("Mesaj boşdur.");
   }
@@ -34,11 +35,13 @@ export async function runTurn(
   const messages: MessageParam[] = [...transcript, { role: "user", content }];
   const toolCalls: ToolCallSummary[] = [];
   const definitions = tools.definitions();
+  const ctx = emptyContext(files);
 
   const abort = (reply: string): ChatResponse => ({
     reply,
     transcript,
     toolCalls,
+    downloads: ctx.downloads,
   });
 
   for (let i = 0; i < config.maxIterations; i++) {
@@ -64,7 +67,12 @@ export async function runTurn(
           .map((b) => b.text)
           .join("\n\n")
           .trim();
-        return { reply: reply || "Hazırdır.", transcript: messages, toolCalls };
+        return {
+          reply: reply || "Hazırdır.",
+          transcript: messages,
+          toolCalls,
+          downloads: ctx.downloads,
+        };
       }
 
       case "pause_turn":
@@ -79,7 +87,7 @@ export async function runTurn(
         // All results go back in a single user message.
         const results = await Promise.all(
           uses.map(async (use): Promise<Anthropic.Beta.BetaToolResultBlockParam> => {
-            const run = await tools.execute(use.name, use.input);
+            const run = await tools.execute(use.name, use.input, ctx);
             toolCalls.push({
               name: use.name,
               params: run.params,

@@ -3,32 +3,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import type { ChatError, ChatRequest } from "../shared/protocol";
 import { config } from "./config";
 import { AgentError, runTurn } from "./agent/loop";
-
-class HttpError extends Error {
-  constructor(
-    readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
-async function readJson(req: IncomingMessage): Promise<unknown> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of req) {
-    size += (chunk as Buffer).length;
-    if (size > config.maxBodyBytes) {
-      throw new HttpError(413, "Fayllar çox böyükdür (maksimum 30 MB).");
-    }
-    chunks.push(chunk as Buffer);
-  }
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {
-    throw new HttpError(400, "Sorğu düzgün JSON deyil.");
-  }
-}
+import { HttpError, readJson, send } from "./http";
+import { handleQuote } from "./routes/quote";
+import { handleFile } from "./routes/files";
+import { handleDashboard } from "./routes/dashboard";
 
 function parseChatRequest(body: unknown): ChatRequest {
   const b = body as Partial<ChatRequest> | null;
@@ -46,11 +24,6 @@ function parseChatRequest(body: unknown): ChatRequest {
     );
   if (!ok) throw new HttpError(400, "Sorğunun formatı yanlışdır.");
   return b as ChatRequest;
-}
-
-function send(res: ServerResponse, status: number, body: unknown) {
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8" });
-  res.end(JSON.stringify(body));
 }
 
 async function handleChat(req: IncomingMessage, res: ServerResponse) {
@@ -90,10 +63,19 @@ function toError(err: unknown): { status: number; body: ChatError } {
 
 const server = createServer(async (req, res) => {
   try {
-    if (req.method === "POST" && req.url === "/api/chat") {
+    const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    const quote = path.match(/^\/api\/quote\/([\w.-]+)$/);
+    const file = path.match(/^\/api\/files\/([\w.-]+)$/);
+    if (req.method === "POST" && path === "/api/chat") {
       await handleChat(req, res);
-    } else if (req.method === "GET" && req.url === "/api/health") {
+    } else if (req.method === "GET" && path === "/api/health") {
       send(res, 200, { ok: true });
+    } else if (quote) {
+      await handleQuote(req, res, quote[1]);
+    } else if (req.method === "GET" && path === "/api/dashboard") {
+      handleDashboard(req, res);
+    } else if (file && req.method === "GET") {
+      handleFile(res, file[1]);
     } else {
       send(res, 404, { error: "Tapılmadı." });
     }

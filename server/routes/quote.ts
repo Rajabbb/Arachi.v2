@@ -1,0 +1,98 @@
+import type { IncomingMessage, ServerResponse } from "node:http";
+import type { QuotePageData, QuoteSubmission } from "../../shared/protocol";
+import { getCarrier } from "../domain/carriers";
+import { dispatchFromToken, findDispatch, markViewed, statusLabels, type Dispatch } from "../domain/dispatches";
+import { filesOf } from "../domain/files";
+import { offerVersions, submitOffer } from "../domain/offers";
+import { getRfq } from "../domain/rfqs";
+import { HttpError, readJson, send } from "../http";
+
+/**
+ * The carrier's quote page API. The signed token in the link is the only
+ * credential: it names one RFQ sent to one carrier, so no login is needed.
+ */
+export async function handleQuote(req: IncomingMessage, res: ServerResponse, token: string) {
+  const dispatch = dispatchFromToken(token);
+  if (!dispatch) throw new HttpError(404, "Link etibarsızdır və ya vaxtı keçib.");
+
+  if (req.method === "GET") {
+    markViewed(dispatch);
+    return send(res, 200, pageData(dispatch));
+  }
+  if (req.method === "POST") {
+    const body = parseSubmission(await readJson(req));
+    try {
+      submitOffer({
+        rfqId: dispatch.rfq_id,
+        carrierId: dispatch.carrier_id,
+        dispatchId: dispatch.id,
+        price: body.price,
+        currency: body.currency,
+        transitDays: body.transit_days,
+        validUntil: body.valid_until ?? "",
+        notes: body.notes ?? "",
+        source: "link",
+        files: body.files ?? [],
+      });
+    } catch (err) {
+      throw new HttpError(400, err instanceof Error ? err.message : String(err));
+    }
+    return send(res, 200, pageData(dispatch));
+  }
+  throw new HttpError(405, "Bu əməliyyat dəstəklənmir.");
+}
+
+export function pageData(dispatch: Dispatch): QuotePageData {
+  const rfq = getRfq(dispatch.rfq_id);
+  const carrier = getCarrier(dispatch.carrier_id);
+  // Re-read so the page shows the status after this request's update.
+  const fresh = findDispatch(dispatch.id) ?? dispatch;
+  return {
+    rfq: {
+      id: rfq.id,
+      origin: rfq.origin,
+      destination: rfq.destination,
+      cargo_type: rfq.cargo_type,
+      weight_kg: rfq.weight_kg,
+      volume_m3: rfq.volume_m3,
+      pallets: rfq.pallets,
+      transport_type: rfq.transport_type,
+      loading_date: rfq.loading_date,
+      delivery_date: rfq.delivery_date,
+      currency: rfq.currency,
+      offer_deadline: rfq.offer_deadline,
+      notes: rfq.notes,
+      open: rfq.status === "open",
+    },
+    carrier: { name: carrier.name, language: carrier.language },
+    status: statusLabels[fresh.status],
+    statusCode: fresh.status,
+    offers: offerVersions(rfq.id, carrier.id).map((o) => ({
+      version: o.version,
+      price: o.price,
+      currency: o.currency,
+      transit_days: o.transit_days,
+      valid_until: o.valid_until,
+      notes: o.notes,
+      created_at: o.created_at,
+      documents: filesOf("offer", o.id).map(({ name, url }) => ({ name, url })),
+    })),
+  };
+}
+
+function parseSubmission(body: unknown): QuoteSubmission {
+  const b = body as Partial<QuoteSubmission> | null;
+  const ok =
+    b !== null &&
+    typeof b === "object" &&
+    typeof b.price === "number" &&
+    typeof b.currency === "string" &&
+    typeof b.transit_days === "number" &&
+    (b.valid_until === undefined || typeof b.valid_until === "string") &&
+    (b.notes === undefined || typeof b.notes === "string") &&
+    (b.files === undefined ||
+      (Array.isArray(b.files) &&
+        b.files.every((f) => typeof f?.name === "string" && typeof f.type === "string" && typeof f.data === "string")));
+  if (!ok) throw new HttpError(400, "Təklifin formatı yanlışdır.");
+  return b as QuoteSubmission;
+}
