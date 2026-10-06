@@ -144,7 +144,7 @@ API açarı yalnız serverdə (`.env`) saxlanılır, brauzerə heç vaxt göndə
 | 1 | RFQ yaratmaq | `create_rfq`, `list_rfqs` | Quru nəqliyyat, USD, tarixlər çevik, təklif müddəti 3 gün |
 | 2 | AI ilə avtomatik doldurma | `autofill_rfq` | PDF/şəkil/Excel/mətndən; tam olanda RFQ dərhal yaradılır |
 | 3 | Daşıyıcılara göndərmək | `send_rfq_to_carriers`, `list_outbox` | RFQ-nin nəqliyyat növünə uyğun daşıyıcılar, email, təkrar göndərmə yox |
-| 4 | Daşıyıcı bazası | `add_carriers`, `import_carriers`, `list_carriers`, `remove_carriers` | Kateqoriya Quru, dil az; eyni email yenilənir |
+| 4 | Daşıyıcı bazası | `add_carriers`, `import_carriers`, `update_carriers`, `list_carriers`, `remove_carriers` | Hər daşıyıcı öz kateqoriyası ilə (yoxdursa Quru), dil az; ad və ya email bazada varsa əlavə olunmur |
 | 5 | Daşıyıcının təklif səhifəsi | `get_quote_link` + `/quote/:token` səhifəsi | Girişsiz, AZ/EN, mobil |
 | 6 | Gələn təkliflər və statuslar | `list_offers`, `record_offer` | Göndərildi, Çatdırıldı, Baxıldı, Təklif alındı, Çatdırılmadı |
 | 7 | Müqayisə və qalib seçmək | `compare_offers`, `select_winner` | Qiymətə görə, qalibə bildiriş |
