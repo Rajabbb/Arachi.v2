@@ -89,11 +89,23 @@ Server bazaya birbaşa qoşulur, Supabase Data API və `anon`/`publishable` aça
 ### Resend (email)
 
 1. **Domains → Add Domain**: göndərəcəyiniz domeni əlavə edin, göstərilən DNS yazılarını (SPF, DKIM) domen panelinizə əlavə edin və **Verify** basın.
-2. **API Keys → Create API Key**: "Sending access" kifayətdir. Açarı `.env`-də `RESEND_API_KEY`-ə yazın.
+2. **API Keys → Create API Key**: **"Full access"** seçin (göndərmək üçün "Sending access" kifayətdir, amma məktubun çatıb-çatmadığını, geri qayıtdığını oxumaq üçün "Full access" lazımdır). Açarı `.env`-də `RESEND_API_KEY`-ə yazın.
 3. `EMAIL_FROM`: təsdiqlənmiş domendə ünvan, məsələn `Arachi <rfq@sizin-domen.az>`.
 4. `EMAIL_REPLY_TO` (istəyə görə): daşıyıcılar emailə "Cavab ver" basanda məktub bu ünvana gedir, məsələn komandanın real poçtu.
 
-Daşıyıcılar təklifi emaildəki şəxsi linklə göndərir, ona görə gələn emailləri sistemə qəbul etmək lazım deyil. "Çatdırıldı" statusu hazırda Resend-in məktubu qəbul etməsi deməkdir. Geri qayıdan (bounce) məktubları izləmək üçün növbəti addım Resend webhook-larıdır; hər məktubun Resend id-si bunun üçün `outbox.provider_id`-də saxlanılır. WhatsApp və Telegram hələ yalnız jurnala yazılır.
+Daşıyıcılar təklifi emaildəki şəxsi linklə göndərir, ona görə gələn emailləri sistemə qəbul etmək lazım deyil. WhatsApp və Telegram hələ yalnız jurnala yazılır.
+
+### Emailin real statusu (bounce)
+
+Resend məktubu qəbul edəndə göndəriş **Göndərildi** olur. Sonra server Resend-dən məktubun taleyini soruşur və statusu dəyişir:
+
+- çatdı → **Çatdırıldı**; daşıyıcı açdı (Resend-də open tracking aktivdirsə) → **Baxıldı**
+- geri qayıtdı (bounce), spam şikayəti, Resend-in bloklist-i (suppressed) → **Çatdırılmadı**, səbəbi paneldə "Çatdırılmayan göndərişlər" cədvəlində və agentin cavablarında görünür
+
+Bunun iki yolu var:
+
+1. **Sorğu (polling)**, `localhost`-da da işləyir: server hər dəqiqə və panel açılanda son 7 gündə göndərilmiş, nəticəsi hələ bilinməyən emailləri Resend-dən soruşur (təzə məktubları tez-tez, köhnələri seyrək, ən çoxu 2 saatdan bir). Bunun üçün `RESEND_API_KEY` "Full access" olmalıdır. Server jurnalında `Email delivery status: checked with Resend every minute` görünür.
+2. **Webhook**, sayt internetdə yerləşdiriləndən sonra (localhost-a Resend çata bilmir): Resend → **Webhooks → Add Endpoint**, ünvan `https://<sizin-sayt>/api/webhooks/resend`, hadisələr `email.delivered`, `email.bounced`, `email.complained`, `email.suppressed`, `email.failed`, `email.opened`. Göstərilən **Signing secret**-i (`whsec_...`) `.env`-də `RESEND_WEBHOOK_SECRET`-ə yazın. Secret olmasa da webhook işləyir, amma onda server hadisəyə inanmır, statusu Resend API-dən özü yoxlayır. Bounce səbəbinin mətni (məs. "Address not found") yalnız imzalı webhook ilə gəlir; polling yalnız statusu bilir.
 
 ### Real qoşulmanı yoxlamaq
 

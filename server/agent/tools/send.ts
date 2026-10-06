@@ -12,6 +12,7 @@ import {
 import { getRfq } from "../../domain/rfqs";
 import { channels, deliver, logOnlyNote, type Channel } from "../../notify";
 import { db } from "../../db";
+import { refreshEmailStatuses } from "../../notify/emailStatus";
 import { currentUserId } from "../../auth/current";
 
 /** Process 3: send an RFQ to carriers, each with a personal signed link. */
@@ -71,12 +72,14 @@ export const sendRfqToCarriers: AgentTool = {
       const pending = await saveDispatch(rfq.id, carrier.id, channel, "sent", null);
       const link = await quoteLink(pending.id);
       const message = rfqMessage(rfq, carrier, link);
-      const delivery = await deliver({ channel, to, ...message });
+      const delivery = await deliver({ channel, to, ...message, dispatchId: pending.id });
+      // With a provider id (Resend) the email is only accepted so far: it becomes
+      // "delivered" or "failed" when Resend reports the outcome (notify/emailStatus.ts).
       const dispatch = await saveDispatch(
         rfq.id,
         carrier.id,
         channel,
-        delivery.delivered ? "delivered" : "failed",
+        !delivery.delivered ? "failed" : delivery.providerId ? "sent" : "delivered",
         delivery.error ?? null,
       );
       results.push({
@@ -104,9 +107,11 @@ export const sendRfqToCarriers: AgentTool = {
 
 export const listOutbox: AgentTool = {
   name: "list_outbox",
-  description: "Shows the latest outgoing messages (emails, WhatsApp, Telegram) recorded by the system.",
+  description:
+    "Shows the latest outgoing messages (emails, WhatsApp, Telegram) recorded by the system. For emails, provider_status is the real delivery status from Resend (sent, delivered, opened, bounced, complained, suppressed, ...) and error says why one was not delivered.",
   params: { limit: { type: "integer", description: "How many messages.", default: 20 } },
   async run({ limit }) {
+    await refreshEmailStatuses({ userId: currentUserId(), limit: 5 }).catch(() => 0);
     return db().all("SELECT * FROM outbox WHERE user_id = ? ORDER BY id DESC LIMIT ?", currentUserId(), limit as number);
   },
 };

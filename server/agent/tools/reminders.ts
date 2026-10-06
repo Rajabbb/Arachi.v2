@@ -45,7 +45,7 @@ export const sendReminders: AgentTool = {
         continue;
       }
       const message = rfqMessage(rfq, carrier, await quoteLink(d.id), true);
-      const delivery = await deliver({ channel, to: addressFor(carrier, channel), ...message });
+      const delivery = await deliver({ channel, to: addressFor(carrier, channel), ...message, dispatchId: d.id });
       await db().run(
         "UPDATE dispatches SET reminder_count = reminder_count + 1, last_reminder_at = ? WHERE id = ?",
         now(), d.id,

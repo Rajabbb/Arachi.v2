@@ -153,4 +153,13 @@ export const migrations: string[] = [
   DROP INDEX carriers_email;
   CREATE UNIQUE INDEX carriers_email ON carriers (user_id, lower(email)) WHERE email IS NOT NULL;
   `,
+
+  // 9: real email delivery status from Resend (polling or webhook), tied to its dispatch.
+  `
+  ALTER TABLE outbox ADD COLUMN dispatch_id INTEGER REFERENCES dispatches (id);
+  ALTER TABLE outbox ADD COLUMN provider_status TEXT;
+  ALTER TABLE outbox ADD COLUMN provider_detail TEXT;
+  ALTER TABLE outbox ADD COLUMN status_checked_at TEXT;
+  CREATE INDEX outbox_provider_id ON outbox (provider_id);
+  `,
 ];
