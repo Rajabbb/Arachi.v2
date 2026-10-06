@@ -76,6 +76,13 @@ test("RFQ list shows counts and the best price in the RFQ currency", async () =>
   assert.deepEqual(first.bestPrice, { price: 1300, currency: "USD" });
   assert.equal(body.rfqs[0].carriersSent, 0);
   assert.equal(body.rfqs[0].bestPrice, null);
+
+  // Offers grouped under their RFQ: latest versions, cheapest first, with marks.
+  assert.deepEqual(body.rfqs[0].offers, []);
+  assert.deepEqual(
+    first.offers.map((o) => [o.carrier, o.version, o.price, o.currency, o.cheapest, o.fastest]),
+    [["C", 1, 1000, "EUR", false, false], ["A", 2, 1300, "USD", true, false], ["B", 1, 1400, "USD", false, true]],
+  );
 });
 
 test("RFQ page: carriers with status, offers with versions, cheapest, fastest and winner", async () => {

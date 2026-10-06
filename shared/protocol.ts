@@ -152,6 +152,26 @@ export interface RfqListItem {
   carriersResponded: number;
   /** Cheapest latest offer, in the RFQ currency when there is one. */
   bestPrice: { price: number; currency: string } | null;
+  /** Every carrier's latest offer, cheapest first. */
+  offers: RfqOfferSummary[];
+}
+
+/** A carrier's latest offer for an RFQ, with how it compares to the others. */
+export interface RfqOfferSummary {
+  id: number;
+  carrier_id: number;
+  carrier: string;
+  version: number;
+  price: number;
+  currency: string;
+  transit_days: number;
+  valid_until: string;
+  created_at: string;
+  expired: boolean;
+  /** Cheapest among offers in the RFQ currency (other currencies are not compared without a rate). */
+  cheapest: boolean;
+  fastest: boolean;
+  winner: boolean;
 }
 
 export interface RfqListData {
@@ -160,7 +180,7 @@ export interface RfqListData {
 
 /** GET /api/rfqs/:id — everything about one RFQ for its detail page. */
 export interface RfqDetailData {
-  rfq: RfqListItem & {
+  rfq: Omit<RfqListItem, "offers"> & {
     volume_m3: number;
     pallets: number;
     loading_date: string;
@@ -186,26 +206,13 @@ export interface RfqDetailData {
     last_reminder_at: string | null;
   }[];
   /** Every carrier's latest offer, cheapest first, with its earlier versions. */
-  offers: {
-    id: number;
-    carrier_id: number;
-    carrier: string;
-    version: number;
-    price: number;
-    currency: string;
-    transit_days: number;
-    valid_until: string;
+  offers: (RfqOfferSummary & {
     notes: string;
     source: string;
-    created_at: string;
-    expired: boolean;
-    cheapest: boolean;
-    fastest: boolean;
-    winner: boolean;
     documents: Download[];
     /** Earlier versions, newest first. */
     previous: { id: number; version: number; price: number; currency: string; transit_days: number; notes: string; created_at: string }[];
-  }[];
+  })[];
   /** True when the offers are in more than one currency, so "cheapest" compares within the RFQ currency only. */
   mixedCurrencies: boolean;
 }
