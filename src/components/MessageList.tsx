@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import type { Message } from "../types";
 import { formatSize } from "../lib/agent";
+import MarkdownText from "./MarkdownText";
 
 interface Props {
   messages: Message[];
@@ -19,7 +20,8 @@ export default function MessageList({ messages, busy }: Props) {
       {messages.map((m) => (
         <div key={m.id} className={`message ${m.role}`}>
           <div className="bubble">
-            {m.text && <p>{m.text}</p>}
+            {m.text &&
+              (m.role === "assistant" ? <MarkdownText text={m.text} /> : <p>{m.text}</p>)}
             {m.attachments.length > 0 && (
               <ul className="attachments">
                 {m.attachments.map((a) => (

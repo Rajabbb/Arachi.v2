@@ -77,6 +77,25 @@ body { background: var(--bg); color: var(--text); }
 
 .bubble p { margin: 0; white-space: pre-wrap; }
 
+.markdown > :first-child { margin-top: 0; }
+.markdown > :last-child { margin-bottom: 0; }
+.markdown p { margin: 0 0 8px; white-space: pre-line; }
+.markdown ul, .markdown ol { margin: 0 0 8px; padding-left: 20px; }
+.markdown li + li { margin-top: 2px; }
+.markdown h1, .markdown h2, .markdown h3, .markdown h4 { font-size: 1em; margin: 0 0 6px; }
+.markdown a { color: var(--accent); text-decoration: underline; }
+.markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  background: var(--border);
+  padding: 1px 4px;
+  border-radius: 4px;
+}
+.markdown pre { overflow-x: auto; margin: 0 0 8px; }
+.markdown pre code { display: block; padding: 8px; }
+.markdown table { border-collapse: collapse; margin: 0 0 8px; }
+.markdown th, .markdown td { border: 1px solid var(--border); padding: 4px 8px; text-align: left; }
+
 .message.user .bubble {
   background: var(--user-bubble);
   color: var(--accent-text);
