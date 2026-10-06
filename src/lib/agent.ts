@@ -1,34 +1,59 @@
 import type { Attachment } from "../types";
+import type {
+  ChatError,
+  ChatRequest,
+  ChatResponse,
+  UploadedFile,
+} from "../../shared/protocol";
 
 export interface AgentRequest {
   text: string;
   files: File[];
+  /** Conversation state from the previous response; empty for a new chat. */
+  transcript: unknown[];
 }
 
-export interface AgentResponse {
-  text: string;
-}
+export type AgentResponse = ChatResponse;
 
 /**
- * Placeholder for the real AI agent backend.
- * Replace the body with a call to the V2 API once it exists; the UI only
- * depends on this function's signature.
+ * Sends one message to the agent server. The API key lives on the server;
+ * the browser only ever talks to /api/chat.
  */
 export async function sendToAgent(req: AgentRequest): Promise<AgentResponse> {
-  await new Promise((resolve) => setTimeout(resolve, 900));
+  const body: ChatRequest = {
+    transcript: req.transcript,
+    message: {
+      text: req.text,
+      files: await Promise.all(req.files.map(toUploadedFile)),
+    },
+  };
 
-  const parts: string[] = [];
-  if (req.text.trim()) {
-    parts.push(`Əmrinizi aldım: “${req.text.trim()}”.`);
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  const data = (await res.json().catch(() => null)) as
+    | ChatResponse
+    | ChatError
+    | null;
+  if (!res.ok || !data || "error" in data) {
+    throw new Error(
+      data && "error" in data ? data.error : "Serverlə əlaqə qurulmadı.",
+    );
   }
-  if (req.files.length > 0) {
-    const names = req.files.map((f) => f.name).join(", ");
-    parts.push(`${req.files.length} fayl qəbul edildi: ${names}.`);
+  return data;
+}
+
+export async function toUploadedFile(file: File): Promise<UploadedFile> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
-  parts.push(
-    "Xüsusi parametr qeyd etmədiyiniz üçün default parametrlərlə işləyəcəyəm. (Bu hələlik demo cavabdır, AI backend qoşulmayıb.)",
-  );
-  return { text: parts.join(" ") };
+  return { name: file.name, type: file.type, data: btoa(binary) };
 }
 
 export function toAttachment(file: File): Attachment {
