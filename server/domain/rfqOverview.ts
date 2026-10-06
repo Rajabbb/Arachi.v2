@@ -73,7 +73,7 @@ function summarize(rfq: Rfq, latest: LatestOffer[]): RfqOfferSummary[] {
 }
 
 /** The latest version of every offer, for all of the user's RFQs (or one). */
-function latestOffersOf(rfqId?: number): Promise<LatestOffer[]> {
+export function latestOffersOf(rfqId?: number): Promise<LatestOffer[]> {
   return db().all<LatestOffer>(
     `SELECT o.*, c.name AS carrier_name FROM offers o JOIN carriers c ON c.id = o.carrier_id
        JOIN rfqs r ON r.id = o.rfq_id

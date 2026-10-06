@@ -3,6 +3,7 @@ import type { ChatError, DashboardData } from "../../shared/protocol";
 import UserMenu from "../components/UserMenu";
 import type { User } from "../lib/auth";
 import RfqList from "../components/RfqList";
+import CarrierList from "../components/CarrierList";
 import { offerTag } from "../lib/offers";
 
 const periods = [7, 30, 90, 365];
@@ -12,6 +13,12 @@ function initialDays(): number {
   return periods.includes(d) ? d : 30;
 }
 
+type Tab = "rfqs" | "carriers";
+
+function initialTab(): Tab {
+  return new URLSearchParams(window.location.search).get("tab") === "carriers" ? "carriers" : "rfqs";
+}
+
 function money(total: number, currency: string): string {
   return `${total.toLocaleString("az-AZ", { maximumFractionDigits: 0 })} ${currency}`;
 }
@@ -19,11 +26,15 @@ function money(total: number, currency: string): string {
 /** Analytics panel: the same numbers the get_dashboard tool reports. */
 export default function PanelPage({ user }: { user: User }) {
   const [days, setDays] = useState(initialDays);
+  const [tab, setTab] = useState(initialTab);
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    history.replaceState(null, "", `/panel?days=${days}`);
+    history.replaceState(null, "", `/panel?days=${days}${tab === "carriers" ? "&tab=carriers" : ""}`);
+  }, [days, tab]);
+
+  useEffect(() => {
     fetch(`/api/dashboard?days=${days}`)
       .then(async (res) => {
         // Session expired: back to the login screen.
@@ -88,7 +99,15 @@ export default function PanelPage({ user }: { user: User }) {
               ))}
             </div>
 
-            <RfqList />
+            <div className="lang-switch panel-tabs" role="tablist" aria-label="Bölmə">
+              <button type="button" role="tab" aria-selected={tab === "rfqs"} className={tab === "rfqs" ? "active" : ""} onClick={() => setTab("rfqs")}>
+                Sorğular
+              </button>
+              <button type="button" role="tab" aria-selected={tab === "carriers"} className={tab === "carriers" ? "active" : ""} onClick={() => setTab("carriers")}>
+                Daşıyıcılar
+              </button>
+            </div>
+            {tab === "rfqs" ? <RfqList /> : <CarrierList />}
 
             <section className="card">
               <h3>Göndərmə statusları · son {data.periodDays} gün</h3>

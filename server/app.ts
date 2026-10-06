@@ -10,6 +10,7 @@ import { handleResendWebhook } from "./routes/resendWebhook";
 import { handleAuth, requireUser } from "./routes/auth";
 import { asUser } from "./auth/current";
 import { handleRfqDetail, handleRfqList } from "./routes/rfqs";
+import { handleCarrierDetail, handleCarrierList } from "./routes/carriers";
 import {
   ChatTurnError,
   handleChat,
@@ -44,6 +45,7 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
     const file = path.match(/^\/api\/files\/([\w.-]+)$/);
     const auth = path.match(/^\/api\/auth\/(\w+)$/);
     const rfq = path.match(/^\/api\/rfqs\/(\w+)$/);
+    const carrier = path.match(/^\/api\/carriers\/(\w+)$/);
     const conversation = path.match(/^\/api\/conversations\/(\w+)$/);
     if (auth) {
       await handleAuth(req, res, auth[1]);
@@ -73,6 +75,12 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
     } else if (req.method === "GET" && rfq) {
       const user = await requireUser(req);
       await asUser(user.id, () => handleRfqDetail(res, rfq[1]));
+    } else if (req.method === "GET" && path === "/api/carriers") {
+      const user = await requireUser(req);
+      await asUser(user.id, () => handleCarrierList(res));
+    } else if (req.method === "GET" && carrier) {
+      const user = await requireUser(req);
+      await asUser(user.id, () => handleCarrierDetail(res, carrier[1]));
     } else if (file && req.method === "GET") {
       await handleFile(res, file[1]);
     } else {
