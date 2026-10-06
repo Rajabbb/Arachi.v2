@@ -21,7 +21,13 @@ npm run dev            # interfeys; /api sorğuları serverə yönləndirilir
 npm test               # alətlərin testləri (SQLite)
 npm run test:pg        # eyni testlər Postgres-də (PGlite, Supabase miqrasiyaları ilə)
 npm run migrate        # miqrasiyaları DATABASE_URL bazasına tətbiq edir
+npm run build          # interfeysi dist/ papkasına qurur
+npm start              # istehsal rejimi: bir server həm API-ni, həm dist/ interfeysini verir
 ```
+
+## İnternetdə yerləşdirmə
+
+Addım-addım təlimat (Render): [docs/DEPLOY.md](docs/DEPLOY.md). Qısaca: `render.yaml` Render-də bir web xidməti yaradır (`npm ci --include=dev && npm run build`, sonra `npm start`, sağlamlıq yoxlaması `/healthz`). Server `PORT`-u oxuyur, `dist/`-i verir (`/quote/:token`, `/reset/:token`, `/panel` kimi ünvanlar `index.html`-ə düşür), miqrasiyaları başlanğıcda tətbiq edir. Linklərdəki ünvan `PUBLIC_BASE_URL`-dən, o boşdursa Render-in `RENDER_EXTERNAL_URL`-indən götürülür; ünvan `https://` olanda giriş cookie-si `Secure` olur. Başqa hostinq üçün `Dockerfile` var.
 
 ## Hesablar və giriş
 
@@ -133,6 +139,7 @@ API açarı yalnız serverdə (`.env`) saxlanılır, brauzerə heç vaxt göndə
   - `notify/` — email/WhatsApp/Telegram göndərmə interfeysi; email Resend ilə (`resend.ts`), qalanları hələ yalnız jurnala yazır
   - `auth/` — hesablar: şifrə heşi (`password.ts`), qeydiyyat, giriş, sessiya və şifrə bərpası (`accounts.ts`), sorğunun hansı istifadəçi adından işlədiyi (`current.ts`)
   - `app.ts` — HTTP marşrutları (`/api/auth/*`, `/api/chat`, `/api/dashboard`, ...); `index.ts` serveri başladır
+  - `static.ts` — istehsalda qurulmuş interfeysi (`dist/`) verir
   - `links.ts` — daşıyıcı linkləri üçün imzalı tokenlər
   - `routes/` — daşıyıcı təklif səhifəsi API-si, fayl yükləmə, analitika
 - `src/pages/` — daşıyıcının təklif səhifəsi (`/quote/:token`), analitika paneli (`/panel`, sorğular siyahısı ilə), hər sorğunun ayrıca səhifəsi (`/panel/rfq/:id`), giriş/qeydiyyat və şifrə bərpası (`/reset/:token`)

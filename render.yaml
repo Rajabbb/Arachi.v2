@@ -1,0 +1,35 @@
+# Render Blueprint: one web service that runs the API and serves the UI.
+# Secrets (sync: false) are typed into the Render dashboard, never committed.
+# Steps in Azerbaijani: docs/DEPLOY.md.
+services:
+  - type: web
+    name: arachi-v2
+    runtime: node
+    plan: free
+    region: frankfurt
+    branch: main
+    buildCommand: npm ci --include=dev && npm run build
+    # Migrations run on start (server/index.ts) before requests are taken.
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: AI_PROVIDER
+        value: gemini
+      - key: GEMINI_MODEL
+        value: gemini-3.5-flash-lite
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+    # Optional, added later in the dashboard (Environment): EMAIL_REPLY_TO,
+    # RESEND_WEBHOOK_SECRET, PUBLIC_BASE_URL (only for an own domain; without it
+    # links use the service's https://<name>.onrender.com address).

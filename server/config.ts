@@ -64,8 +64,18 @@ export const config = {
   emailReplyTo: process.env.EMAIL_REPLY_TO ?? "",
   /** Signing secret of the Resend webhook ("whsec_..."); optional, see routes/resendWebhook.ts. */
   resendWebhookSecret: (process.env.RESEND_WEBHOOK_SECRET ?? "").trim(),
-  /** Address of the UI, used to build links sent to carriers. */
-  publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "http://localhost:5173").replace(/\/$/, ""),
+  /**
+   * Public address of the app, used in every link the app sends out (carrier
+   * quote links, password reset, RFQ/panel pages). On Render it defaults to
+   * the service's own URL (RENDER_EXTERNAL_URL); locally to the Vite dev UI.
+   */
+  publicBaseUrl: (
+    process.env.PUBLIC_BASE_URL?.trim() ||
+    process.env.RENDER_EXTERNAL_URL?.trim() ||
+    "http://localhost:5173"
+  ).replace(/\/+$/, ""),
+  /** Built UI (npm run build) served by this server in production; ignored when missing. */
+  staticDir: process.env.STATIC_DIR ?? "dist",
   /** Secret for signing carrier links; generated and stored in the DB if unset. */
   linkSecret: process.env.ARACHI_LINK_SECRET ?? "",
 };
