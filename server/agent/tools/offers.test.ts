@@ -5,7 +5,7 @@ import { emptyContext } from "./registry";
 import { dispatchFromToken, markViewed } from "../../domain/dispatches";
 
 beforeEach(async () => {
-  freshDb();
+  await freshDb();
   await call("create_rfq", { origin: "Bakı", destination: "Aktau", cargo_type: "Boru", weight_kg: 20000, currency: "EUR" });
   await call("add_carriers", {
     carriers: [
@@ -20,7 +20,7 @@ beforeEach(async () => {
 test("statuses follow each carrier from sent to offer", async () => {
   const sent = (await call("send_rfq_to_carriers", { rfq_id: 1 })).result;
   const b = sent.results.find((r: { name: string }) => r.name === "B");
-  markViewed(dispatchFromToken(b.link.split("/quote/")[1])!);
+  await markViewed((await dispatchFromToken(b.link.split("/quote/")[1]))!);
   await call("record_offer", { rfq_id: 1, carrier_id: 1, price: 2100, transit_days: 4 });
 
   const { result } = await call("list_offers", { rfq_id: 1 });

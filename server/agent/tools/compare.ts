@@ -4,7 +4,7 @@ import { getCarrier } from "../../domain/carriers";
 import { addressFor, findDispatchFor } from "../../domain/dispatches";
 import { getOffer, latestOffers, type Offer } from "../../domain/offers";
 import { getRfq, rfqTitle, type Rfq } from "../../domain/rfqs";
-import { deliver, type Channel } from "../../notify";
+import { deliver, logOnlyNote, type Channel } from "../../notify";
 
 /** Process 7: compare offers and pick the winner. */
 
@@ -51,10 +51,10 @@ function convert(offer: Offer, rfq: Rfq, rate: number): number | null {
  * that cannot be priced in the RFQ currency (no rate given) and expired
  * offers go last.
  */
-export function rankOffers(rfq: Rfq, criterion: Criterion, priceWeight: number, rate: number): RankedOffer[] {
+export async function rankOffers(rfq: Rfq, criterion: Criterion, priceWeight: number, rate: number): Promise<RankedOffer[]> {
   if (priceWeight < 0 || priceWeight > 1) throw new Error("price_weight 0 ilə 1 arasında olmalıdır.");
   const today = now().slice(0, 10);
-  const latest = latestOffers(rfq.id);
+  const latest = await latestOffers(rfq.id);
   // Offers all in one currency compare directly, even if it is not the RFQ's.
   const singleCurrency = new Set(latest.map((o) => o.currency)).size === 1;
   const offers = latest.map((o) => {
@@ -92,8 +92,8 @@ export const compareOffers: AgentTool = {
     "Compares the latest offers for an RFQ side by side (price, transit time, validity, terms) and ranks them. Use it before picking a winner.",
   params: { rfq_id: { type: "integer", description: "RFQ number." }, ...rankingParams },
   async run(p) {
-    const rfq = getRfq(p.rfq_id as number);
-    const ranked = rankOffers(rfq, p.criterion as Criterion, p.price_weight as number, p.eur_usd_rate as number);
+    const rfq = await getRfq(p.rfq_id as number);
+    const ranked = await rankOffers(rfq, p.criterion as Criterion, p.price_weight as number, p.eur_usd_rate as number);
     const currencies = new Set(ranked.map((o) => o.currency));
     return {
       rfq: rfqTitle(rfq),
@@ -132,27 +132,30 @@ export const selectWinner: AgentTool = {
     notify_others: { type: "boolean", description: "Tell the other carriers that offered that they did not win.", default: false },
   },
   async run(p) {
-    const rfq = getRfq(p.rfq_id as number);
+    const rfq = await getRfq(p.rfq_id as number);
     if (rfq.status !== "open") throw new Error(`RFQ #${rfq.id} üçün qalib artıq seçilib və ya sorğu bağlıdır.`);
     let winner: Offer;
     if (p.offer_id) {
-      winner = getOffer(p.offer_id as number);
+      winner = await getOffer(p.offer_id as number);
       if (winner.rfq_id !== rfq.id) throw new Error(`Təklif #${winner.id} RFQ #${rfq.id}-ə aid deyil.`);
     } else {
-      const ranked = rankOffers(rfq, p.criterion as Criterion, p.price_weight as number, p.eur_usd_rate as number);
+      const ranked = await rankOffers(rfq, p.criterion as Criterion, p.price_weight as number, p.eur_usd_rate as number);
       const best = ranked.find((o) => !o.expired && o.score < 1e9);
       if (!best) throw new Error(`RFQ #${rfq.id} üzrə seçilə bilən etibarlı təklif yoxdur.`);
       winner = best;
     }
 
-    db()
-      .prepare("UPDATE rfqs SET status = 'awarded', awarded_offer_id = ?, awarded_at = ? WHERE id = ?")
-      .run(winner.id, now(), rfq.id);
+    // Only an open RFQ can be awarded, so two concurrent picks cannot both win.
+    const { changes } = await db().run(
+      "UPDATE rfqs SET status = 'awarded', awarded_offer_id = ?, awarded_at = ? WHERE id = ? AND status = 'open'",
+      winner.id, now(), rfq.id,
+    );
+    if (changes === 0) throw new Error(`RFQ #${rfq.id} üçün qalib artıq seçilib və ya sorğu bağlıdır.`);
 
-    const notified: { carrier: string; delivered: boolean }[] = [];
+    const notified: { carrier: string; channel: Channel; delivered: boolean }[] = [];
     const notify = async (offer: Offer, won: boolean) => {
-      const carrier = getCarrier(offer.carrier_id);
-      const dispatch = findDispatchFor(rfq.id, carrier.id);
+      const carrier = await getCarrier(offer.carrier_id);
+      const dispatch = await findDispatchFor(rfq.id, carrier.id);
       const channel: Channel = dispatch && dispatch.channel !== "link" ? dispatch.channel : "email";
       const en = carrier.language === "en";
       const subject = en ? `RFQ #${rfq.id}: ${won ? "your offer was accepted" : "result"}` : `RFQ #${rfq.id}: ${won ? "təklifiniz qəbul edildi" : "nəticə"}`;
@@ -164,18 +167,19 @@ export const selectWinner: AgentTool = {
           ? `Hello ${carrier.name}, thank you for your offer for RFQ #${rfq.id}. This time another offer was chosen.`
           : `Salam, ${carrier.name}! RFQ #${rfq.id} üzrə təklifiniz üçün təşəkkür edirik. Bu dəfə başqa təklif seçildi.`;
       const r = await deliver({ channel, to: addressFor(carrier, channel), subject, body });
-      notified.push({ carrier: carrier.name, delivered: r.delivered });
+      notified.push({ carrier: carrier.name, channel, delivered: r.delivered });
     };
 
     if (p.notify_winner) await notify(winner, true);
     if (p.notify_others) {
-      for (const o of latestOffers(rfq.id)) if (o.carrier_id !== winner.carrier_id) await notify(o, false);
+      for (const o of await latestOffers(rfq.id)) if (o.carrier_id !== winner.carrier_id) await notify(o, false);
     }
     return {
       rfq: rfqTitle(rfq),
       status: "awarded",
-      winner: { offer_id: winner.id, carrier: getCarrier(winner.carrier_id).name, price: winner.price, currency: winner.currency, transit_days: winner.transit_days, version: winner.version },
+      winner: { offer_id: winner.id, carrier: (await getCarrier(winner.carrier_id)).name, price: winner.price, currency: winner.currency, transit_days: winner.transit_days, version: winner.version },
       notified,
+      note: logOnlyNote(notified.map((n) => n.channel)),
     };
   },
 };

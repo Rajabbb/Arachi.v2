@@ -8,31 +8,45 @@ import { db } from "./db";
  * carrier needs no login.
  */
 
-function secret(): string {
-  if (config.linkSecret) return config.linkSecret;
-  const row = db().prepare("SELECT value FROM settings WHERE key = 'link_secret'").get() as
-    | { value: string }
-    | undefined;
-  if (row) return row.value;
-  const value = randomBytes(32).toString("hex");
-  db().prepare("INSERT INTO settings (key, value) VALUES ('link_secret', ?)").run(value);
-  return value;
+let stored: Promise<string> | null = null;
+
+/** The secret from config, or one generated once and kept in the settings table. */
+function secret(): Promise<string> {
+  if (config.linkSecret) return Promise.resolve(config.linkSecret);
+  stored ??= (async () => {
+    // Several servers may start at once: the first insert wins, all read it back.
+    await db().run(
+      "INSERT INTO settings (key, value) VALUES ('link_secret', ?) ON CONFLICT (key) DO NOTHING",
+      randomBytes(32).toString("hex"),
+    );
+    const row = await db().get<{ value: string }>("SELECT value FROM settings WHERE key = 'link_secret'");
+    return row!.value;
+  })().catch((err) => {
+    stored = null;
+    throw err;
+  });
+  return stored;
 }
 
-function mac(payload: string): string {
-  return createHmac("sha256", secret()).update(payload).digest("base64url");
+/** Forgets the cached secret, for when the database is replaced (tests). */
+export function resetLinkSecret() {
+  stored = null;
 }
 
-export function signToken(kind: string, id: number): string {
+async function mac(payload: string): Promise<string> {
+  return createHmac("sha256", await secret()).update(payload).digest("base64url");
+}
+
+export async function signToken(kind: string, id: number): Promise<string> {
   const payload = Buffer.from(`${kind}:${id}`).toString("base64url");
-  return `${payload}.${mac(payload)}`;
+  return `${payload}.${await mac(payload)}`;
 }
 
 /** Returns the id the token was signed for, or null if it is invalid. */
-export function verifyToken(kind: string, token: string): number | null {
+export async function verifyToken(kind: string, token: string): Promise<number | null> {
   const [payload, signature] = token.split(".");
   if (!payload || !signature) return null;
-  const expected = Buffer.from(mac(payload));
+  const expected = Buffer.from(await mac(payload));
   const given = Buffer.from(signature);
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) {
     return null;

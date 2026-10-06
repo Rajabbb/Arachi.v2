@@ -156,6 +156,6 @@ export const autofillRfq: AgentTool = {
     if (missing.length > 0 || !p.create) {
       return { created: false, draft, missing, unreadable };
     }
-    return { created: true, rfq: insertRfq(draft), unreadable };
+    return { created: true, rfq: await insertRfq(draft), unreadable };
   },
 };

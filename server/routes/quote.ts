@@ -12,17 +12,17 @@ import { HttpError, readJson, send } from "../http";
  * credential: it names one RFQ sent to one carrier, so no login is needed.
  */
 export async function handleQuote(req: IncomingMessage, res: ServerResponse, token: string) {
-  const dispatch = dispatchFromToken(token);
+  const dispatch = await dispatchFromToken(token);
   if (!dispatch) throw new HttpError(404, "Link etibarsızdır və ya vaxtı keçib.");
 
   if (req.method === "GET") {
-    markViewed(dispatch);
-    return send(res, 200, pageData(dispatch));
+    await markViewed(dispatch);
+    return send(res, 200, await pageData(dispatch));
   }
   if (req.method === "POST") {
     const body = parseSubmission(await readJson(req));
     try {
-      submitOffer({
+      await submitOffer({
         rfqId: dispatch.rfq_id,
         carrierId: dispatch.carrier_id,
         dispatchId: dispatch.id,
@@ -37,16 +37,18 @@ export async function handleQuote(req: IncomingMessage, res: ServerResponse, tok
     } catch (err) {
       throw new HttpError(400, err instanceof Error ? err.message : String(err));
     }
-    return send(res, 200, pageData(dispatch));
+    return send(res, 200, await pageData(dispatch));
   }
   throw new HttpError(405, "Bu əməliyyat dəstəklənmir.");
 }
 
-export function pageData(dispatch: Dispatch): QuotePageData {
-  const rfq = getRfq(dispatch.rfq_id);
-  const carrier = getCarrier(dispatch.carrier_id);
+export async function pageData(dispatch: Dispatch): Promise<QuotePageData> {
+  const rfq = await getRfq(dispatch.rfq_id);
+  const carrier = await getCarrier(dispatch.carrier_id);
   // Re-read so the page shows the status after this request's update.
-  const fresh = findDispatch(dispatch.id) ?? dispatch;
+  const fresh = (await findDispatch(dispatch.id)) ?? dispatch;
+  const offers = await offerVersions(rfq.id, carrier.id);
+  const documents = await Promise.all(offers.map((o) => filesOf("offer", o.id)));
   return {
     rfq: {
       id: rfq.id,
@@ -67,7 +69,7 @@ export function pageData(dispatch: Dispatch): QuotePageData {
     carrier: { name: carrier.name, language: carrier.language },
     status: statusLabels[fresh.status],
     statusCode: fresh.status,
-    offers: offerVersions(rfq.id, carrier.id).map((o) => ({
+    offers: offers.map((o, i) => ({
       version: o.version,
       price: o.price,
       currency: o.currency,
@@ -75,7 +77,7 @@ export function pageData(dispatch: Dispatch): QuotePageData {
       valid_until: o.valid_until,
       notes: o.notes,
       created_at: o.created_at,
-      documents: filesOf("offer", o.id).map(({ name, url }) => ({ name, url })),
+      documents: documents[i].map(({ name, url }) => ({ name, url })),
     })),
   };
 }

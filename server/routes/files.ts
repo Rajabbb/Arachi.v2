@@ -3,8 +3,8 @@ import { fileFromToken } from "../domain/files";
 import { send } from "../http";
 
 /** GET /api/files/:token — downloads a stored file (offer documents, exports). */
-export function handleFile(res: ServerResponse, token: string) {
-  const file = fileFromToken(token);
+export async function handleFile(res: ServerResponse, token: string) {
+  const file = await fileFromToken(token);
   if (!file) return send(res, 404, { error: "Fayl tapılmadı." });
   res.writeHead(200, {
     "content-type": file.type,

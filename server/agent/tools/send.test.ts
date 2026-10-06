@@ -4,7 +4,7 @@ import { call, freshDb } from "../../test/helpers";
 import { dispatchFromToken } from "../../domain/dispatches";
 
 beforeEach(async () => {
-  freshDb();
+  await freshDb();
   await call("create_rfq", { origin: "Bakı", destination: "İstanbul", cargo_type: "Tekstil", weight_kg: 12000 });
   await call("add_carriers", {
     carriers: [
@@ -20,7 +20,7 @@ test("default sends to carriers matching the transport type, by email", async ()
   assert.equal(result.sent, 2);
   const a = result.results.find((r: { name: string }) => r.name === "Road A");
   assert.equal(a.status, "Çatdırıldı");
-  assert.equal(dispatchFromToken(a.link.split("/quote/")[1])?.carrier_id, 1);
+  assert.equal((await dispatchFromToken(a.link.split("/quote/")[1]))?.carrier_id, 1);
   // Road B has no email, so the email stub cannot deliver.
   const b = result.results.find((r: { name: string }) => r.name === "Road B");
   assert.equal(b.status, "Çatdırılmadı");

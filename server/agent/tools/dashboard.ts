@@ -11,6 +11,6 @@ export const getDashboard: AgentTool = {
     period_days: { type: "integer", description: "Period in days for offers, statuses and created RFQs.", default: 30 },
   },
   async run(p) {
-    return { ...dashboard(p.period_days as number), panel_url: publicUrl(`/panel?days=${p.period_days}`) };
+    return { ...(await dashboard(p.period_days as number)), panel_url: publicUrl(`/panel?days=${p.period_days}`) };
   },
 };

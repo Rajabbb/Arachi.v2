@@ -12,9 +12,16 @@ import { renderPdf, table } from "../../docs/pdf";
 
 const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
-function saveDownload(ctx: ToolContext, ownerKind: string, ownerId: number, name: string, type: string, data: Uint8Array) {
-  const id = storeFile(ownerKind, ownerId, name, type, data);
-  const download = { name, url: fileUrl(id) };
+async function saveDownload(
+  ctx: ToolContext,
+  ownerKind: string,
+  ownerId: number,
+  name: string,
+  type: string,
+  data: Uint8Array,
+) {
+  const id = await storeFile(ownerKind, ownerId, name, type, data);
+  const download = { name, url: await fileUrl(id) };
   ctx.downloads.push(download);
   return download;
 }
@@ -73,14 +80,14 @@ const text = {
 const transportEn: Record<string, string> = { Quru: "Road", "Dəniz": "Sea", Hava: "Air", "Dəmiryolu": "Rail" };
 
 /** Picks the offer the quote is based on: the given one, else the winner, else the cheapest same-currency one. */
-function baseOffer(rfq: Rfq, offerId: number): Offer {
+async function baseOffer(rfq: Rfq, offerId: number): Promise<Offer> {
   if (offerId) {
-    const offer = getOffer(offerId);
+    const offer = await getOffer(offerId);
     if (offer.rfq_id !== rfq.id) throw new Error(`Təklif #${offer.id} RFQ #${rfq.id}-ə aid deyil.`);
     return offer;
   }
   if (rfq.awarded_offer_id) return getOffer(rfq.awarded_offer_id);
-  const offers = latestOffers(rfq.id);
+  const offers = await latestOffers(rfq.id);
   const best = offers.find((o) => o.currency === rfq.currency) ?? offers[0];
   if (!best) throw new Error(`RFQ #${rfq.id} üzrə hələ təklif yoxdur.`);
   return best;
@@ -114,8 +121,9 @@ export const createCustomerQuote: AgentTool = {
     show_carrier: { type: "boolean", description: "Show the carrier's name to the customer.", default: false },
   },
   async run(p, ctx) {
-    const rfq = getRfq(p.rfq_id as number);
-    const offer = baseOffer(rfq, p.offer_id as number);
+    const rfq = await getRfq(p.rfq_id as number);
+    const offer = await baseOffer(rfq, p.offer_id as number);
+    const carrierName = p.show_carrier ? (await getCarrier(offer.carrier_id)).name : "";
     const currency = (p.currency as string) || offer.currency;
     const price = customerPrice(offer.price, offer.currency, currency, p.service_fee_percent as number, p.eur_usd_rate as number);
     const s = text[p.language as "az" | "en"];
@@ -145,7 +153,7 @@ export const createCustomerQuote: AgentTool = {
         [s.transport, en ? (transportEn[rfq.transport_type] ?? rfq.transport_type) : rfq.transport_type],
         [s.loading, rfq.loading_date || s.flexible],
         [s.transit, `${offer.transit_days} ${s.days}`],
-        ...(p.show_carrier ? [[s.carrier, getCarrier(offer.carrier_id).name] as [string, string]] : []),
+        ...(p.show_carrier ? [[s.carrier, carrierName] as [string, string]] : []),
       ];
       table(doc, ["", ""], rows, [1, 2]);
       doc.moveDown();
@@ -154,7 +162,7 @@ export const createCustomerQuote: AgentTool = {
       doc.moveDown().fontSize(9).fillColor("#555555").text(s.footer).fillColor("black");
     });
 
-    const download = saveDownload(ctx, "rfq", rfq.id, `${number}.pdf`, "application/pdf", pdf);
+    const download = await saveDownload(ctx, "rfq", rfq.id, `${number}.pdf`, "application/pdf", pdf);
     return {
       quote_number: number,
       rfq_id: rfq.id,
@@ -175,21 +183,26 @@ interface ExportRow {
   offers: (Offer & { carrier_name: string })[];
 }
 
-function collect(rfqId: number, status: string): ExportRow[] {
+async function collect(rfqId: number, status: string): Promise<ExportRow[]> {
   const rfqs = rfqId
-    ? [getRfq(rfqId)]
-    : (db()
-        .prepare(`SELECT * FROM rfqs ${status === "all" ? "" : "WHERE status = ?"} ORDER BY id`)
-        .all(...(status === "all" ? [] : [status])) as unknown as Rfq[]);
-  return rfqs.map((rfq) => ({
-    rfq,
-    dispatches: (
-      db()
-        .prepare("SELECT c.name, d.status FROM dispatches d JOIN carriers c ON c.id = d.carrier_id WHERE d.rfq_id = ? ORDER BY c.name")
-        .all(rfq.id) as { name: string; status: DispatchStatus }[]
-    ).map((d) => ({ carrier: d.name, status: statusLabels[d.status] })),
-    offers: latestOffers(rfq.id),
-  }));
+    ? [await getRfq(rfqId)]
+    : await db().all<Rfq>(
+        `SELECT * FROM rfqs ${status === "all" ? "" : "WHERE status = ?"} ORDER BY id`,
+        ...(status === "all" ? [] : [status]),
+      );
+  const rows: ExportRow[] = [];
+  for (const rfq of rfqs) {
+    const dispatches = await db().all<{ name: string; status: DispatchStatus }>(
+      "SELECT c.name, d.status FROM dispatches d JOIN carriers c ON c.id = d.carrier_id WHERE d.rfq_id = ? ORDER BY c.name, c.id",
+      rfq.id,
+    );
+    rows.push({
+      rfq,
+      dispatches: dispatches.map((d) => ({ carrier: d.name, status: statusLabels[d.status] })),
+      offers: await latestOffers(rfq.id),
+    });
+  }
+  return rows;
 }
 
 const rfqStatusLabels: Record<string, string> = { open: "Açıq", awarded: "Qalib seçilib", closed: "Bağlı" };
@@ -203,7 +216,7 @@ export const exportRfqs: AgentTool = {
     format: { type: "string", description: "File format.", enum: ["xlsx", "pdf"], default: "xlsx" },
   },
   async run(p, ctx) {
-    const rows = collect(p.rfq_id as number, p.status as string);
+    const rows = await collect(p.rfq_id as number, p.status as string);
     if (rows.length === 0) throw new Error("İxrac üçün RFQ tapılmadı.");
     const stamp = now().slice(0, 10);
     const base = p.rfq_id ? `RFQ-${p.rfq_id}` : `RFQ-ler-${stamp}`;
@@ -240,7 +253,7 @@ export const exportRfqs: AgentTool = {
       add("Təkliflər", offerHeader, offerRows);
       add("Statuslar", ["RFQ", "Daşıyıcı", "Status"], statusRows);
       const data = new Uint8Array(await wb.xlsx.writeBuffer());
-      download = saveDownload(ctx, "export", 0, `${base}.xlsx`, XLSX, data);
+      download = await saveDownload(ctx, "export", 0, `${base}.xlsx`, XLSX, data);
     } else {
       const pdf = await renderPdf(
         (doc) => {
@@ -253,7 +266,7 @@ export const exportRfqs: AgentTool = {
         },
         { landscape: true },
       );
-      download = saveDownload(ctx, "export", 0, `${base}.pdf`, "application/pdf", pdf);
+      download = await saveDownload(ctx, "export", 0, `${base}.pdf`, "application/pdf", pdf);
     }
     return { rfqs: rows.length, offers: offerRows.length, format: p.format, download };
   },

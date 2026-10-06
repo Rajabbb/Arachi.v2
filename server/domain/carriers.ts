@@ -47,10 +47,10 @@ export type UpsertOutcome = "added" | "updated" | "skipped";
  * Adds a carrier, or updates the existing one with the same email. Returns
  * "skipped" with a reason when the row is unusable.
  */
-export function upsertCarrier(
+export async function upsertCarrier(
   input: CarrierInput,
   defaults: { category: string; language: string },
-): { outcome: UpsertOutcome; carrier?: Carrier; reason?: string } {
+): Promise<{ outcome: UpsertOutcome; carrier?: Carrier; reason?: string }> {
   const name = input.name?.trim();
   const email = input.email?.trim().toLowerCase() || null;
   if (!name) return { outcome: "skipped", reason: "ad yoxdur" };
@@ -70,37 +70,35 @@ export function upsertCarrier(
   };
 
   const existing = email
-    ? (db().prepare("SELECT id FROM carriers WHERE lower(email) = ?").get(email) as { id: number } | undefined)
+    ? await db().get<{ id: number }>("SELECT id FROM carriers WHERE lower(email) = ?", email)
     : undefined;
 
   if (existing) {
-    db()
-      .prepare(
-        `UPDATE carriers SET name = ?, phone = coalesce(nullif(?, ''), phone),
-           whatsapp = coalesce(nullif(?, ''), whatsapp), telegram = coalesce(nullif(?, ''), telegram),
-           category = ?, subcategory = coalesce(nullif(?, ''), subcategory), language = ?, active = 1
-         WHERE id = ?`,
-      )
-      .run(row.name, row.phone, row.whatsapp, row.telegram, row.category, row.subcategory, row.language, existing.id);
-    return { outcome: "updated", carrier: getCarrier(existing.id) };
+    await db().run(
+      `UPDATE carriers SET name = ?, phone = coalesce(nullif(?, ''), phone),
+         whatsapp = coalesce(nullif(?, ''), whatsapp), telegram = coalesce(nullif(?, ''), telegram),
+         category = ?, subcategory = coalesce(nullif(?, ''), subcategory), language = ?, active = 1
+       WHERE id = ?`,
+      row.name, row.phone, row.whatsapp, row.telegram, row.category, row.subcategory, row.language, existing.id,
+    );
+    return { outcome: "updated", carrier: await getCarrier(existing.id) };
   }
 
-  const { lastInsertRowid } = db()
-    .prepare(
-      `INSERT INTO carriers (name, email, phone, whatsapp, telegram, category, subcategory, language, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(row.name, row.email, row.phone, row.whatsapp, row.telegram, row.category, row.subcategory, row.language, now());
-  return { outcome: "added", carrier: getCarrier(Number(lastInsertRowid)) };
+  const inserted = await db().get<{ id: number }>(
+    `INSERT INTO carriers (name, email, phone, whatsapp, telegram, category, subcategory, language, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+    row.name, row.email, row.phone, row.whatsapp, row.telegram, row.category, row.subcategory, row.language, now(),
+  );
+  return { outcome: "added", carrier: await getCarrier(inserted!.id) };
 }
 
-export function getCarrier(id: number): Carrier {
-  const carrier = db().prepare("SELECT * FROM carriers WHERE id = ?").get(id) as Carrier | undefined;
+export async function getCarrier(id: number): Promise<Carrier> {
+  const carrier = await db().get<Carrier>("SELECT * FROM carriers WHERE id = ?", id);
   if (!carrier) throw new Error(`Daşıyıcı #${id} tapılmadı.`);
   return carrier;
 }
 
-export function findCarriers(filter: { category?: string; subcategory?: string; ids?: number[] }): Carrier[] {
+export async function findCarriers(filter: { category?: string; subcategory?: string; ids?: number[] }): Promise<Carrier[]> {
   const where = ["active = 1"];
   const args: (string | number)[] = [];
   if (filter.category) {
@@ -116,7 +114,5 @@ export function findCarriers(filter: { category?: string; subcategory?: string; 
     where.push(`id IN (${filter.ids.map(() => "?").join(",")})`);
     args.push(...filter.ids);
   }
-  return db()
-    .prepare(`SELECT * FROM carriers WHERE ${where.join(" AND ")} ORDER BY name`)
-    .all(...args) as unknown as Carrier[];
+  return db().all<Carrier>(`SELECT * FROM carriers WHERE ${where.join(" AND ")} ORDER BY name, id`, ...args);
 }

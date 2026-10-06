@@ -2,6 +2,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import Anthropic from "@anthropic-ai/sdk";
 import type { ChatError, ChatRequest } from "../shared/protocol";
 import { config } from "./config";
+import { openDatabase } from "./db";
+import { sendsForReal } from "./notify";
 import { AgentError, runTurn } from "./agent/loop";
 import { HttpError, readJson, send } from "./http";
 import { handleQuote } from "./routes/quote";
@@ -73,9 +75,9 @@ const server = createServer(async (req, res) => {
     } else if (quote) {
       await handleQuote(req, res, quote[1]);
     } else if (req.method === "GET" && path === "/api/dashboard") {
-      handleDashboard(req, res);
+      await handleDashboard(req, res);
     } else if (file && req.method === "GET") {
-      handleFile(res, file[1]);
+      await handleFile(res, file[1]);
     } else {
       send(res, 404, { error: "Tapılmadı." });
     }
@@ -85,6 +87,16 @@ const server = createServer(async (req, res) => {
     send(res, status, body);
   }
 });
+
+// Connect and apply pending migrations before taking requests.
+try {
+  const database = await openDatabase();
+  console.log(database.kind === "postgres" ? "Database: Postgres (DATABASE_URL)" : `Database: SQLite (${config.dbPath})`);
+} catch (err) {
+  console.error("Could not open the database:", err instanceof Error ? err.message : err);
+  process.exit(1);
+}
+console.log(sendsForReal("email") ? "Email: Resend" : "Email: log only (set RESEND_API_KEY and EMAIL_FROM to send)");
 
 server.listen(config.port, () => {
   if (!process.env.ANTHROPIC_API_KEY) {

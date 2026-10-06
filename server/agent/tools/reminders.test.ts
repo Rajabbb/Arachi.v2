@@ -4,13 +4,13 @@ import { call, freshDb } from "../../test/helpers";
 import { db } from "../../db";
 
 beforeEach(async () => {
-  freshDb();
+  await freshDb();
   await call("create_rfq", { origin: "Bakı", destination: "Riga", cargo_type: "Qida", weight_kg: 7000 });
   await call("add_carriers", { carriers: [{ name: "Silent", email: "s@x.az" }, { name: "Offered", email: "o@x.az" }] });
   await call("send_rfq_to_carriers", { rfq_id: 1 });
   await call("record_offer", { rfq_id: 1, carrier_id: 2, price: 2500, transit_days: 8 });
   // Pretend the RFQ went out two days ago.
-  db().prepare("UPDATE dispatches SET sent_at = ?").run(new Date(Date.now() - 48 * 3600_000).toISOString());
+  await db().run("UPDATE dispatches SET sent_at = ?", new Date(Date.now() - 48 * 3600_000).toISOString());
 });
 
 test("reminds only non-responders, respecting the gap and the limit", async () => {

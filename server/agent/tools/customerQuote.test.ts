@@ -7,7 +7,7 @@ import { fileFromToken } from "../../domain/files";
 import { customerPrice } from "./customerQuote";
 
 beforeEach(async () => {
-  freshDb();
+  await freshDb();
   await call("create_rfq", { origin: "Bakı", destination: "Şəki", cargo_type: "Çay", weight_kg: 1500 });
   await call("add_carriers", { carriers: [{ name: "A", email: "a@x.az" }, { name: "B", email: "b@x.az" }] });
   await call("send_rfq_to_carriers", { rfq_id: 1 });
@@ -15,7 +15,7 @@ beforeEach(async () => {
   await call("record_offer", { rfq_id: 1, carrier_id: 2, price: 900, transit_days: 3 });
 });
 
-const stored = (url: string) => fileFromToken(url.split("/api/files/")[1])!;
+const stored = async (url: string) => (await fileFromToken(url.split("/api/files/")[1]))!;
 
 test("service fee and currency conversion", () => {
   assert.deepEqual(customerPrice(1000, "USD", "USD", 10, 0), { cost: 1000, fee: 100, total: 1100 });
@@ -28,7 +28,7 @@ test("customer quote PDF uses the cheapest offer plus 10% by default", async () 
   const { result } = await call("create_customer_quote", { rfq_id: 1 }, ctx);
   assert.equal(result.customer_total, "990.00 USD");
   assert.equal(ctx.downloads.length, 1);
-  const file = stored(result.download.url);
+  const file = await stored(result.download.url);
   assert.equal(file.type, "application/pdf");
   assert.equal(Buffer.from(file.data).subarray(0, 5).toString(), "%PDF-");
 });
@@ -42,7 +42,7 @@ test("winner is preferred, fee is a parameter", async () => {
 test("Excel export has RFQs, offers and statuses; PDF export works", async () => {
   const { result } = await call("export_rfqs");
   const wb = new ExcelJS.Workbook();
-  await wb.xlsx.load(Buffer.from(stored(result.download.url).data) as unknown as ArrayBuffer);
+  await wb.xlsx.load(Buffer.from((await stored(result.download.url)).data) as unknown as ArrayBuffer);
   assert.deepEqual(wb.worksheets.map((w) => w.name), ["RFQ-lər", "Təkliflər", "Statuslar"]);
   assert.equal(wb.getWorksheet("Təkliflər")!.rowCount, 3);
   const pdf = (await call("export_rfqs", { rfq_id: 1, format: "pdf" })).result;

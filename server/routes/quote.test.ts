@@ -15,7 +15,7 @@ before(async () => {
   server = createServer(async (req, res) => {
     try {
       const path = req.url ?? "";
-      if (path.startsWith("/api/files/")) return handleFile(res, path.slice(11));
+      if (path.startsWith("/api/files/")) return await handleFile(res, path.slice(11));
       await handleQuote(req, res, path.slice("/api/quote/".length));
     } catch (err) {
       send(res, err instanceof HttpError ? err.status : 500, { error: String(err) });
@@ -28,7 +28,7 @@ after(() => server.close());
 
 let token: string;
 beforeEach(async () => {
-  freshDb();
+  await freshDb();
   await call("create_rfq", { origin: "Bakı", destination: "Tbilisi", cargo_type: "Şərab", weight_kg: 5000 });
   await call("add_carriers", { carriers: [{ name: "Road A", email: "a@road.az", language: "en" }] });
   const { result } = await call("get_quote_link", { rfq_id: 1, carrier_id: 1 });

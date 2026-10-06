@@ -18,14 +18,14 @@ export const getQuoteLink: AgentTool = {
     carrier_id: { type: "integer", description: "Carrier id." },
   },
   async run(p) {
-    const rfq = getRfq(p.rfq_id as number);
-    const carrier = getCarrier(p.carrier_id as number);
+    const rfq = await getRfq(p.rfq_id as number);
+    const carrier = await getCarrier(p.carrier_id as number);
     const dispatch =
-      findDispatchFor(rfq.id, carrier.id) ?? saveDispatch(rfq.id, carrier.id, "link", "sent", null);
+      (await findDispatchFor(rfq.id, carrier.id)) ?? (await saveDispatch(rfq.id, carrier.id, "link", "sent", null));
     return {
       rfq_id: rfq.id,
       carrier: carrier.name,
-      link: quoteLink(dispatch.id),
+      link: await quoteLink(dispatch.id),
       status: statusLabels[dispatch.status],
     };
   },
