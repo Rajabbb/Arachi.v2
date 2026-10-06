@@ -1,6 +1,8 @@
 import type { AgentTool } from "./registry";
 import type { UploadedFile } from "../../../shared/protocol";
-import { carrierCategories, findCarriers, upsertCarrier, type CarrierInput } from "../../domain/carriers";
+import {
+  carrierCategories, findCarriers, matchCategory, saveCarriers, updateCarrier, type CarrierInput,
+} from "../../domain/carriers";
 import { isSpreadsheet, readSpreadsheet } from "../files";
 import { db } from "../../db";
 import { currentUserId } from "../../auth/current";
@@ -15,7 +17,11 @@ const carrierSchema = {
     phone: { type: "string" },
     whatsapp: { type: "string" },
     telegram: { type: "string" },
-    category: { type: "string", description: "Quru, Dəniz, Hava or Dəmiryolu." },
+    category: {
+      type: "string",
+      description:
+        "This carrier's own category (Quru, Dəniz, Hava or Dəmiryolu) when the user gave one for it; carriers in one list may have different categories.",
+    },
     subcategory: { type: "string", description: "e.g. Türkiyə xətti, Avropa." },
     language: { type: "string", enum: ["az", "en"] },
   },
@@ -25,7 +31,9 @@ const carrierSchema = {
 const defaultParams = {
   category: {
     type: "string",
-    description: "Category used for carriers that have none.",
+    description:
+      "Category only for carriers that have no category of their own, e.g. when the user says the whole list is sea carriers. " +
+      "Never use it to give one category to carriers whose categories differ; put those on each carrier.",
     enum: carrierCategories,
     default: "Quru",
   },
@@ -37,26 +45,19 @@ const defaultParams = {
   },
 } as const;
 
-async function saveAll(rows: CarrierInput[], defaults: { category: string; language: string }) {
-  const summary = { added: 0, updated: 0, skipped: [] as { row: number; name: string; reason: string }[] };
-  for (const [i, row] of rows.entries()) {
-    const r = await upsertCarrier(row, defaults);
-    if (r.outcome === "skipped") summary.skipped.push({ row: i + 1, name: row.name ?? "", reason: r.reason! });
-    else summary[r.outcome]++;
-  }
-  return summary;
-}
-
 export const addCarriers: AgentTool = {
   name: "add_carriers",
   description:
-    "Adds carriers to the carrier base by hand (or updates ones with the same email). Each needs a name and at least one contact (email, phone, WhatsApp or Telegram).",
+    "Adds carriers typed in chat to the carrier base. Each needs a name and at least one contact (email, phone, WhatsApp or Telegram). " +
+    "Give each carrier its own category/subcategory when the user stated it. A carrier whose name or email is already in the base " +
+    "(or repeated in the list) is not added; the result lists skipped rows with the reason, how new carriers were grouped by category, " +
+    "and which got the default category: tell the user all of it. To change an existing carrier use update_carriers.",
   params: {
     carriers: { type: "array", description: "Carriers to add.", items: carrierSchema },
     ...defaultParams,
   },
   async run(p) {
-    return saveAll(p.carriers as CarrierInput[], {
+    return saveCarriers(p.carriers as CarrierInput[], {
       category: p.category as string,
       language: p.language as string,
     });
@@ -70,7 +71,7 @@ const headerAliases: Record<keyof CarrierInput, RegExp> = {
   whatsapp: /whats ?app/i,
   telegram: /telegram/i,
   subcategory: /(alt ?kateqoriya|subcategory|sub-category|xətt|line|route)/i,
-  category: /^(kateqoriya|category|növ|type|категория)/i,
+  category: /(kateqoriya|category|növ|type|категория|вид|тип)/i,
   language: /^(dil|language|lang)/i,
 };
 
@@ -126,12 +127,46 @@ export function parseCsv(text: string): string[][] {
   return rows.filter((r) => r.some((c) => c.trim()));
 }
 
-async function readTable(file: UploadedFile): Promise<string[][]> {
-  if (isSpreadsheet(file)) {
-    const sheets = await readSpreadsheet(file);
-    return sheets.find((s) => s.rows.length > 0)?.rows ?? [];
+async function readTables(file: UploadedFile): Promise<{ sheet: string; rows: string[][] }[]> {
+  if (isSpreadsheet(file)) return (await readSpreadsheet(file)).filter((s) => s.rows.length > 0);
+  return [{ sheet: "", rows: parseCsv(Buffer.from(file.data, "base64").toString("utf8").replace(/^\uFEFF/, "")) }];
+}
+
+/**
+ * Carrier rows of one table. The header may sit under a title row. Without a
+ * category column, the category comes from a section row that only names one
+ * ("Dəniz daşıyıcıları") or from the sheet name ("Hava").
+ */
+export function tableCarriers(sheet: string, rows: string[][]): CarrierInput[] | null {
+  // A title row above the header ("Daşıyıcılar") can look like a one-column header; prefer a fuller row.
+  const first = rows.slice(0, 5);
+  const columns = (r: string[]) => Object.keys(mapHeader(r) ?? {}).length;
+  const fuller = first.findIndex((r) => columns(r) >= 2);
+  const headerAt = fuller >= 0 ? fuller : first.findIndex((r) => columns(r) > 0);
+  if (headerAt < 0) return null;
+  const map = mapHeader(rows[headerAt])!;
+  let section = map.category === undefined ? matchCategory(sheet) ?? undefined : undefined;
+  const inputs: CarrierInput[] = [];
+  for (const r of rows.slice(headerAt + 1)) {
+    const filled = r.map((c) => (c ?? "").trim()).filter(Boolean);
+    const sectionRow = filled.length === 1 && Object.keys(map).length >= 2 && !filled[0].includes("@");
+    if (sectionRow && map.category === undefined && matchCategory(filled[0])) {
+      section = matchCategory(filled[0])!;
+      continue;
+    }
+    const get = (k: keyof CarrierInput) => (map[k] === undefined ? undefined : (r[map[k]!] ?? "").trim());
+    inputs.push({
+      name: get("name") || get("email") || "",
+      email: get("email"),
+      phone: get("phone"),
+      whatsapp: get("whatsapp"),
+      telegram: get("telegram"),
+      category: get("category") || section,
+      subcategory: get("subcategory"),
+      language: get("language"),
+    });
   }
-  return parseCsv(Buffer.from(file.data, "base64").toString("utf8").replace(/^﻿/, ""));
+  return inputs;
 }
 
 function isTable(file: UploadedFile): boolean {
@@ -141,7 +176,10 @@ function isTable(file: UploadedFile): boolean {
 export const importCarriers: AgentTool = {
   name: "import_carriers",
   description:
-    "Imports carriers from an attached Excel (.xlsx) or CSV file with a header row (name, email, phone, WhatsApp, Telegram, category, subcategory columns; Azerbaijani, English or Russian headers). Existing carriers with the same email are updated.",
+    "Imports carriers from an attached Excel (.xlsx, every sheet) or CSV file with a header row (name, email, phone, WhatsApp, Telegram, category, subcategory columns; Azerbaijani, English or Russian headers). " +
+    "Each row keeps the category from its category column, its section row or its sheet name. A carrier whose name or email is already in the base " +
+    "(or repeated in the file) is not added; the result lists skipped rows with the reason, how new carriers were grouped by category, " +
+    "and which got the default category: tell the user all of it. To change existing carriers use update_carriers.",
   params: {
     file_name: {
       type: "string",
@@ -155,25 +193,15 @@ export const importCarriers: AgentTool = {
       ? ctx.files.find((f) => f.name === p.file_name)
       : ctx.files.find(isTable);
     if (!file) throw new Error("Bu mesajda Excel və ya CSV fayl tapılmadı.");
-    const [header, ...rows] = await readTable(file);
-    const map = header && mapHeader(header);
-    if (!map) {
-      throw new Error("Faylın birinci sətrində ad və ya email sütunu tapılmadı.");
+    const inputs: CarrierInput[] = [];
+    for (const table of await readTables(file)) inputs.push(...(tableCarriers(table.sheet, table.rows) ?? []));
+    if (inputs.length === 0) {
+      throw new Error("Faylın ilk sətirlərində ad və ya email sütunu tapılmadı.");
     }
-    const inputs = rows.map((r) => {
-      const get = (k: keyof CarrierInput) => (map[k] === undefined ? undefined : (r[map[k]!] ?? "").trim());
-      return {
-        name: get("name") || get("email") || "",
-        email: get("email"),
-        phone: get("phone"),
-        whatsapp: get("whatsapp"),
-        telegram: get("telegram"),
-        category: get("category"),
-        subcategory: get("subcategory"),
-        language: get("language"),
-      };
-    });
-    return { file: file.name, rows: inputs.length, ...(await saveAll(inputs, { category: p.category as string, language: p.language as string })) };
+    return {
+      file: file.name,
+      ...(await saveCarriers(inputs, { category: p.category as string, language: p.language as string })),
+    };
   },
 };
 
@@ -206,5 +234,31 @@ export const removeCarriers: AgentTool = {
       currentUserId(), ...ids,
     );
     return { removed: changes };
+  },
+};
+
+export const updateCarriers: AgentTool = {
+  name: "update_carriers",
+  description:
+    "Changes existing carriers (ids from list_carriers): category, subcategory, contacts, name, language. Only the fields given change; " +
+    "the same change applies to every id given (e.g. move several carriers to Dəniz). A name or email another carrier already has is refused.",
+  params: {
+    carrier_ids: { type: "array", description: "Carrier ids to change.", items: { type: "integer" } },
+    category: { type: "string", description: "New category (Quru, Dəniz, Hava or Dəmiryolu); empty keeps it.", default: "" },
+    subcategory: { type: "string", description: 'New subcategory; "-" clears it; empty keeps it.', default: "" },
+    name: { type: "string", description: "New name (only with one id); empty keeps it.", default: "" },
+    email: { type: "string", description: "New email (only with one id); empty keeps it.", default: "" },
+    phone: { type: "string", description: "New phone; empty keeps it.", default: "" },
+    whatsapp: { type: "string", description: "New WhatsApp; empty keeps it.", default: "" },
+    telegram: { type: "string", description: "New Telegram; empty keeps it.", default: "" },
+    language: { type: "string", description: "New message language; empty keeps it.", enum: ["", "az", "en"], default: "" },
+  },
+  async run(p) {
+    const ids = p.carrier_ids as number[];
+    if (ids.length > 1 && (p.name || p.email)) throw new Error("Ad və email yalnız bir daşıyıcı üçün dəyişdirilə bilər.");
+    const { carrier_ids: _, ...changes } = p as Record<string, string>;
+    const updated = [];
+    for (const id of ids) updated.push(await updateCarrier(id, changes));
+    return { updated: updated.length, carriers: updated };
   },
 };
