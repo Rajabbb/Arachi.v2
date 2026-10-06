@@ -1,8 +1,8 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { ChatError, ChatRequest } from "../shared/protocol";
-import { AgentError, runTurn } from "./agent/loop";
+import type { ChatError } from "../shared/protocol";
+import { AgentError } from "./agent/loop";
 import { provider } from "./agent/providers";
-import { HttpError, readJson, send } from "./http";
+import { HttpError, send } from "./http";
 import { handleQuote } from "./routes/quote";
 import { handleFile } from "./routes/files";
 import { handleDashboard } from "./routes/dashboard";
@@ -10,32 +10,19 @@ import { handleResendWebhook } from "./routes/resendWebhook";
 import { handleAuth, requireUser } from "./routes/auth";
 import { asUser } from "./auth/current";
 import { handleRfqDetail, handleRfqList } from "./routes/rfqs";
-
-function parseChatRequest(body: unknown): ChatRequest {
-  const b = body as Partial<ChatRequest> | null;
-  const ok =
-    b !== null &&
-    typeof b === "object" &&
-    Array.isArray(b.transcript) &&
-    typeof b.message?.text === "string" &&
-    Array.isArray(b.message.files) &&
-    b.message.files.every(
-      (f) =>
-        typeof f?.name === "string" &&
-        typeof f.type === "string" &&
-        typeof f.data === "string",
-    );
-  if (!ok) throw new HttpError(400, "Sorğunun formatı yanlışdır.");
-  return b as ChatRequest;
-}
-
-async function handleChat(req: IncomingMessage, res: ServerResponse) {
-  const { transcript, message } = parseChatRequest(await readJson(req));
-  const result = await runTurn(transcript, message.text, message.files);
-  send(res, 200, result);
-}
+import {
+  ChatTurnError,
+  handleChat,
+  handleConversation,
+  handleConversationDelete,
+  handleConversationList,
+} from "./routes/chat";
 
 function toError(err: unknown): { status: number; body: ChatError } {
+  if (err instanceof ChatTurnError) {
+    const { status, body } = toError(err.inner);
+    return { status, body: { ...body, conversationId: err.conversationId } };
+  }
   if (err instanceof HttpError) {
     return { status: err.status, body: { error: err.message } };
   }
@@ -57,11 +44,20 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
     const file = path.match(/^\/api\/files\/([\w.-]+)$/);
     const auth = path.match(/^\/api\/auth\/(\w+)$/);
     const rfq = path.match(/^\/api\/rfqs\/(\w+)$/);
+    const conversation = path.match(/^\/api\/conversations\/(\w+)$/);
     if (auth) {
       await handleAuth(req, res, auth[1]);
     } else if (req.method === "POST" && path === "/api/chat") {
       const user = await requireUser(req);
       await asUser(user.id, () => handleChat(req, res));
+    } else if (req.method === "GET" && path === "/api/conversations") {
+      const user = await requireUser(req);
+      await asUser(user.id, () => handleConversationList(res));
+    } else if (conversation && (req.method === "GET" || req.method === "DELETE")) {
+      const user = await requireUser(req);
+      await asUser(user.id, () =>
+        req.method === "DELETE" ? handleConversationDelete(res, conversation[1]) : handleConversation(res, conversation[1]),
+      );
     } else if (req.method === "POST" && path === "/api/webhooks/resend") {
       await handleResendWebhook(req, res);
     } else if (req.method === "GET" && path === "/api/health") {
@@ -84,7 +80,7 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
     }
   } catch (err) {
     const { status, body } = toError(err);
-    if (status >= 500) console.error(err);
+    if (status >= 500) console.error(err instanceof ChatTurnError ? err.inner : err);
     send(res, status, body);
   }
 }

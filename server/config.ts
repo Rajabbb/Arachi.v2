@@ -39,6 +39,10 @@ export const config = {
   aiRetries: readRetries(),
   effort: readEffort(),
   maxTokens: 16000,
+  /** How many past turns (user message + agent reply) of a conversation the model sees. */
+  historyTurns: 20,
+  /** Of those, how many latest turns keep their images and PDFs; older ones keep a note instead. */
+  attachmentTurns: 3,
   /** Upper bound on model calls per user message (tool-use round trips). */
   maxIterations: 10,
   /** Request body cap; the Claude API rejects requests over 32 MB. */

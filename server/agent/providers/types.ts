@@ -38,7 +38,7 @@ export type ModelStep<M> =
  * One AI model API behind the agent loop. The loop (conversation history,
  * attachments, tool use) is the same for every provider; a provider only
  * translates to and from its own message format. Messages of type M are
- * stored in the transcript the UI sends back, so they must be plain JSON.
+ * stored with the conversation in the database, so they must be plain JSON.
  */
 export interface ModelProvider<M = unknown> {
   readonly name: ProviderName;
@@ -47,6 +47,11 @@ export interface ModelProvider<M = unknown> {
   /** True when every message is in this provider's format (a transcript from another provider is not). */
   ownsTranscript(transcript: unknown[]): transcript is M[];
   userMessage(text: string, attachments: Attachment[]): M;
+  /**
+   * A user message without its images and PDFs (each replaced by a short
+   * note), so old turns of a saved conversation stay small. Text stays.
+   */
+  dropAttachments(message: M): M;
   generate(system: string, messages: M[], tools: ToolDefinition[]): Promise<ModelStep<M>>;
   /** All results of one tool_calls step, as the next message. */
   toolResults(results: ToolCallResult[]): M;
@@ -56,3 +61,8 @@ export interface ModelProvider<M = unknown> {
 
 export const providerNames = ["anthropic", "gemini"] as const;
 export type ProviderName = (typeof providerNames)[number];
+
+/** Stands in for an attachment dropped from an old turn of a saved conversation. */
+export function removedNote(what: string): string {
+  return `[The user attached ${what} here earlier; it is no longer included. Ask them to attach it again if you need its contents.]`;
+}

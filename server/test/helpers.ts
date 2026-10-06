@@ -36,7 +36,8 @@ export async function freshDb() {
       postgresOpen = true;
     }
     await db().run(
-      `TRUNCATE settings, outbox, rfqs, carriers, dispatches, offers, files, users, sessions, password_resets
+      `TRUNCATE settings, outbox, rfqs, carriers, dispatches, offers, files, users, sessions, password_resets,
+       conversations, conversation_messages
        RESTART IDENTITY CASCADE`,
     );
   }

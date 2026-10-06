@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { config } from "../../config";
 import type { Attachment } from "../files";
 import { overloadedMessage } from "./retry";
-import type { ModelProvider, ModelStep, ToolCallResult, ToolDefinition } from "./types";
+import { removedNote, type ModelProvider, type ModelStep, type ToolCallResult, type ToolDefinition } from "./types";
 
 type MessageParam = Anthropic.Beta.BetaMessageParam;
 type Block = Anthropic.Beta.BetaContentBlockParam;
@@ -43,6 +43,18 @@ export class AnthropicProvider implements ModelProvider<MessageParam> {
     const content = attachments.map(toBlock);
     if (text.trim()) content.push({ type: "text", text });
     return { role: "user", content };
+  }
+
+  dropAttachments(message: MessageParam): MessageParam {
+    if (typeof message.content === "string") return message;
+    const content = message.content.map((b): Block => {
+      if (b.type === "image") return { type: "text", text: removedNote("an image") };
+      if (b.type === "document" && b.source.type === "base64") {
+        return { type: "text", text: removedNote(`the file "${b.title ?? "PDF"}"`) };
+      }
+      return b;
+    });
+    return { ...message, content };
   }
 
   async generate(system: string, messages: MessageParam[], tools: ToolDefinition[]): Promise<ModelStep<MessageParam>> {

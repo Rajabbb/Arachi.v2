@@ -11,10 +11,10 @@ export interface UploadedFile {
 
 export interface ChatRequest {
   /**
-   * The conversation so far, exactly as the server last returned it.
-   * The UI treats it as opaque and sends it back unchanged (append-only).
+   * The saved conversation to continue; omitted or null starts a new one.
+   * The server keeps the conversation (and what the AI remembers of it).
    */
-  transcript: unknown[];
+  conversationId?: number | null;
   message: {
     text: string;
     files: UploadedFile[];
@@ -37,14 +37,53 @@ export interface Download {
 }
 
 export interface ChatResponse {
+  /** The conversation this message was saved in (new when none was given). */
+  conversationId: number;
   reply: string;
-  transcript: unknown[];
   toolCalls: ToolCallSummary[];
   downloads: Download[];
 }
 
 export interface ChatError {
   error: string;
+  /** Set by POST /api/chat when the user's message was saved before the error. */
+  conversationId?: number;
+}
+
+/** One saved conversation in the chat history list. */
+export interface ConversationSummary {
+  id: number;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** GET /api/conversations — the signed-in user's conversations, most recent first. */
+export interface ConversationListData {
+  conversations: ConversationSummary[];
+}
+
+/** A file the user attached to a message; only its name, size and type are kept. */
+export interface AttachmentInfo {
+  name: string;
+  size: number;
+  type: string;
+}
+
+/** One saved chat message, as the chat shows it. */
+export interface ConversationMessage {
+  id: number;
+  role: "user" | "assistant";
+  text: string;
+  attachments: AttachmentInfo[];
+  downloads: Download[];
+  created_at: string;
+}
+
+/** GET /api/conversations/:id — one conversation with all its messages, oldest first. */
+export interface ConversationData {
+  conversation: ConversationSummary;
+  messages: ConversationMessage[];
 }
 
 /** GET /api/quote/:token — what a carrier sees on their personal quote page. */

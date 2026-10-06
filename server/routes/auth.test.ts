@@ -80,7 +80,7 @@ test("registration checks email, password length and duplicates", async () => {
 
 test("chat and panel need a login; the quote page does not", async () => {
   const b = browser();
-  assert.equal((await b("/api/chat", { transcript: [], message: { text: "salam", files: [] } })).status, 401);
+  assert.equal((await b("/api/chat", { message: { text: "salam", files: [] } })).status, 401);
   assert.equal((await b("/api/dashboard?days=30")).status, 401);
   await b("/api/auth/register", { email: "a@b.az", password: "parol1234" });
   const panel = await b("/api/dashboard?days=30");
