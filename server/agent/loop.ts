@@ -1,38 +1,40 @@
-import Anthropic from "@anthropic-ai/sdk";
 import type { ChatResponse, ToolCallSummary, UploadedFile } from "../../shared/protocol";
 import { config } from "../config";
 import { systemPrompt } from "./prompt";
-import { userContent } from "./files";
+import { toAttachment } from "./files";
+import { provider as defaultProvider } from "./providers";
+import type { ModelProvider } from "./providers/types";
 import { tools } from "./tools";
 import { emptyContext } from "./tools/registry";
-
-type MessageParam = Anthropic.Beta.BetaMessageParam;
-
-// Reads ANTHROPIC_API_KEY from the server environment; never sent to the browser.
-const client = new Anthropic();
 
 export class AgentError extends Error {}
 
 /**
  * Runs one user turn: appends the user's message to the transcript, calls
- * Claude, executes any tools it asks for, and repeats until Claude answers.
+ * the model, executes any tools it asks for, and repeats until it answers.
+ * The loop is the same for every provider; the transcript holds messages in
+ * the provider's own format.
  *
- * The transcript is append-only (thinking blocks are bound to the exact
- * history that produced them). If the turn can't finish cleanly, the
- * previous transcript is returned unchanged so the next turn starts from a
- * valid state.
+ * The transcript is append-only (Claude's thinking blocks and Gemini's
+ * thought signatures are bound to the exact history that produced them). If
+ * the turn can't finish cleanly, the previous transcript is returned
+ * unchanged so the next turn starts from a valid state.
  */
-export async function runTurn(
-  transcript: MessageParam[],
+export async function runTurn<M>(
+  previous: unknown[],
   text: string,
   files: UploadedFile[],
+  provider: ModelProvider<M> = defaultProvider() as ModelProvider<M>,
 ): Promise<ChatResponse> {
-  const content = await userContent(text, files);
-  if (content.length === 0) {
+  const attachments = await Promise.all(files.map(toAttachment));
+  if (attachments.length === 0 && !text.trim()) {
     throw new AgentError("Mesaj boşdur.");
   }
 
-  const messages: MessageParam[] = [...transcript, { role: "user", content }];
+  // A conversation started with another provider can't be continued here
+  // (the formats differ), so it starts over.
+  const transcript: M[] = provider.ownsTranscript(previous) ? previous : [];
+  const messages: M[] = [...transcript, provider.userMessage(text, attachments)];
   const toolCalls: ToolCallSummary[] = [];
   const definitions = tools.definitions();
   const ctx = emptyContext(files);
@@ -45,79 +47,54 @@ export async function runTurn(
   });
 
   for (let i = 0; i < config.maxIterations; i++) {
-    const response = await client.beta.messages.create({
-      model: config.model,
-      max_tokens: config.maxTokens,
-      system: systemPrompt,
-      tools: definitions,
-      messages,
-      output_config: { effort: config.effort },
-      cache_control: { type: "ephemeral" },
-      // On a safety-classifier decline, retry on Anthropic's recommended model.
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-    });
+    const step = await provider.generate(systemPrompt, messages, definitions);
 
-    switch (response.stop_reason) {
-      case "end_turn":
-      case "stop_sequence": {
-        messages.push({ role: "assistant", content: response.content });
-        const reply = response.content
-          .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
-          .map((b) => b.text)
-          .join("\n\n")
-          .trim();
+    switch (step.kind) {
+      case "answer":
+        messages.push(step.message);
         return {
-          reply: reply || "Hazırdır.",
+          reply: step.text.trim() || "Hazırdır.",
           transcript: messages,
           toolCalls,
           downloads: ctx.downloads,
         };
-      }
 
-      case "pause_turn":
-        messages.push({ role: "assistant", content: response.content });
+      case "continue":
+        messages.push(step.message);
         continue;
 
-      case "tool_use": {
-        messages.push({ role: "assistant", content: response.content });
-        const uses = response.content.filter(
-          (b): b is Anthropic.Beta.BetaToolUseBlock => b.type === "tool_use",
-        );
-        // All results go back in a single user message.
+      case "tool_calls": {
+        messages.push(step.message);
         const results = await Promise.all(
-          uses.map(async (use): Promise<Anthropic.Beta.BetaToolResultBlockParam> => {
-            const run = await tools.execute(use.name, use.input, ctx);
+          step.calls.map(async (call) => {
+            const run = await tools.execute(call.name, call.input, ctx);
             toolCalls.push({
-              name: use.name,
+              name: call.name,
               params: run.params,
               overrides: run.overrides,
               ok: run.ok,
             });
-            return {
-              type: "tool_result",
-              tool_use_id: use.id,
-              content: run.content,
-              is_error: !run.ok,
-            };
+            return { call, content: run.content, ok: run.ok };
           }),
         );
-        messages.push({ role: "user", content: results });
+        // All results go back in a single message.
+        messages.push(provider.toolResults(results));
         continue;
       }
 
-      case "refusal":
-        return abort(
-          "Bu sorğunu yerinə yetirə bilmirəm. Zəhmət olmasa onu başqa cür ifadə edin.",
-        );
-
-      case "max_tokens":
-        return abort(
-          "Cavab çox uzun alındı və yarımçıq qaldı. Tapşırığı daha kiçik hissələrə bölüb yenidən cəhd edin.",
-        );
-
-      default:
-        return abort("Gözlənilməz cavab alındı, zəhmət olmasa yenidən cəhd edin.");
+      case "stopped":
+        switch (step.reason) {
+          case "refusal":
+            return abort(
+              "Bu sorğunu yerinə yetirə bilmirəm. Zəhmət olmasa onu başqa cür ifadə edin.",
+            );
+          case "max_tokens":
+            return abort(
+              "Cavab çox uzun alındı və yarımçıq qaldı. Tapşırığı daha kiçik hissələrə bölüb yenidən cəhd edin.",
+            );
+          default:
+            return abort("Gözlənilməz cavab alındı, zəhmət olmasa yenidən cəhd edin.");
+        }
     }
   }
 

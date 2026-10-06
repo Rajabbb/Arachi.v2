@@ -3,7 +3,7 @@ import { beforeEach, test } from "node:test";
 import ExcelJS from "exceljs";
 import { call, freshDb } from "../../test/helpers";
 import { parseDate, parseTransport, parseWeightKg } from "./autofill";
-import { fileToBlock } from "../files";
+import { toAttachment } from "../files";
 
 beforeEach(freshDb);
 
@@ -42,7 +42,7 @@ test("Excel attachments reach the model as text", async () => {
   const wb = new ExcelJS.Workbook();
   wb.addWorksheet("RFQ").addRows([["Haradan", "Haraya"], ["Bakı", "Tbilisi"]]);
   const data = Buffer.from(await wb.xlsx.writeBuffer()).toString("base64");
-  const block = await fileToBlock({ name: "rfq.xlsx", type: "", data });
-  assert.equal(block.type, "document");
-  assert.match(JSON.stringify(block), /Bakı,Tbilisi/);
+  const attachment = await toAttachment({ name: "rfq.xlsx", type: "", data });
+  assert.equal(attachment.kind, "text");
+  assert.match(JSON.stringify(attachment), /Bakı,Tbilisi/);
 });
