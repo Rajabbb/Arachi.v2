@@ -257,6 +257,27 @@ a.logo { color: inherit; text-decoration: none; }
 .table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .winner { color: #15803d; font-weight: 600; }
 
+/* RFQ list and RFQ page */
+.table a { color: var(--accent); text-decoration: none; font-weight: 600; }
+.rows-link tbody tr { cursor: pointer; }
+.rows-link tbody tr:hover { background: rgba(127, 127, 127, 0.08); }
+.table td.wrap { white-space: normal; min-width: 140px; }
+.small { font-size: 0.78rem; }
+.pre { margin: 0; white-space: pre-wrap; }
+.back-link { color: var(--muted); text-decoration: none; font-size: 0.9rem; }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 0.78rem; background: rgba(127, 127, 127, 0.15); white-space: nowrap; }
+.pill-open, .pill-sent, .pill-delivered, .pill-viewed { background: rgba(79, 70, 229, 0.12); color: var(--accent); }
+.pill-awarded, .pill-offered { background: rgba(21, 128, 61, 0.12); color: #15803d; }
+.pill-failed { background: rgba(220, 38, 38, 0.12); color: #dc2626; }
+.tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: 0.72rem; font-weight: 600; }
+.table td.num .tag { display: block; width: fit-content; margin: 2px 0 0 auto; }
+.tag-good { background: rgba(21, 128, 61, 0.12); color: #15803d; }
+.tag-bad { background: rgba(220, 38, 38, 0.12); color: #dc2626; }
+.row-winner td { background: rgba(21, 128, 61, 0.06); }
+.row-old td { font-size: 0.82rem; border-bottom-style: dashed; }
+.winner-card { border-color: rgba(21, 128, 61, 0.4); }
+.winner-card p { margin: 0; }
+
 /* Login, registration and password reset */
 .auth { max-width: 420px; margin: 24px auto 0; width: 100%; }
 .auth-title { margin: 0; font-size: 1.2rem; }

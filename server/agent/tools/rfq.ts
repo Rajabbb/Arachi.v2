@@ -2,12 +2,13 @@ import type { AgentTool } from "./registry";
 import { addDays, currencies, insertRfq, transportTypes, type Currency } from "../../domain/rfqs";
 import { db } from "../../db";
 import { currentUserId } from "../../auth/current";
+import { rfqPageUrl } from "../../domain/rfqOverview";
 
 /** Process 1: create a freight request for quotation (RFQ). */
 export const createRfq: AgentTool = {
   name: "create_rfq",
   description:
-    "Creates a new freight RFQ (request for quotation) and returns it with its number (RFQ #id). Use it when the user wants to get prices for moving cargo.",
+    "Creates a new freight RFQ (request for quotation) and returns it with its number (RFQ #id) and page_url, the RFQ's own page in the panel (share it with the user). Use it when the user wants to get prices for moving cargo.",
   params: {
     origin: { type: "string", description: "Loading place (city, country or full address)." },
     destination: { type: "string", description: "Unloading place (city, country or full address)." },
@@ -40,7 +41,7 @@ export const createRfq: AgentTool = {
     notes: { type: "string", description: "Extra requirements for carriers.", default: "" },
   },
   async run(p) {
-    return insertRfq({
+    const rfq = await insertRfq({
       origin: p.origin as string,
       destination: p.destination as string,
       cargo_type: p.cargo_type as string,
@@ -55,6 +56,7 @@ export const createRfq: AgentTool = {
       notes: p.notes as string,
       source: "chat",
     });
+    return { ...rfq, page_url: rfqPageUrl(rfq.id) };
   },
 };
 

@@ -128,3 +128,82 @@ export interface DashboardData {
 export interface AuthResponse {
   user: { id: number; email: string; name: string };
 }
+
+/** GET /api/rfqs — every RFQ of the signed-in user, newest first. */
+export interface RfqListItem {
+  id: number;
+  origin: string;
+  destination: string;
+  cargo_type: string;
+  weight_kg: number;
+  transport_type: string;
+  currency: string;
+  offer_deadline: string;
+  created_at: string;
+  /** open | awarded | closed */
+  status: string;
+  /** Azerbaijani label, e.g. "Təklif toplanır". */
+  statusLabel: string;
+  /** Carriers the RFQ was sent to. */
+  carriersSent: number;
+  /** Carriers that sent at least one offer. */
+  carriersResponded: number;
+  /** Cheapest latest offer, in the RFQ currency when there is one. */
+  bestPrice: { price: number; currency: string } | null;
+}
+
+export interface RfqListData {
+  rfqs: RfqListItem[];
+}
+
+/** GET /api/rfqs/:id — everything about one RFQ for its detail page. */
+export interface RfqDetailData {
+  rfq: RfqListItem & {
+    volume_m3: number;
+    pallets: number;
+    loading_date: string;
+    delivery_date: string;
+    notes: string;
+    source: string;
+    awarded_at: string | null;
+  };
+  /** One row per carrier the RFQ was sent to (or shared a link with). */
+  carriers: {
+    carrier_id: number;
+    name: string;
+    email: string | null;
+    channel: string;
+    /** sent | delivered | viewed | offered | failed */
+    status: string;
+    statusLabel: string;
+    /** Why it was not delivered, e.g. the bounce message. */
+    error: string | null;
+    sent_at: string;
+    viewed_at: string | null;
+    reminder_count: number;
+    last_reminder_at: string | null;
+  }[];
+  /** Every carrier's latest offer, cheapest first, with its earlier versions. */
+  offers: {
+    id: number;
+    carrier_id: number;
+    carrier: string;
+    version: number;
+    price: number;
+    currency: string;
+    transit_days: number;
+    valid_until: string;
+    notes: string;
+    source: string;
+    created_at: string;
+    expired: boolean;
+    cheapest: boolean;
+    fastest: boolean;
+    winner: boolean;
+    documents: Download[];
+    /** Earlier versions, newest first. */
+    previous: { id: number; version: number; price: number; currency: string; transit_days: number; notes: string; created_at: string }[];
+  }[];
+  /** True when the offers are in more than one currency, so "cheapest" compares within the RFQ currency only. */
+  mixedCurrencies: boolean;
+}

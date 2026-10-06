@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { ChatError, DashboardData } from "../../shared/protocol";
 import UserMenu from "../components/UserMenu";
 import type { User } from "../lib/auth";
+import RfqList from "../components/RfqList";
 
 const periods = [7, 30, 90, 365];
 
@@ -86,6 +87,8 @@ export default function PanelPage({ user }: { user: User }) {
               ))}
             </div>
 
+            <RfqList />
+
             <section className="card">
               <h3>Göndərmə statusları · son {data.periodDays} gün</h3>
               <ul className="meters">
@@ -121,7 +124,9 @@ export default function PanelPage({ user }: { user: User }) {
                     <tbody>
                       {data.recentOffers.map((o) => (
                         <tr key={o.id}>
-                          <td>#{o.rfq_id}</td>
+                          <td>
+                            <a href={`/panel/rfq/${o.rfq_id}`}>#{o.rfq_id}</a>
+                          </td>
                           <td>{o.origin} → {o.destination}</td>
                           <td>
                             {o.carrier} <span className="muted">v{o.version}</span>
