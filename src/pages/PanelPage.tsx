@@ -91,6 +91,7 @@ export default function PanelPage({ user }: { user: User }) {
 
             <section className="card">
               <h3>Göndərmə statusları · son {data.periodDays} gün</h3>
+              <p className="muted">Hər mərhələ sonrakıları da sayır: təklif göndərən daşıyıcı həm də baxıb, çatdırılıb və göndərilib.</p>
               <ul className="meters">
                 {data.statuses.map((s) => (
                   <li key={s.status}>

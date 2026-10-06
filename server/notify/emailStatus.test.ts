@@ -46,7 +46,8 @@ test("a bounce makes the dispatch Çatdırılmadı with the reason, delivered an
   await applyEmailStatus("re_2", "delivered");
   assert.equal(await statusOf("Çatdırılmadı"), 1);
   assert.equal(await statusOf("Çatdırıldı"), 1);
-  assert.equal(await statusOf("Göndərildi"), 0);
+  // Both left the system: a bounced email was still sent.
+  assert.equal(await statusOf("Göndərildi"), 2);
 
   const { result } = await call("get_dashboard");
   assert.equal(result.failedDeliveries.length, 1);
@@ -64,6 +65,7 @@ test("a bounce makes the dispatch Çatdırılmadı with the reason, delivered an
   await applyEmailStatus("re_2", "delivered");
   assert.equal(await statusOf("Çatdırılmadı"), 1);
   assert.equal(await statusOf("Baxıldı"), 1);
+  assert.equal(await statusOf("Çatdırıldı"), 1);
   // Unknown ids and events are ignored.
   assert.equal(await applyEmailStatus("re_999", "bounced"), false);
   assert.equal(await applyEmailStatus("re_2", "received"), false);
@@ -105,7 +107,7 @@ test("polling asks Resend about undecided emails, only the user's own, and stops
   await refreshEmailStatuses();
   assert.deepEqual(asked.sort(), ["re_2", "re_other"]);
   // The other user's email is not in this user's panel.
-  assert.equal((await call("get_dashboard")).result.statuses.reduce((n: number, s: { count: number }) => n + s.count, 0), 2);
+  assert.equal(await statusOf("Göndərildi"), 2);
 });
 
 test("a Resend outage does not break the panel", async () => {
@@ -126,6 +128,8 @@ test("emails sent before dispatch_id existed are matched by recipient and RFQ nu
     { carrier_id: 1, status: "delivered" },
     { carrier_id: 2, status: "failed" },
   ]);
+  // The match is remembered, so the bounced one still counts as sent.
+  assert.equal(await statusOf("Göndərildi"), 2);
 });
 
 test("recheck interval grows with the email's age, from a minute to two hours", () => {

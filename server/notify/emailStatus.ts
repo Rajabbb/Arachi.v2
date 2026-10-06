@@ -67,6 +67,8 @@ async function dispatchOf(row: OutboxRow): Promise<number | null> {
      WHERE d.rfq_id = ? AND d.channel = 'email' AND lower(c.email) = lower(?) AND r.user_id = ?`,
     Number(rfq), row.recipient.trim(), row.user_id,
   );
+  // Remember the match, so the panel knows this dispatch's email was accepted.
+  if (found) await db().run("UPDATE outbox SET dispatch_id = ? WHERE id = ?", found.id, row.id);
   return found?.id ?? null;
 }
 
