@@ -7,7 +7,7 @@ Arachi platformasının AI ilə işləyən yeni versiyası. İstifadəçi AI age
 ## Stek
 
 - React 19 + TypeScript + Vite (interfeys)
-- Node + Anthropic SDK (agent serveri, Claude `claude-opus-5-5`)
+- Node agent serveri; AI provayderi seçilir: Claude (Anthropic SDK, `claude-opus-5-5`, defolt) və ya Google Gemini (Google GenAI SDK, `gemini-3.8-flash`)
 - Supabase (Postgres) verilənlər bazası; Supabase qurulmayıbsa yerli SQLite faylı
 - Resend ilə email göndərmə; açar yoxdursa email yalnız jurnala yazılır
 
@@ -15,13 +15,41 @@ Arachi platformasının AI ilə işləyən yeni versiyası. İstifadəçi AI age
 
 ```bash
 npm install
-cp .env.example .env   # ANTHROPIC_API_KEY dəyərini yazın
+cp .env.example .env   # AI_PROVIDER və uyğun açarı yazın (aşağıda "AI provayderi")
 npm run server         # agent serveri, http://localhost:8787
 npm run dev            # interfeys; /api sorğuları serverə yönləndirilir
 npm test               # alətlərin testləri (SQLite)
 npm run test:pg        # eyni testlər Postgres-də (PGlite, Supabase miqrasiyaları ilə)
 npm run migrate        # miqrasiyaları DATABASE_URL bazasına tətbiq edir
 ```
+
+## AI provayderi
+
+Agent iki AI xidməti ilə işləyə bilir. Seçim serverdəki `.env` faylında edilir, agentin bacardıqları (alətlər, fayl oxuma, söhbət tarixçəsi) hər ikisində eynidir:
+
+| `AI_PROVIDER` | Xidmət | Açar | Model (istəyə görə) |
+|---|---|---|---|
+| `anthropic` (defolt) | Claude | `ANTHROPIC_API_KEY` | `AGENT_MODEL`, defolt `claude-opus-5-5` |
+| `gemini` | Google Gemini | `GEMINI_API_KEY` | `GEMINI_MODEL`, defolt `gemini-3.8-flash` |
+
+### Gemini açarını almaq (Google AI Studio)
+
+1. [aistudio.google.com/apikey](https://aistudio.google.com/apikey) səhifəsini açın və Google hesabınızla daxil olun. İlk dəfədirsə, şərtləri qəbul edin: AI Studio sizin üçün avtomatik Google Cloud layihəsi yaradır.
+2. **Create API key** düyməsini basın (lazım olsa layihəni seçin) və yaranan açarı kopyalayın.
+3. `.env`-də yazın:
+   ```
+   AI_PROVIDER=gemini
+   GEMINI_API_KEY=<açar>
+   ```
+4. Serveri yenidən başladın (`npm run server`). Jurnalda `AI: gemini (gemini-3.8-flash)` görünməlidir.
+
+Pulsuz istifadə limitləri və qiymətlər dəyişə bilir, ona görə onları burada yazmırıq: rəsmi saytda yoxlayın ([ai.google.dev/gemini-api/docs/pricing](https://ai.google.dev/gemini-api/docs/pricing) və [rate limits](https://ai.google.dev/gemini-api/docs/rate-limits)). Xərcə nəzarət üçün Google Cloud Console-da büdcə xəbərdarlığı qurmaq tövsiyə olunur.
+
+Başqa Gemini modeli istəsəniz `GEMINI_MODEL`-ə rəsmi model siyahısındakı ([ai.google.dev/gemini-api/docs/models](https://ai.google.dev/gemini-api/docs/models)) adı yazın, məsələn daha ucuz `gemini-3.5-flash-lite`.
+
+Qeydlər:
+- Provayderi dəyişəndə açıq söhbət yenidən başlayır (iki xidmətin söhbət formatı fərqlidir). RFQ-lər, daşıyıcılar və digər məlumatlar bazada qalır.
+- Gemini şəkilləri (PNG, JPEG, WEBP), PDF-ləri, Excel/CSV və mətn fayllarını oxuyur. GIF Gemini-də dəstəklənmir, model bunu istifadəçiyə bildirir.
 
 ## Supabase və Resend
 
@@ -59,9 +87,10 @@ API açarı yalnız serverdə (`.env`) saxlanılır, brauzerə heç vaxt göndə
 - `shared/protocol.ts` — interfeys ilə server arasındakı sorğu/cavab tipləri
 - `server/` — agent serveri
   - `index.ts` — HTTP endpoint (`POST /api/chat`, `GET /api/health`)
-  - `agent/loop.ts` — tool-use dövrəsi: Claude-u çağırır, istədiyi alətləri işlədir, cavab hazır olana qədər təkrarlayır
+  - `agent/loop.ts` — tool-use dövrəsi: modeli çağırır, istədiyi alətləri işlədir, cavab hazır olana qədər təkrarlayır; provayderdən asılı deyil
+  - `agent/providers/` — AI provayderləri: `types.ts` ümumi interfeys, `anthropic.ts` (Claude), `gemini.ts` (Google Gemini), `index.ts` `AI_PROVIDER`-ə görə seçim
   - `agent/prompt.ts` — sistem təlimatı
-  - `agent/files.ts` — əlavə olunmuş faylları Claude-un oxuya biləcəyi formaya salır (şəkil, PDF, mətn/CSV/JSON)
+  - `agent/files.ts` — əlavə olunmuş faylları modelin oxuya biləcəyi ümumi formaya salır (şəkil, PDF, Excel, mətn/CSV/JSON); hər provayder onu öz formatına çevirir
   - `agent/tools/registry.ts` — alətlər reyestri və "standart parametrlər + istifadəçinin dəyişiklikləri" məntiqi
   - `agent/tools/index.ts` — bütün alətlərin qeydiyyatı
   - `agent/tools/*.ts` — arachi.co prosesləri (aşağıdakı cədvəl), hər birinin yanında `*.test.ts`

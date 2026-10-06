@@ -1,11 +1,8 @@
-import type Anthropic from "@anthropic-ai/sdk";
 import ExcelJS from "exceljs";
 import type { UploadedFile } from "../../shared/protocol";
 
-type Block = Anthropic.Beta.BetaContentBlockParam;
-
 const imageTypes = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const;
-type ImageType = (typeof imageTypes)[number];
+export type ImageType = (typeof imageTypes)[number];
 
 const textExtensions = [
   ".txt", ".md", ".csv", ".tsv", ".json", ".xml", ".html", ".htm",
@@ -58,62 +55,46 @@ function csvCell(text: string): string {
   return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
 }
 
-/** Turns one uploaded file into a content block Claude can read. */
-export async function fileToBlock(file: UploadedFile): Promise<Block> {
+/**
+ * An uploaded file in a form every model provider can send: images and PDFs
+ * as base64, everything readable as text, and a note for unsupported formats.
+ */
+export type Attachment =
+  | { kind: "image"; name: string; mimeType: ImageType; data: string }
+  | { kind: "pdf"; name: string; data: string }
+  | { kind: "text"; name: string; text: string }
+  | { kind: "note"; text: string };
+
+/** Turns one uploaded file into an attachment the model can read. */
+export async function toAttachment(file: UploadedFile): Promise<Attachment> {
   if (isSpreadsheet(file)) {
     try {
       const sheets = await readSpreadsheet(file);
       const data = sheets
         .map((s) => `# ${s.sheet}\n` + s.rows.map((r) => r.map(csvCell).join(",")).join("\n"))
         .join("\n\n");
-      return {
-        type: "document",
-        title: file.name,
-        source: { type: "text", media_type: "text/plain", data: data || "(boş cədvəl)" },
-      };
+      return { kind: "text", name: file.name, text: data || "(boş cədvəl)" };
     } catch {
-      return { type: "text", text: `[Attached file "${file.name}" could not be read as an Excel workbook.]` };
+      return { kind: "note", text: `[Attached file "${file.name}" could not be read as an Excel workbook.]` };
     }
   }
 
   if ((imageTypes as readonly string[]).includes(file.type)) {
-    return {
-      type: "image",
-      source: { type: "base64", media_type: file.type as ImageType, data: file.data },
-    };
+    return { kind: "image", name: file.name, mimeType: file.type as ImageType, data: file.data };
   }
 
   if (file.type === "application/pdf") {
-    return {
-      type: "document",
-      title: file.name,
-      source: { type: "base64", media_type: "application/pdf", data: file.data },
-    };
+    return { kind: "pdf", name: file.name, data: file.data };
   }
 
   if (isText(file)) {
-    return {
-      type: "document",
-      title: file.name,
-      source: {
-        type: "text",
-        media_type: "text/plain",
-        data: Buffer.from(file.data, "base64").toString("utf8"),
-      },
-    };
+    return { kind: "text", name: file.name, text: Buffer.from(file.data, "base64").toString("utf8") };
   }
 
   // Unsupported formats (docx, xls, ...) still reach the model by name so it
   // can tell the user, rather than the file silently disappearing.
   return {
-    type: "text",
+    kind: "note",
     text: `[Attached file "${file.name}" (${file.type || "unknown type"}) cannot be read yet: this format is not supported.]`,
   };
-}
-
-/** Builds the content of a user turn: files first, then the text. */
-export async function userContent(text: string, files: UploadedFile[]): Promise<Block[]> {
-  const blocks = await Promise.all(files.map(fileToBlock));
-  if (text.trim()) blocks.push({ type: "text", text });
-  return blocks;
 }

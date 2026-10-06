@@ -1,5 +1,5 @@
-import type Anthropic from "@anthropic-ai/sdk";
 import type { Download, UploadedFile } from "../../../shared/protocol";
+import type { ToolDefinition } from "../providers/types";
 
 /**
  * One parameter of an agent tool. A parameter with a `default` is optional:
@@ -55,8 +55,8 @@ export class ToolRegistry {
     return this;
   }
 
-  /** Tool definitions for the Claude API, in registration order. */
-  definitions(): Anthropic.Beta.BetaTool[] {
+  /** Provider-neutral tool definitions, in registration order. */
+  definitions(): ToolDefinition[] {
     return [...this.tools.values()].map(toDefinition);
   }
 
@@ -97,7 +97,7 @@ function failure(
   return { params, overrides, ok: false, content: `Error: ${message}` };
 }
 
-function toDefinition(tool: AgentTool): Anthropic.Beta.BetaTool {
+function toDefinition(tool: AgentTool): ToolDefinition {
   const properties: Record<string, unknown> = {};
   const required: string[] = [];
 
@@ -120,7 +120,7 @@ function toDefinition(tool: AgentTool): Anthropic.Beta.BetaTool {
   return {
     name: tool.name,
     description: tool.description,
-    input_schema: {
+    parameters: {
       type: "object",
       properties,
       required,

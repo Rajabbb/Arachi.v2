@@ -1,10 +1,10 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import Anthropic from "@anthropic-ai/sdk";
 import type { ChatError, ChatRequest } from "../shared/protocol";
 import { config } from "./config";
 import { openDatabase } from "./db";
 import { sendsForReal } from "./notify";
 import { AgentError, runTurn } from "./agent/loop";
+import { provider } from "./agent/providers";
 import { HttpError, readJson, send } from "./http";
 import { handleQuote } from "./routes/quote";
 import { handleFile } from "./routes/files";
@@ -30,11 +30,7 @@ function parseChatRequest(body: unknown): ChatRequest {
 
 async function handleChat(req: IncomingMessage, res: ServerResponse) {
   const { transcript, message } = parseChatRequest(await readJson(req));
-  const result = await runTurn(
-    transcript as Anthropic.Beta.BetaMessageParam[],
-    message.text,
-    message.files,
-  );
+  const result = await runTurn(transcript, message.text, message.files);
   send(res, 200, result);
 }
 
@@ -45,20 +41,9 @@ function toError(err: unknown): { status: number; body: ChatError } {
   if (err instanceof AgentError) {
     return { status: 400, body: { error: err.message } };
   }
-  if (err instanceof Anthropic.AuthenticationError) {
-    return {
-      status: 500,
-      body: { error: "Serverdə ANTHROPIC_API_KEY qurulmayıb və ya etibarsızdır." },
-    };
-  }
-  if (err instanceof Anthropic.RateLimitError) {
-    return { status: 429, body: { error: "Hazırda sorğu limiti dolub, bir az sonra yenidən cəhd edin." } };
-  }
-  if (err instanceof Anthropic.BadRequestError) {
-    return { status: 400, body: { error: `AI sorğunu qəbul etmədi: ${err.message}` } };
-  }
-  if (err instanceof Anthropic.APIError) {
-    return { status: 502, body: { error: "AI xidməti ilə əlaqədə xəta baş verdi." } };
+  const described = provider().describeError(err);
+  if (described) {
+    return { status: described.status, body: { error: described.message } };
   }
   return { status: 500, body: { error: "Serverdə gözlənilməz xəta baş verdi." } };
 }
@@ -99,8 +84,11 @@ try {
 console.log(sendsForReal("email") ? "Email: Resend" : "Email: log only (set RESEND_API_KEY and EMAIL_FROM to send)");
 
 server.listen(config.port, () => {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    console.warn("ANTHROPIC_API_KEY is not set; copy .env.example to .env and fill it in.");
+  const ai = provider();
+  console.log(`AI: ${ai.name} (${ai.model})`);
+  const key = ai.name === "gemini" ? "GEMINI_API_KEY" : "ANTHROPIC_API_KEY";
+  if (!process.env[key]) {
+    console.warn(`${key} is not set; copy .env.example to .env and fill it in.`);
   }
   console.log(`Agent server listening on http://localhost:${config.port}`);
 });
