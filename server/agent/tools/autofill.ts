@@ -1,5 +1,6 @@
 import type { AgentTool } from "./registry";
 import { addDays, currencies, insertRfq, transportTypes, type Currency } from "../../domain/rfqs";
+import { rfqPageUrl } from "../../domain/rfqOverview";
 
 /**
  * Process 2: AI auto-fill. The model reads the attached document (PDF,
@@ -156,6 +157,7 @@ export const autofillRfq: AgentTool = {
     if (missing.length > 0 || !p.create) {
       return { created: false, draft, missing, unreadable };
     }
-    return { created: true, rfq: await insertRfq(draft), unreadable };
+    const rfq = await insertRfq(draft);
+    return { created: true, rfq, page_url: rfqPageUrl(rfq.id), unreadable };
   },
 };

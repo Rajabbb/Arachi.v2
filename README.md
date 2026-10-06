@@ -134,7 +134,7 @@ API açarı yalnız serverdə (`.env`) saxlanılır, brauzerə heç vaxt göndə
   - `app.ts` — HTTP marşrutları (`/api/auth/*`, `/api/chat`, `/api/dashboard`, ...); `index.ts` serveri başladır
   - `links.ts` — daşıyıcı linkləri üçün imzalı tokenlər
   - `routes/` — daşıyıcı təklif səhifəsi API-si, fayl yükləmə, analitika
-- `src/pages/` — daşıyıcının təklif səhifəsi (`/quote/:token`), analitika paneli (`/panel`), giriş/qeydiyyat və şifrə bərpası (`/reset/:token`)
+- `src/pages/` — daşıyıcının təklif səhifəsi (`/quote/:token`), analitika paneli (`/panel`, sorğular siyahısı ilə), hər sorğunun ayrıca səhifəsi (`/panel/rfq/:id`), giriş/qeydiyyat və şifrə bərpası (`/reset/:token`)
 
 ## Proseslər (agent alətləri)
 
@@ -150,7 +150,7 @@ API açarı yalnız serverdə (`.env`) saxlanılır, brauzerə heç vaxt göndə
 | 8 | Xatırlatma | `send_reminders` | 24 saatdan bir, ən çox 3 dəfə, baxıb cavab verməyənlər də daxil |
 | 9 | Təklif tarixçəsi | `offer_history` | v1, v2, ... və dəyişiklik |
 | 10 | Rəsmi təklif PDF və ixrac | `create_customer_quote`, `export_rfqs` | Xidmət haqqı 10%, daşıyıcı adı gizli, 7 gün etibarlı; ixrac Excel |
-| 11 | Analitika paneli | `get_dashboard` + `/panel` səhifəsi | Son 30 gün |
+| 11 | Analitika paneli | `get_dashboard` + `/panel` səhifəsi və hər RFQ üçün `/panel/rfq/:id` | Son 30 gün |
 
 Hər mesaj `outbox` cədvəlinə yazılır. Email `RESEND_API_KEY` və `EMAIL_FROM` qurulubsa Resend ilə real göndərilir, qurulmayıbsa yalnız jurnala yazılır. WhatsApp/Telegram üçün `setProvider(...)` ilə provayder qoşmaq kifayətdir. Verilənlər `DATABASE_URL` qurulubsa Supabase-də, qurulmayıbsa `data/arachi.db` faylındadır (git-ə düşmür).
 

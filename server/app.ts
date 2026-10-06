@@ -9,6 +9,7 @@ import { handleDashboard } from "./routes/dashboard";
 import { handleResendWebhook } from "./routes/resendWebhook";
 import { handleAuth, requireUser } from "./routes/auth";
 import { asUser } from "./auth/current";
+import { handleRfqDetail, handleRfqList } from "./routes/rfqs";
 
 function parseChatRequest(body: unknown): ChatRequest {
   const b = body as Partial<ChatRequest> | null;
@@ -55,6 +56,7 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
     const quote = path.match(/^\/api\/quote\/([\w.-]+)$/);
     const file = path.match(/^\/api\/files\/([\w.-]+)$/);
     const auth = path.match(/^\/api\/auth\/(\w+)$/);
+    const rfq = path.match(/^\/api\/rfqs\/(\w+)$/);
     if (auth) {
       await handleAuth(req, res, auth[1]);
     } else if (req.method === "POST" && path === "/api/chat") {
@@ -69,6 +71,12 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
     } else if (req.method === "GET" && path === "/api/dashboard") {
       const user = await requireUser(req);
       await asUser(user.id, () => handleDashboard(req, res));
+    } else if (req.method === "GET" && path === "/api/rfqs") {
+      const user = await requireUser(req);
+      await asUser(user.id, () => handleRfqList(res));
+    } else if (req.method === "GET" && rfq) {
+      const user = await requireUser(req);
+      await asUser(user.id, () => handleRfqDetail(res, rfq[1]));
     } else if (file && req.method === "GET") {
       await handleFile(res, file[1]);
     } else {
