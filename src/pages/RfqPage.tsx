@@ -194,7 +194,7 @@ export default function RfqPage({ user, id }: { user: User; id: number }) {
                       {data.carriers.map((c) => (
                         <tr key={c.carrier_id}>
                           <td>
-                            {c.name}
+                            <a href={`/panel/carrier/${c.carrier_id}`}>{c.name}</a>
                             {c.email && <div className="muted small">{c.email}</div>}
                           </td>
                           <td>{channelLabels[c.channel] ?? c.channel}</td>

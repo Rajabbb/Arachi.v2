@@ -270,3 +270,46 @@ export interface RfqDetailData {
   /** True when the offers are in more than one currency, so "cheapest" compares within the RFQ currency only. */
   mixedCurrencies: boolean;
 }
+
+/** GET /api/carriers — one carrier of the signed-in user, with how it has worked with their RFQs. */
+export interface CarrierListItem {
+  id: number;
+  name: string;
+  email: string | null;
+  /** Quru | Dəniz | Hava | Dəmiryolu */
+  category: string;
+  /** Free text, e.g. "Türkiyə xətti" or "Avropa". */
+  subcategory: string;
+  active: boolean;
+  /** RFQs sent to this carrier. */
+  rfqsSent: number;
+  /** RFQs it sent at least one offer for. */
+  rfqsAnswered: number;
+  /** Answered out of sent, in percent; null when nothing was sent yet. */
+  responseRate: number | null;
+  /** RFQs whose winner is this carrier's offer. */
+  rfqsWon: number;
+  /** Sends that were not delivered (e.g. bounced). */
+  failedDeliveries: number;
+  /** Its newest offer (latest version), on any RFQ. */
+  lastOffer: { rfq_id: number; price: number; currency: string; transit_days: number; created_at: string } | null;
+  /** Newest send, view or offer; null when it has none. */
+  lastActivity: string | null;
+}
+
+export interface CarrierListData {
+  carriers: CarrierListItem[];
+}
+
+/** GET /api/carriers/:id — one carrier's page: contacts and its RFQ history. */
+export interface CarrierDetailData {
+  carrier: CarrierListItem & { phone: string; whatsapp: string; telegram: string; language: string; created_at: string };
+  /** Every RFQ sent to it or answered by it, newest first. */
+  rfqs: {
+    rfq: Omit<RfqListItem, "offers">;
+    /** How the RFQ reached it; null when only an offer was entered by hand. */
+    dispatch: RfqDetailData["carriers"][number] | null;
+    /** Its offers for the RFQ (latest versions, with earlier ones), marked against all offers of the RFQ. */
+    offers: RfqDetailData["offers"];
+  }[];
+}
