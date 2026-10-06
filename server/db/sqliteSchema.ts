@@ -162,4 +162,31 @@ export const migrations: string[] = [
   ALTER TABLE outbox ADD COLUMN status_checked_at TEXT;
   CREATE INDEX outbox_provider_id ON outbox (provider_id);
   `,
+
+  // 10: several separate offers per carrier and RFQ (offer_no), each with its own versions.
+  // SQLite cannot drop a UNIQUE constraint, so the table is rebuilt with the same ids.
+  `
+  CREATE TABLE offers_new (
+    id INTEGER PRIMARY KEY,
+    rfq_id INTEGER NOT NULL REFERENCES rfqs (id),
+    carrier_id INTEGER NOT NULL REFERENCES carriers (id),
+    dispatch_id INTEGER REFERENCES dispatches (id),
+    offer_no INTEGER NOT NULL DEFAULT 1,
+    version INTEGER NOT NULL,
+    price REAL NOT NULL,
+    currency TEXT NOT NULL,
+    transit_days INTEGER NOT NULL,
+    valid_until TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    source TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE (rfq_id, carrier_id, offer_no, version)
+  );
+  INSERT INTO offers_new (id, rfq_id, carrier_id, dispatch_id, offer_no, version, price, currency, transit_days,
+    valid_until, notes, source, created_at)
+  SELECT id, rfq_id, carrier_id, dispatch_id, 1, version, price, currency, transit_days,
+    valid_until, notes, source, created_at FROM offers;
+  DROP TABLE offers;
+  ALTER TABLE offers_new RENAME TO offers;
+  `,
 ];

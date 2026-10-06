@@ -50,17 +50,30 @@ export function openSqlite(path: string): Driver {
   return driver;
 }
 
+/**
+ * Applies pending migrations. Foreign keys are off meanwhile, so a migration
+ * can rebuild a table others point to (SQLite's documented way to change a
+ * constraint); every reference is checked before each commit.
+ */
 function migrate(database: DatabaseSync) {
   const { user_version: version } = database.prepare("PRAGMA user_version").get() as { user_version: number };
-  for (let i = version; i < migrations.length; i++) {
-    database.exec("BEGIN");
-    try {
-      database.exec(migrations[i]);
-      database.exec(`PRAGMA user_version = ${i + 1}`);
-      database.exec("COMMIT");
-    } catch (err) {
-      database.exec("ROLLBACK");
-      throw err;
+  if (version >= migrations.length) return;
+  database.exec("PRAGMA foreign_keys = OFF");
+  try {
+    for (let i = version; i < migrations.length; i++) {
+      database.exec("BEGIN");
+      try {
+        database.exec(migrations[i]);
+        const broken = database.prepare("PRAGMA foreign_key_check").all();
+        if (broken.length) throw new Error(`Migration ${i + 1} broke ${broken.length} foreign key reference(s).`);
+        database.exec(`PRAGMA user_version = ${i + 1}`);
+        database.exec("COMMIT");
+      } catch (err) {
+        database.exec("ROLLBACK");
+        throw err;
+      }
     }
+  } finally {
+    database.exec("PRAGMA foreign_keys = ON");
   }
 }

@@ -3,6 +3,7 @@ import type { RfqDetailData } from "../../shared/protocol";
 import UserMenu from "../components/UserMenu";
 import { getJson, money } from "../lib/api";
 import type { User } from "../lib/auth";
+import { offerTag } from "../lib/offers";
 
 const channelLabels: Record<string, string> = {
   email: "E-poçt",
@@ -88,7 +89,7 @@ export default function RfqPage({ user, id }: { user: User; id: number }) {
                 <h3>Qalib</h3>
                 <p>
                   <strong>{winner.carrier}</strong> · {money(winner.price, winner.currency)} · {winner.transit_days} gün
-                  <span className="muted"> · v{winner.version}</span>
+                  <span className="muted"> · {offerTag(winner)}</span>
                   {rfq.awarded_at && <span className="muted"> · seçilib {date(rfq.awarded_at)}</span>}
                 </p>
               </section>
@@ -123,7 +124,7 @@ export default function RfqPage({ user, id }: { user: User; id: number }) {
                           <Fragment key={o.id}>
                             <tr className={o.winner ? "row-winner" : undefined}>
                               <td>
-                                {o.carrier} <span className="muted">v{o.version}</span>
+                                {o.carrier} <span className="muted">{offerTag(o)}</span>
                                 {o.winner && <span className="winner"> ✓ qalib</span>}
                               </td>
                               <td className="num">

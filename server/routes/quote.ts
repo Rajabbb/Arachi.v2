@@ -3,7 +3,7 @@ import type { QuotePageData, QuoteSubmission } from "../../shared/protocol";
 import { getCarrier } from "../domain/carriers";
 import { dispatchFromToken, findDispatch, markViewed, statusLabels, type Dispatch } from "../domain/dispatches";
 import { filesOf } from "../domain/files";
-import { offerVersions, submitOffer } from "../domain/offers";
+import { groupByOffer, offerVersions, submitOffer } from "../domain/offers";
 import { getRfq } from "../domain/rfqs";
 import { HttpError, readJson, send } from "../http";
 import { asUser } from "../auth/current";
@@ -38,6 +38,7 @@ async function respond(req: IncomingMessage, res: ServerResponse, dispatch: Disp
         notes: body.notes ?? "",
         source: "link",
         files: body.files ?? [],
+        offerNo: body.offer_no || undefined,
       });
     } catch (err) {
       throw new HttpError(400, err instanceof Error ? err.message : String(err));
@@ -52,8 +53,10 @@ export async function pageData(dispatch: Dispatch): Promise<QuotePageData> {
   const carrier = await getCarrier(dispatch.carrier_id);
   // Re-read so the page shows the status after this request's update.
   const fresh = (await findDispatch(dispatch.id)) ?? dispatch;
-  const offers = await offerVersions(rfq.id, carrier.id);
-  const documents = await Promise.all(offers.map((o) => filesOf("offer", o.id)));
+  const versions = await offerVersions(rfq.id, carrier.id);
+  const documents = new Map(
+    await Promise.all(versions.map(async (o) => [o.id, await filesOf("offer", o.id)] as const)),
+  );
   return {
     rfq: {
       id: rfq.id,
@@ -74,15 +77,18 @@ export async function pageData(dispatch: Dispatch): Promise<QuotePageData> {
     carrier: { name: carrier.name, language: carrier.language },
     status: statusLabels[fresh.status],
     statusCode: fresh.status,
-    offers: offers.map((o, i) => ({
-      version: o.version,
-      price: o.price,
-      currency: o.currency,
-      transit_days: o.transit_days,
-      valid_until: o.valid_until,
-      notes: o.notes,
-      created_at: o.created_at,
-      documents: documents[i].map(({ name, url }) => ({ name, url })),
+    offers: groupByOffer(versions).map((g) => ({
+      offer_no: g.offer_no,
+      versions: g.versions.map((o) => ({
+        version: o.version,
+        price: o.price,
+        currency: o.currency,
+        transit_days: o.transit_days,
+        valid_until: o.valid_until,
+        notes: o.notes,
+        created_at: o.created_at,
+        documents: documents.get(o.id)!.map(({ name, url }) => ({ name, url })),
+      })),
     })),
   };
 }
@@ -97,6 +103,7 @@ function parseSubmission(body: unknown): QuoteSubmission {
     typeof b.transit_days === "number" &&
     (b.valid_until === undefined || typeof b.valid_until === "string") &&
     (b.notes === undefined || typeof b.notes === "string") &&
+    (b.offer_no === undefined || (Number.isInteger(b.offer_no) && b.offer_no >= 0)) &&
     (b.files === undefined ||
       (Array.isArray(b.files) &&
         b.files.every((f) => typeof f?.name === "string" && typeof f.type === "string" && typeof f.data === "string")));

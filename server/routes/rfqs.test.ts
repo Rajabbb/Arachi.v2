@@ -34,11 +34,14 @@ async function signUp(email: string) {
   return { id, get };
 }
 
-const offer = (userId: number, carrierId: number, price: number, transitDays: number, currency = "USD", validUntil = "") =>
+/** A carrier's offer; offerNo updates that earlier offer (a new version) instead of adding one. */
+const offer = (
+  userId: number, carrierId: number, price: number, transitDays: number, currency = "USD", validUntil = "", offerNo = 0,
+) =>
   asUser(userId, () =>
     submitOffer({
       rfqId: 1, carrierId, dispatchId: null, price, currency, transitDays,
-      validUntil, notes: "", source: "manual", files: [],
+      validUntil, notes: "", source: "manual", files: [], offerNo,
     }),
   );
 
@@ -61,7 +64,7 @@ beforeEach(async () => {
 
 test("RFQ list shows counts and the best price in the RFQ currency", async () => {
   await offer(alice.id, 1, 1500, 5);
-  await offer(alice.id, 1, 1300, 5); // A revises: v2 counts
+  await offer(alice.id, 1, 1300, 5, "USD", "", 1); // A revises its offer: v2 counts
   await offer(alice.id, 2, 1400, 3);
   await offer(alice.id, 3, 1000, 7, "EUR"); // other currency: not compared without a rate
   await call("create_rfq", { origin: "Bakı", destination: "Minsk", cargo_type: "Meyvə", weight_kg: 900 }, undefined, alice.id);
@@ -87,7 +90,7 @@ test("RFQ list shows counts and the best price in the RFQ currency", async () =>
 
 test("RFQ page: carriers with status, offers with versions, cheapest, fastest and winner", async () => {
   await offer(alice.id, 1, 1500, 5, "USD", "2000-01-01");
-  await offer(alice.id, 1, 1300, 5);
+  await offer(alice.id, 1, 1300, 5, "USD", "", 1);
   await offer(alice.id, 2, 1400, 3);
   await db().run("UPDATE dispatches SET status = 'failed', error = 'Bounced: mailbox does not exist' WHERE carrier_id = 3");
   await db().run("UPDATE dispatches SET reminder_count = 2, last_reminder_at = '2026-10-05T10:00:00.000Z' WHERE carrier_id = 2");
@@ -115,6 +118,31 @@ test("RFQ page: carriers with status, offers with versions, cheapest, fastest an
   assert.equal(b.fastest, true);
   assert.equal(b.winner, true);
   assert.equal(body.mixedCurrencies, false);
+});
+
+test("a carrier's separate offers are compared one by one, each with its own versions", async () => {
+  await offer(alice.id, 1, 1500, 5);
+  await offer(alice.id, 1, 1200, 9); // A's second offer: slower but cheaper
+  await offer(alice.id, 1, 1450, 5, "USD", "", 1); // A updates its first offer
+  await offer(alice.id, 2, 1400, 3);
+
+  const list = (await alice.get<RfqListData>("/api/rfqs")).body.rfqs[0];
+  assert.equal(list.carriersResponded, 2);
+  assert.deepEqual(
+    list.offers.map((o) => [o.carrier, o.offer_no, o.carrier_offers, o.version, o.price, o.cheapest]),
+    [["A", 2, 2, 1, 1200, true], ["B", 1, 1, 1, 1400, false], ["A", 1, 2, 2, 1450, false]],
+  );
+
+  const detail = (await alice.get<RfqDetailData>("/api/rfqs/1")).body;
+  const a1 = detail.offers.find((o) => o.carrier === "A" && o.offer_no === 1)!;
+  const a2 = detail.offers.find((o) => o.carrier === "A" && o.offer_no === 2)!;
+  assert.deepEqual(a1.previous.map((p) => [p.version, p.price]), [[1, 1500]]);
+  assert.deepEqual(a2.previous, []);
+
+  // The winner is one specific offer; the carrier's other offer is not marked.
+  await call("select_winner", { rfq_id: 1, offer_id: a2.id, notify_winner: false }, undefined, alice.id);
+  const after = (await alice.get<RfqDetailData>("/api/rfqs/1")).body;
+  assert.deepEqual(after.offers.filter((o) => o.winner).map((o) => [o.carrier, o.offer_no]), [["A", 2]]);
 });
 
 test("another user's RFQ is not found and not listed", async () => {

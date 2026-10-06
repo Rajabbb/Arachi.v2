@@ -231,10 +231,10 @@ export const exportRfqs: AgentTool = {
         r.dispatches.length, r.offers.length, cheapest ? `${cheapest.price} ${cheapest.currency}` : "",
       ];
     };
-    const offerHeader = ["RFQ", "Daşıyıcı", "Versiya", "Qiymət", "Valyuta", "Tranzit (gün)", "Etibarlıdır", "Qeydlər", "Qalib"];
+    const offerHeader = ["RFQ", "Daşıyıcı", "Təklif / versiya", "Qiymət", "Valyuta", "Tranzit (gün)", "Etibarlıdır", "Qeydlər", "Qalib"];
     const offerRows = rows.flatMap((r) =>
       r.offers.map((o) => [
-        `#${r.rfq.id}`, o.carrier_name, `v${o.version}`, o.price, o.currency, o.transit_days, o.valid_until, o.notes,
+        `#${r.rfq.id}`, o.carrier_name, `№${o.offer_no} v${o.version}`, o.price, o.currency, o.transit_days, o.valid_until, o.notes,
         r.rfq.awarded_offer_id === o.id ? "✓" : "",
       ]),
     );

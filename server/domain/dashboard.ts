@@ -21,7 +21,8 @@ export async function dashboard(periodDays: number): Promise<DashboardData> {
   );
   const carriers = (await one<{ n: number }>("SELECT count(*) AS n FROM carriers WHERE active = 1 AND user_id = ?", user)).n;
   const offers = (await one<{ n: number }>(
-    "SELECT count(*) AS n FROM offers o JOIN rfqs r ON r.id = o.rfq_id WHERE o.created_at >= ? AND r.user_id = ?",
+    // Separate offers received, not their updates (a new version is the same offer).
+    "SELECT count(*) AS n FROM offers o JOIN rfqs r ON r.id = o.rfq_id WHERE o.version = 1 AND o.created_at >= ? AND r.user_id = ?",
     since, user,
   )).n;
 
@@ -54,7 +55,9 @@ export async function dashboard(periodDays: number): Promise<DashboardData> {
   );
 
   const recent = await db().all<DashboardData["recentOffers"][number]>(
-    `SELECT o.id, o.rfq_id, r.origin, r.destination, c.name AS carrier, o.version, o.price, o.currency,
+    `SELECT o.id, o.rfq_id, r.origin, r.destination, c.name AS carrier, o.offer_no,
+            (SELECT max(x.offer_no) FROM offers x WHERE x.rfq_id = o.rfq_id AND x.carrier_id = o.carrier_id) AS carrier_offers,
+            o.version, o.price, o.currency,
             o.transit_days, o.created_at, r.awarded_offer_id IS NOT NULL AND r.awarded_offer_id = o.id AS winner
      FROM offers o JOIN rfqs r ON r.id = o.rfq_id JOIN carriers c ON c.id = o.carrier_id
      WHERE r.user_id = ? ORDER BY o.id DESC LIMIT 10`,

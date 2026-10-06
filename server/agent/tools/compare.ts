@@ -90,7 +90,7 @@ export async function rankOffers(rfq: Rfq, criterion: Criterion, priceWeight: nu
 export const compareOffers: AgentTool = {
   name: "compare_offers",
   description:
-    "Compares the latest offers for an RFQ side by side (price, transit time, validity, terms) and ranks them. Use it before picking a winner.",
+    "Compares the latest version of every offer for an RFQ side by side (price, transit time, validity, terms) and ranks them; a carrier may have several separate offers. Use it before picking a winner.",
   params: { rfq_id: { type: "integer", description: "RFQ number." }, ...rankingParams },
   async run(p) {
     const rfq = await getRfq(p.rfq_id as number);
@@ -106,6 +106,7 @@ export const compareOffers: AgentTool = {
         offer_id: o.id,
         carrier_id: o.carrier_id,
         carrier: o.carrier_name,
+        offer_no: o.offer_no,
         version: o.version,
         price: o.price,
         currency: o.currency,
@@ -173,12 +174,18 @@ export const selectWinner: AgentTool = {
 
     if (p.notify_winner) await notify(winner, true);
     if (p.notify_others) {
-      for (const o of await latestOffers(rfq.id)) if (o.carrier_id !== winner.carrier_id) await notify(o, false);
+      // One message per carrier, however many offers it sent.
+      const told = new Set([winner.carrier_id]);
+      for (const o of await latestOffers(rfq.id)) {
+        if (told.has(o.carrier_id)) continue;
+        told.add(o.carrier_id);
+        await notify(o, false);
+      }
     }
     return {
       rfq: rfqTitle(rfq),
       status: "awarded",
-      winner: { offer_id: winner.id, carrier: (await getCarrier(winner.carrier_id)).name, price: winner.price, currency: winner.currency, transit_days: winner.transit_days, version: winner.version },
+      winner: { offer_id: winner.id, carrier: (await getCarrier(winner.carrier_id)).name, price: winner.price, currency: winner.currency, transit_days: winner.transit_days, offer_no: winner.offer_no, version: winner.version },
       notified,
       note: logOnlyNote(notified.map((n) => n.channel)),
     };

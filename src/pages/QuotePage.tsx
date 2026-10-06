@@ -1,8 +1,11 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import type { ChatError, QuotePageData, QuoteSubmission } from "../../shared/protocol";
 import { formatSize, toUploadedFile } from "../lib/agent";
 
 type Lang = "az" | "en";
+type CarrierOffer = QuotePageData["offers"][number];
+
+const latestOf = (o: CarrierOffer) => o.versions[o.versions.length - 1];
 
 const t = {
   az: {
@@ -28,11 +31,21 @@ const t = {
     docs: "Sənədlər",
     addDocs: "Sənəd əlavə et",
     submit: "Təklifi göndər",
-    revise: "Yeni versiya göndər",
+    submitNew: "Yeni təklif göndər",
+    update: (n: number, v: number) => `Təklif №${n}-i yenilə (v${v})`,
+    mode: "Nə etmək istəyirsiniz?",
+    modeNew: "Yeni, ayrıca təklif göndərmək",
+    modeUpdate: (n: number, summary: string) => `Təklif №${n}-i yeniləmək (${summary})`,
+    modeHint: "Əvvəlki təklifi yeniləsəniz, o təklifin yeni versiyası yaranır. Yeni təklif isə ayrıca təklif kimi qəbul edilir.",
+    updateThis: "Bu təklifi yenilə",
     sending: "Göndərilir...",
     sent: "Təklifiniz qəbul edildi. Təşəkkür edirik!",
+    updated: (n: number, v: number) => `Təklif №${n} yeniləndi (v${v}). Təşəkkür edirik!`,
     closed: "Bu sorğu üzrə təkliflər artıq qəbul edilmir.",
     history: "Göndərdiyiniz təkliflər",
+    offer: (n: number) => `Təklif №${n}`,
+    current: "cari",
+    previous: "əvvəlki versiyalar",
     days: "gün",
     kg: "kq",
     error: "Xəta",
@@ -60,11 +73,21 @@ const t = {
     docs: "Documents",
     addDocs: "Add documents",
     submit: "Send offer",
-    revise: "Send a new version",
+    submitNew: "Send a new offer",
+    update: (n: number, v: number) => `Update offer #${n} (v${v})`,
+    mode: "What would you like to do?",
+    modeNew: "Send a new, separate offer",
+    modeUpdate: (n: number, summary: string) => `Update offer #${n} (${summary})`,
+    modeHint: "Updating an earlier offer adds a new version of it. A new offer is received as a separate offer.",
+    updateThis: "Update this offer",
     sending: "Sending...",
     sent: "Your offer has been received. Thank you!",
+    updated: (n: number, v: number) => `Offer #${n} updated (v${v}). Thank you!`,
     closed: "This request is no longer accepting offers.",
     history: "Your offers",
+    offer: (n: number) => `Offer #${n}`,
+    current: "current",
+    previous: "earlier versions",
     days: "days",
     kg: "kg",
     error: "Error",
@@ -96,7 +119,10 @@ export default function QuotePage({ token }: { token: string }) {
   const [lang, setLang] = useState<Lang>("az");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState("");
+  /** The offer being updated; 0 = a new, separate offer. */
+  const [offerNo, setOfferNo] = useState(0);
+  const formRef = useRef<HTMLFormElement>(null);
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [transit, setTransit] = useState("");
@@ -116,6 +142,23 @@ export default function QuotePage({ token }: { token: string }) {
 
   const s = t[lang];
 
+  function fillForm(o: CarrierOffer["versions"][number] | null) {
+    setPrice(o ? String(o.price) : "");
+    setCurrency(o ? o.currency : (data?.rfq.currency ?? "USD"));
+    setTransit(o ? String(o.transit_days) : "");
+    setValidUntil(o ? o.valid_until : "");
+    setNotes(o ? o.notes : "");
+    setFiles([]);
+  }
+
+  /** Switches between a new offer and updating one; an update starts from that offer's latest values. */
+  function chooseOffer(n: number) {
+    setOfferNo(n);
+    setDone("");
+    const offer = data?.offers.find((o) => o.offer_no === n);
+    fillForm(offer ? latestOf(offer) : null);
+  }
+
   async function submit(e: FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -128,10 +171,13 @@ export default function QuotePage({ token }: { token: string }) {
         valid_until: validUntil,
         notes,
         files: await Promise.all(files.map(toUploadedFile)),
+        offer_no: offerNo,
       });
       setData(d);
-      setDone(true);
-      setFiles([]);
+      const updated = d.offers.find((o) => o.offer_no === offerNo);
+      setDone(updated ? s.updated(offerNo, latestOf(updated).version) : s.sent);
+      setOfferNo(0);
+      fillForm(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -140,6 +186,10 @@ export default function QuotePage({ token }: { token: string }) {
   }
 
   const rfq = data?.rfq;
+  const chosen = data?.offers.find((o) => o.offer_no === offerNo);
+  const submitLabel = chosen
+    ? s.update(chosen.offer_no, latestOf(chosen).version + 1)
+    : data?.offers.length ? s.submitNew : s.submit;
   const rows: [string, string][] = rfq
     ? [
         [s.route, `${rfq.origin} → ${rfq.destination}`],
@@ -186,10 +236,27 @@ export default function QuotePage({ token }: { token: string }) {
               ))}
             </dl>
 
-            {done && <p className="success">{s.sent}</p>}
+            {done && <p className="success">{done}</p>}
 
             {rfq.open ? (
-              <form className="card form" onSubmit={submit}>
+              <form className="card form" onSubmit={submit} ref={formRef}>
+                {data!.offers.length > 0 && (
+                  <label>
+                    {s.mode}
+                    <select value={offerNo} onChange={(e) => chooseOffer(Number(e.target.value))}>
+                      <option value={0}>{s.modeNew}</option>
+                      {data!.offers.map((o) => {
+                        const v = latestOf(o);
+                        return (
+                          <option key={o.offer_no} value={o.offer_no}>
+                            {s.modeUpdate(o.offer_no, `${v.price} ${v.currency}, ${v.transit_days} ${s.days}, v${v.version}`)}
+                          </option>
+                        );
+                      })}
+                    </select>
+                    <span className="small">{s.modeHint}</span>
+                  </label>
+                )}
                 <div className="form-row">
                   <label>
                     {s.price}
@@ -229,7 +296,7 @@ export default function QuotePage({ token }: { token: string }) {
                   </ul>
                 )}
                 <button type="submit" className="send-button" disabled={busy}>
-                  {busy ? s.sending : data!.offers.length ? s.revise : s.submit}
+                  {busy ? s.sending : submitLabel}
                 </button>
               </form>
             ) : (
@@ -240,22 +307,62 @@ export default function QuotePage({ token }: { token: string }) {
               <section className="card">
                 <h3>{s.history}</h3>
                 <ul className="history">
-                  {[...data!.offers].reverse().map((o) => (
-                    <li key={o.version}>
-                      <strong>v{o.version}</strong> · {o.price} {o.currency} · {o.transit_days} {s.days}
-                      {o.valid_until && ` · ${s.valid}: ${o.valid_until}`}
-                      {o.notes && <div className="muted">{o.notes}</div>}
-                      {o.documents.map((d) => (
-                        <a key={d.url} className="chip" href={d.url}>📎 {d.name}</a>
-                      ))}
-                    </li>
-                  ))}
+                  {[...data!.offers].reverse().map((o) => {
+                    const versions = [...o.versions].reverse();
+                    const [latest, ...older] = versions;
+                    return (
+                      <li key={o.offer_no} className={o.offer_no === offerNo ? "offer-chosen" : undefined}>
+                        <div className="offer-head">
+                          <strong>{s.offer(o.offer_no)}</strong>
+                          {rfq.open && o.offer_no !== offerNo && (
+                            <button
+                              type="button"
+                              className="link-button"
+                              onClick={() => {
+                                chooseOffer(o.offer_no);
+                                formRef.current?.scrollIntoView({ behavior: "smooth" });
+                              }}
+                            >
+                              {s.updateThis}
+                            </button>
+                          )}
+                        </div>
+                        <OfferVersion v={latest} s={s} label={`v${latest.version} · ${s.current}`} />
+                        {older.length > 0 && (
+                          <details>
+                            <summary className="muted small">{s.previous} ({older.length})</summary>
+                            {older.map((v) => (
+                              <OfferVersion key={v.version} v={v} s={s} label={`v${v.version}`} muted />
+                            ))}
+                          </details>
+                        )}
+                      </li>
+                    );
+                  })}
                 </ul>
               </section>
             )}
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+function OfferVersion({ v, s, label, muted }: {
+  v: CarrierOffer["versions"][number];
+  s: (typeof t)[Lang];
+  label: string;
+  muted?: boolean;
+}) {
+  return (
+    <div className={muted ? "offer-version muted" : "offer-version"}>
+      <strong>{label}</strong> · {v.price} {v.currency} · {v.transit_days} {s.days}
+      {v.valid_until && ` · ${s.valid}: ${v.valid_until}`}
+      {v.notes && <div className="muted">{v.notes}</div>}
+      {v.documents.map((d) => (
+        <a key={d.url} className="chip" href={d.url}>📎 {d.name}</a>
+      ))}
     </div>
   );
 }
