@@ -1,4 +1,5 @@
 import { db, now } from "../db";
+import { currentUserId } from "../auth/current";
 
 export const carrierCategories = ["Quru", "Dəniz", "Hava", "Dəmiryolu"] as const;
 
@@ -70,7 +71,7 @@ export async function upsertCarrier(
   };
 
   const existing = email
-    ? await db().get<{ id: number }>("SELECT id FROM carriers WHERE lower(email) = ?", email)
+    ? await db().get<{ id: number }>("SELECT id FROM carriers WHERE lower(email) = ? AND user_id = ?", email, currentUserId())
     : undefined;
 
   if (existing) {
@@ -85,22 +86,24 @@ export async function upsertCarrier(
   }
 
   const inserted = await db().get<{ id: number }>(
-    `INSERT INTO carriers (name, email, phone, whatsapp, telegram, category, subcategory, language, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+    `INSERT INTO carriers (name, email, phone, whatsapp, telegram, category, subcategory, language, created_at, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
     row.name, row.email, row.phone, row.whatsapp, row.telegram, row.category, row.subcategory, row.language, now(),
+    currentUserId(),
   );
   return { outcome: "added", carrier: await getCarrier(inserted!.id) };
 }
 
+/** The current user's carrier; another user's carrier is "not found". */
 export async function getCarrier(id: number): Promise<Carrier> {
-  const carrier = await db().get<Carrier>("SELECT * FROM carriers WHERE id = ?", id);
+  const carrier = await db().get<Carrier>("SELECT * FROM carriers WHERE id = ? AND user_id = ?", id, currentUserId());
   if (!carrier) throw new Error(`Daşıyıcı #${id} tapılmadı.`);
   return carrier;
 }
 
 export async function findCarriers(filter: { category?: string; subcategory?: string; ids?: number[] }): Promise<Carrier[]> {
-  const where = ["active = 1"];
-  const args: (string | number)[] = [];
+  const where = ["active = 1", "user_id = ?"];
+  const args: (string | number)[] = [currentUserId()];
   if (filter.category) {
     where.push("category = ?");
     args.push(filter.category);

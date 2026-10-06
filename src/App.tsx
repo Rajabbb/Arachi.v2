@@ -3,6 +3,8 @@ import type { Message } from "./types";
 import { sendToAgent, toAttachment } from "./lib/agent";
 import MessageList from "./components/MessageList";
 import Composer from "./components/Composer";
+import UserMenu from "./components/UserMenu";
+import type { User } from "./lib/auth";
 
 const welcome: Message = {
   id: "welcome",
@@ -12,7 +14,7 @@ const welcome: Message = {
   createdAt: Date.now(),
 };
 
-export default function App() {
+export default function App({ user }: { user: User }) {
   const [messages, setMessages] = useState<Message[]>([welcome]);
   const [busy, setBusy] = useState(false);
   // Conversation state owned by the agent server; sent back unchanged each turn.
@@ -68,6 +70,7 @@ export default function App() {
           <a href="/" aria-current="page">Söhbət</a>
           <a href="/panel">Panel</a>
         </nav>
+        <UserMenu user={user} />
       </header>
       <MessageList messages={messages} busy={busy} />
       <Composer disabled={busy} onSend={handleSend} />

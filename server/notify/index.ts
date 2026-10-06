@@ -1,6 +1,7 @@
 import { config } from "../config";
 import { db, now } from "../db";
 import { resendProvider } from "./resend";
+import { maybeUserId } from "../auth/current";
 
 export const channels = ["email", "whatsapp", "telegram"] as const;
 export type Channel = (typeof channels)[number];
@@ -82,8 +83,8 @@ export async function deliver(message: OutgoingMessage): Promise<DeliveryResult>
     result = { delivered: false, error: err instanceof Error ? err.message : String(err) };
   }
   await db().run(
-    `INSERT INTO outbox (channel, recipient, subject, body, delivered, error, provider_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO outbox (channel, recipient, subject, body, delivered, error, provider_id, created_at, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     message.channel,
     message.to,
     message.subject,
@@ -92,6 +93,7 @@ export async function deliver(message: OutgoingMessage): Promise<DeliveryResult>
     result.error ?? null,
     result.providerId ?? null,
     now(),
+    maybeUserId(),
   );
   return result;
 }

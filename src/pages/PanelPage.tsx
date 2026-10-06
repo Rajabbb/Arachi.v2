@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ChatError, DashboardData } from "../../shared/protocol";
+import UserMenu from "../components/UserMenu";
+import type { User } from "../lib/auth";
 
 const periods = [7, 30, 90, 365];
 
@@ -13,7 +15,7 @@ function money(total: number, currency: string): string {
 }
 
 /** Analytics panel: the same numbers the get_dashboard tool reports. */
-export default function PanelPage() {
+export default function PanelPage({ user }: { user: User }) {
   const [days, setDays] = useState(initialDays);
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
@@ -22,6 +24,8 @@ export default function PanelPage() {
     history.replaceState(null, "", `/panel?days=${days}`);
     fetch(`/api/dashboard?days=${days}`)
       .then(async (res) => {
+        // Session expired: back to the login screen.
+        if (res.status === 401) window.location.reload();
         const body = (await res.json().catch(() => null)) as DashboardData | ChatError | null;
         if (!res.ok || !body || "error" in body) throw new Error(body && "error" in body ? body.error : "Serverlə əlaqə qurulmadı.");
         setData(body);
@@ -55,6 +59,7 @@ export default function PanelPage() {
           <a href="/">Söhbət</a>
           <a href="/panel" aria-current="page">Panel</a>
         </nav>
+        <UserMenu user={user} />
       </header>
       <main className="page-body">
         <div className="panel-head">

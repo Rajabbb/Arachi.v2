@@ -2,8 +2,12 @@ import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
 import type { Content, GenerateContentParameters, GenerateContentResponse } from "@google/genai";
 import { ApiError } from "@google/genai";
-import { freshDb } from "../../test/helpers";
-import { runTurn } from "../loop";
+import { asTestUser, freshDb } from "../../test/helpers";
+import { runTurn as runTurnUnscoped } from "../loop";
+
+// The agent always runs for a signed-in user.
+const runTurn = ((...args: Parameters<typeof runTurnUnscoped>) =>
+  asTestUser(() => runTurnUnscoped(...args))) as typeof runTurnUnscoped;
 import { GeminiProvider } from "./gemini";
 
 beforeEach(freshDb);

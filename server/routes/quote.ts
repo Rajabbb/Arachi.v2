@@ -6,6 +6,7 @@ import { filesOf } from "../domain/files";
 import { offerVersions, submitOffer } from "../domain/offers";
 import { getRfq } from "../domain/rfqs";
 import { HttpError, readJson, send } from "../http";
+import { asUser } from "../auth/current";
 
 /**
  * The carrier's quote page API. The signed token in the link is the only
@@ -13,8 +14,12 @@ import { HttpError, readJson, send } from "../http";
  */
 export async function handleQuote(req: IncomingMessage, res: ServerResponse, token: string) {
   const dispatch = await dispatchFromToken(token);
-  if (!dispatch) throw new HttpError(404, "Link etibarsızdır və ya vaxtı keçib.");
+  // An RFQ from before accounts that no user has taken over yet has no owner to act for.
+  if (!dispatch || dispatch.user_id === null) throw new HttpError(404, "Link etibarsızdır və ya vaxtı keçib.");
+  await asUser(dispatch.user_id, () => respond(req, res, dispatch));
+}
 
+async function respond(req: IncomingMessage, res: ServerResponse, dispatch: Dispatch) {
   if (req.method === "GET") {
     await markViewed(dispatch);
     return send(res, 200, await pageData(dispatch));

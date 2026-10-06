@@ -1,6 +1,7 @@
 import ExcelJS from "exceljs";
 import type { AgentTool, ToolContext } from "./registry";
 import { db, now } from "../../db";
+import { currentUserId } from "../../auth/current";
 import { getCarrier } from "../../domain/carriers";
 import { statusLabels, type DispatchStatus } from "../../domain/dispatches";
 import { fileUrl, storeFile } from "../../domain/files";
@@ -187,14 +188,14 @@ async function collect(rfqId: number, status: string): Promise<ExportRow[]> {
   const rfqs = rfqId
     ? [await getRfq(rfqId)]
     : await db().all<Rfq>(
-        `SELECT * FROM rfqs ${status === "all" ? "" : "WHERE status = ?"} ORDER BY id`,
-        ...(status === "all" ? [] : [status]),
+        `SELECT * FROM rfqs WHERE user_id = ? ${status === "all" ? "" : "AND status = ?"} ORDER BY id`,
+        currentUserId(), ...(status === "all" ? [] : [status]),
       );
   const rows: ExportRow[] = [];
   for (const rfq of rfqs) {
     const dispatches = await db().all<{ name: string; status: DispatchStatus }>(
-      "SELECT c.name, d.status FROM dispatches d JOIN carriers c ON c.id = d.carrier_id WHERE d.rfq_id = ? ORDER BY c.name, c.id",
-      rfq.id,
+      "SELECT c.name, d.status FROM dispatches d JOIN carriers c ON c.id = d.carrier_id WHERE d.rfq_id = ? AND c.user_id = ? ORDER BY c.name, c.id",
+      rfq.id, currentUserId(),
     );
     rows.push({
       rfq,

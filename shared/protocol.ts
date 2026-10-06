@@ -123,3 +123,8 @@ export interface DashboardData {
     winner: boolean;
   }[];
 }
+
+/** The signed-in user, from /api/auth/me, login, register and password reset. */
+export interface AuthResponse {
+  user: { id: number; email: string; name: string };
+}

@@ -1,4 +1,5 @@
 import { db, now } from "../db";
+import { currentUserId } from "../auth/current";
 
 export const transportTypes = ["Quru", "Dəniz", "Hava", "Dəmiryolu"] as const;
 export const currencies = ["USD", "EUR"] as const;
@@ -59,8 +60,8 @@ export async function insertRfq(input: NewRfq): Promise<Rfq> {
 
   const inserted = await db().get<{ id: number }>(
     `INSERT INTO rfqs (origin, destination, cargo_type, weight_kg, volume_m3, pallets,
-       transport_type, loading_date, delivery_date, currency, offer_deadline, notes, source, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
+       transport_type, loading_date, delivery_date, currency, offer_deadline, notes, source, created_at, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING id`,
     input.origin.trim(),
     input.destination.trim(),
     input.cargo_type.trim(),
@@ -75,12 +76,14 @@ export async function insertRfq(input: NewRfq): Promise<Rfq> {
     input.notes,
     input.source,
     now(),
+    currentUserId(),
   );
   return getRfq(inserted!.id);
 }
 
+/** The current user's RFQ; another user's RFQ is "not found". */
 export function findRfq(id: number): Promise<Rfq | undefined> {
-  return db().get<Rfq>("SELECT * FROM rfqs WHERE id = ?", id);
+  return db().get<Rfq>("SELECT * FROM rfqs WHERE id = ? AND user_id = ?", id, currentUserId());
 }
 
 export async function getRfq(id: number): Promise<Rfq> {

@@ -1,6 +1,7 @@
 import type { AgentTool } from "./registry";
 import { addDays, currencies, insertRfq, transportTypes, type Currency } from "../../domain/rfqs";
 import { db } from "../../db";
+import { currentUserId } from "../../auth/current";
 
 /** Process 1: create a freight request for quotation (RFQ). */
 export const createRfq: AgentTool = {
@@ -70,8 +71,8 @@ export const listRfqs: AgentTool = {
     limit: { type: "integer", description: "Maximum number of RFQs to return.", default: 20 },
   },
   async run({ status, limit }) {
-    const where = status === "all" ? "" : "WHERE status = ?";
+    const where = status === "all" ? "" : "AND status = ?";
     const args = status === "all" ? [limit as number] : [status as string, limit as number];
-    return db().all(`SELECT * FROM rfqs ${where} ORDER BY id DESC LIMIT ?`, ...args);
+    return db().all(`SELECT * FROM rfqs WHERE user_id = ? ${where} ORDER BY id DESC LIMIT ?`, currentUserId(), ...args);
   },
 };

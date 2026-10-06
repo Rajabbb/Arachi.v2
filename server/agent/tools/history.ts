@@ -1,5 +1,6 @@
 import type { AgentTool } from "./registry";
 import { db } from "../../db";
+import { currentUserId } from "../../auth/current";
 import { getCarrier } from "../../domain/carriers";
 import { filesOf } from "../../domain/files";
 import { offerVersions } from "../../domain/offers";
@@ -20,8 +21,9 @@ export const offerHistory: AgentTool = {
       ? [(await getCarrier(p.carrier_id as number)).id]
       : (
           await db().all<{ carrier_id: number }>(
-            "SELECT DISTINCT carrier_id FROM offers WHERE rfq_id = ? ORDER BY carrier_id",
-            rfq.id,
+            `SELECT DISTINCT o.carrier_id FROM offers o JOIN rfqs r ON r.id = o.rfq_id
+             WHERE o.rfq_id = ? AND r.user_id = ? ORDER BY o.carrier_id`,
+            rfq.id, currentUserId(),
           )
         ).map((r) => r.carrier_id);
 

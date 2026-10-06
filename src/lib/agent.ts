@@ -34,6 +34,10 @@ export async function sendToAgent(req: AgentRequest): Promise<AgentResponse> {
     body: JSON.stringify(body),
   });
 
+  if (res.status === 401) {
+    // The session expired or was ended elsewhere: show the login screen.
+    window.location.reload();
+  }
   const data = (await res.json().catch(() => null)) as
     | ChatResponse
     | ChatError

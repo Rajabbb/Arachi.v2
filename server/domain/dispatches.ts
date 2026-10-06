@@ -1,4 +1,5 @@
 import { db, now } from "../db";
+import { currentUserId } from "../auth/current";
 import { publicUrl, signToken, verifyToken } from "../links";
 import type { Carrier } from "./carriers";
 import type { Channel } from "../notify";
@@ -35,17 +36,33 @@ export async function quoteLink(dispatchId: number): Promise<string> {
   return publicUrl(`/quote/${await signToken(TOKEN_KIND, dispatchId)}`);
 }
 
-export async function dispatchFromToken(token: string): Promise<Dispatch | undefined> {
+/**
+ * The dispatch a carrier's link names, with the user who owns its RFQ. The
+ * link is the carrier's only credential, so this lookup is not limited to
+ * a signed-in user; the quote page then acts as the owner.
+ */
+export async function dispatchFromToken(token: string): Promise<(Dispatch & { user_id: number | null }) | undefined> {
   const id = await verifyToken(TOKEN_KIND, token);
-  return id === null ? undefined : findDispatch(id);
+  if (id === null) return undefined;
+  return db().get<Dispatch & { user_id: number | null }>(
+    "SELECT d.*, r.user_id FROM dispatches d JOIN rfqs r ON r.id = d.rfq_id WHERE d.id = ?",
+    id,
+  );
 }
 
 export function findDispatch(id: number): Promise<Dispatch | undefined> {
-  return db().get<Dispatch>("SELECT * FROM dispatches WHERE id = ?", id);
+  return db().get<Dispatch>(
+    "SELECT d.* FROM dispatches d JOIN rfqs r ON r.id = d.rfq_id WHERE d.id = ? AND r.user_id = ?",
+    id, currentUserId(),
+  );
 }
 
 export function findDispatchFor(rfqId: number, carrierId: number): Promise<Dispatch | undefined> {
-  return db().get<Dispatch>("SELECT * FROM dispatches WHERE rfq_id = ? AND carrier_id = ?", rfqId, carrierId);
+  return db().get<Dispatch>(
+    `SELECT d.* FROM dispatches d JOIN rfqs r ON r.id = d.rfq_id
+     WHERE d.rfq_id = ? AND d.carrier_id = ? AND r.user_id = ?`,
+    rfqId, carrierId, currentUserId(),
+  );
 }
 
 /** Creates the dispatch, or resets an existing one when the RFQ is sent again. */
