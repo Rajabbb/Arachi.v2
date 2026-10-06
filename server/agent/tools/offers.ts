@@ -1,5 +1,6 @@
 import type { AgentTool } from "./registry";
 import { db } from "../../db";
+import { currentUserId } from "../../auth/current";
 import { getCarrier } from "../../domain/carriers";
 import { findDispatchFor, statusLabels, type DispatchStatus } from "../../domain/dispatches";
 import { filesOf } from "../../domain/files";
@@ -34,8 +35,8 @@ export const listOffers: AgentTool = {
       reminder_count: number;
     }>(
       `SELECT d.*, c.name AS carrier_name FROM dispatches d JOIN carriers c ON c.id = d.carrier_id
-       WHERE d.rfq_id = ? ORDER BY c.name, c.id`,
-      rfq.id,
+       WHERE d.rfq_id = ? AND c.user_id = ? ORDER BY c.name, c.id`,
+      rfq.id, currentUserId(),
     );
 
     const carriers = await Promise.all(rows

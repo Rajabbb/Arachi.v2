@@ -1,4 +1,5 @@
 import { db, now, transaction } from "../db";
+import { currentUserId } from "../auth/current";
 import type { UploadedFile } from "../../shared/protocol";
 import { markOffered } from "./dispatches";
 import { filesOf, storeFile } from "./files";
@@ -73,7 +74,10 @@ export async function submitOffer(
 }
 
 export async function getOffer(id: number): Promise<Offer> {
-  const offer = await db().get<Offer>("SELECT * FROM offers WHERE id = ?", id);
+  const offer = await db().get<Offer>(
+    "SELECT o.* FROM offers o JOIN rfqs r ON r.id = o.rfq_id WHERE o.id = ? AND r.user_id = ?",
+    id, currentUserId(),
+  );
   if (!offer) throw new Error(`Təklif #${id} tapılmadı.`);
   return offer;
 }
@@ -82,13 +86,18 @@ export async function getOffer(id: number): Promise<Offer> {
 export function latestOffers(rfqId: number): Promise<(Offer & { carrier_name: string })[]> {
   return db().all<Offer & { carrier_name: string }>(
     `SELECT o.*, c.name AS carrier_name FROM offers o JOIN carriers c ON c.id = o.carrier_id
-     WHERE o.rfq_id = ? AND o.version = (
+       JOIN rfqs r ON r.id = o.rfq_id
+     WHERE o.rfq_id = ? AND r.user_id = ? AND o.version = (
        SELECT max(version) FROM offers WHERE rfq_id = o.rfq_id AND carrier_id = o.carrier_id)
      ORDER BY o.price, o.id`,
-    rfqId,
+    rfqId, currentUserId(),
   );
 }
 
 export function offerVersions(rfqId: number, carrierId: number): Promise<Offer[]> {
-  return db().all<Offer>("SELECT * FROM offers WHERE rfq_id = ? AND carrier_id = ? ORDER BY version", rfqId, carrierId);
+  return db().all<Offer>(
+    `SELECT o.* FROM offers o JOIN rfqs r ON r.id = o.rfq_id
+     WHERE o.rfq_id = ? AND o.carrier_id = ? AND r.user_id = ? ORDER BY o.version`,
+    rfqId, carrierId, currentUserId(),
+  );
 }

@@ -12,6 +12,7 @@ import {
 import { getRfq } from "../../domain/rfqs";
 import { channels, deliver, logOnlyNote, type Channel } from "../../notify";
 import { db } from "../../db";
+import { currentUserId } from "../../auth/current";
 
 /** Process 3: send an RFQ to carriers, each with a personal signed link. */
 export const sendRfqToCarriers: AgentTool = {
@@ -106,6 +107,6 @@ export const listOutbox: AgentTool = {
   description: "Shows the latest outgoing messages (emails, WhatsApp, Telegram) recorded by the system.",
   params: { limit: { type: "integer", description: "How many messages.", default: 20 } },
   async run({ limit }) {
-    return db().all("SELECT * FROM outbox ORDER BY id DESC LIMIT ?", limit as number);
+    return db().all("SELECT * FROM outbox WHERE user_id = ? ORDER BY id DESC LIMIT ?", currentUserId(), limit as number);
   },
 };

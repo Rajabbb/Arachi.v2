@@ -23,6 +23,18 @@ npm run test:pg        # eyni testlər Postgres-də (PGlite, Supabase miqrasiyal
 npm run migrate        # miqrasiyaları DATABASE_URL bazasına tətbiq edir
 ```
 
+## Hesablar və giriş
+
+Söhbət və panel yalnız hesaba daxil olduqdan sonra açılır. Daşıyıcının təklif səhifəsi (`/quote/:token`) əvvəlki kimi girişsizdir: emaildəki imzalı link kifayətdir.
+
+- Qeydiyyat: email + şifrə (ən azı 8 simvol), ad istəyə görə. Şifrə bazada yalnız `scrypt` heşi kimi saxlanılır.
+- Giriş 30 gün yadda qalır (`httpOnly` cookie). "Çıxış" düyməsi sessiyanı bitirir. Eyni email üçün 10 səhv şifrədən sonra giriş 15 dəqiqəlik bağlanır.
+- Şifrəni unutmusunuz: giriş ekranında "Şifrəni unutmusunuz?" basın, emailə 60 dəqiqəlik, bir dəfəlik link gəlir (Resend ilə, `EMAIL_FROM` ünvanından). Resend qurulmayıbsa link server jurnalında (`npm run server` pəncərəsində) görünür. Linkdəki ünvan `PUBLIC_BASE_URL`-dən götürülür. Yeni şifrə təyin olunanda bütün köhnə sessiyalar bağlanır.
+- Hər istifadəçi yalnız öz RFQ-lərini, daşıyıcılarını, təkliflərini, göndərilmiş mesajlarını və panel rəqəmlərini görür. Agentin alətləri də daxil olmuş istifadəçinin adından işləyir.
+- Hesablardan əvvəl yaradılmış məlumatlar (RFQ-lər, daşıyıcılar, mesajlar) **ilk qeydiyyatdan keçən** hesaba keçir. Ona görə yeniləmədən sonra ilk hesabı özünüz açın. O vaxta qədər köhnə RFQ-lərin daşıyıcı linkləri açılmır.
+
+Yeni `.env` dəyəri lazım deyil: sessiya tokenləri təsadüfi yaradılır və bazada yalnız heşi saxlanılır.
+
 ## AI provayderi
 
 Agent iki AI xidməti ilə işləyə bilir. Seçim serverdəki `.env` faylında edilir, agentin bacardıqları (alətlər, fayl oxuma, söhbət tarixçəsi) hər ikisində eynidir:
@@ -96,7 +108,6 @@ API açarı yalnız serverdə (`.env`) saxlanılır, brauzerə heç vaxt göndə
   - `lib/agent.ts` — `POST /api/chat` çağırışı (`sendToAgent`)
 - `shared/protocol.ts` — interfeys ilə server arasındakı sorğu/cavab tipləri
 - `server/` — agent serveri
-  - `index.ts` — HTTP endpoint (`POST /api/chat`, `GET /api/health`)
   - `agent/loop.ts` — tool-use dövrəsi: modeli çağırır, istədiyi alətləri işlədir, cavab hazır olana qədər təkrarlayır; provayderdən asılı deyil
   - `agent/providers/` — AI provayderləri: `types.ts` ümumi interfeys, `anthropic.ts` (Claude), `gemini.ts` (Google Gemini), `index.ts` `AI_PROVIDER`-ə görə seçim
   - `agent/prompt.ts` — sistem təlimatı
@@ -107,9 +118,11 @@ API açarı yalnız serverdə (`.env`) saxlanılır, brauzerə heç vaxt göndə
   - `domain/` — RFQ, daşıyıcı, göndərmə, təklif, fayl və analitika məntiqi
   - `db/` — verilənlər bazası: `index.ts` ümumi interfeys (`db().all/get/run`, `transaction`), `postgres.ts` Supabase bağlantısı və miqrasiya icrası, `migrations/*.sql` Postgres sxemi, `sqlite.ts` və `sqliteSchema.ts` yerli SQLite. Sxem dəyişikliyi hər ikisinə əlavə olunur
   - `notify/` — email/WhatsApp/Telegram göndərmə interfeysi; email Resend ilə (`resend.ts`), qalanları hələ yalnız jurnala yazır
+  - `auth/` — hesablar: şifrə heşi (`password.ts`), qeydiyyat, giriş, sessiya və şifrə bərpası (`accounts.ts`), sorğunun hansı istifadəçi adından işlədiyi (`current.ts`)
+  - `app.ts` — HTTP marşrutları (`/api/auth/*`, `/api/chat`, `/api/dashboard`, ...); `index.ts` serveri başladır
   - `links.ts` — daşıyıcı linkləri üçün imzalı tokenlər
   - `routes/` — daşıyıcı təklif səhifəsi API-si, fayl yükləmə, analitika
-- `src/pages/` — daşıyıcının təklif səhifəsi (`/quote/:token`) və analitika paneli (`/panel`)
+- `src/pages/` — daşıyıcının təklif səhifəsi (`/quote/:token`), analitika paneli (`/panel`), giriş/qeydiyyat və şifrə bərpası (`/reset/:token`)
 
 ## Proseslər (agent alətləri)
 

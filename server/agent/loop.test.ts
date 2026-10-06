@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { beforeEach, test } from "node:test";
-import { freshDb } from "../test/helpers";
-import { AgentError, runTurn } from "./loop";
+import { asTestUser, freshDb } from "../test/helpers";
+import { AgentError, runTurn as runTurnUnscoped } from "./loop";
+
+// The agent always runs for a signed-in user.
+const runTurn = ((...args: Parameters<typeof runTurnUnscoped>) =>
+  asTestUser(() => runTurnUnscoped(...args))) as typeof runTurnUnscoped;
 import type { ModelProvider, ModelStep, ToolCallResult } from "./providers/types";
 
 beforeEach(freshDb);

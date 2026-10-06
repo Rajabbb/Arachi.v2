@@ -1,5 +1,6 @@
 import type { AgentTool } from "./registry";
 import { db, now } from "../../db";
+import { currentUserId } from "../../auth/current";
 import { getCarrier } from "../../domain/carriers";
 import { addressFor, quoteLink, rfqMessage, statusLabels, type Dispatch } from "../../domain/dispatches";
 import { getRfq } from "../../domain/rfqs";
@@ -25,12 +26,12 @@ export const sendReminders: AgentTool = {
 
     const due = await db().all<Dispatch>(
       `SELECT d.* FROM dispatches d JOIN rfqs r ON r.id = d.rfq_id
-       WHERE r.status = 'open' AND d.channel != 'link'
+       WHERE r.user_id = ? AND r.status = 'open' AND d.channel != 'link'
          AND d.status IN (${statuses.map(() => "?").join(",")})
          AND d.reminder_count < ?
          AND coalesce(d.last_reminder_at, d.sent_at) <= ? ${rfqFilter}
        ORDER BY d.rfq_id, d.id`,
-      ...statuses, p.max_reminders as number, cutoff, ...(p.rfq_id ? [p.rfq_id as number] : []),
+      currentUserId(), ...statuses, p.max_reminders as number, cutoff, ...(p.rfq_id ? [p.rfq_id as number] : []),
     );
 
     const results = [];

@@ -3,6 +3,7 @@ import type { UploadedFile } from "../../../shared/protocol";
 import { carrierCategories, findCarriers, upsertCarrier, type CarrierInput } from "../../domain/carriers";
 import { isSpreadsheet, readSpreadsheet } from "../files";
 import { db } from "../../db";
+import { currentUserId } from "../../auth/current";
 
 /** Process 4: the carrier base (manual add, XLS/CSV import, categories). */
 
@@ -186,7 +187,8 @@ export const listCarriers: AgentTool = {
   async run(p) {
     const carriers = await findCarriers({ category: p.category as string, subcategory: p.subcategory as string });
     const byCategory = await db().all(
-      "SELECT category, subcategory, count(*) AS count FROM carriers WHERE active = 1 GROUP BY 1, 2 ORDER BY 1, 2",
+      "SELECT category, subcategory, count(*) AS count FROM carriers WHERE active = 1 AND user_id = ? GROUP BY 1, 2 ORDER BY 1, 2",
+      currentUserId(),
     );
     return { count: carriers.length, carriers, byCategory };
   },
@@ -199,7 +201,10 @@ export const removeCarriers: AgentTool = {
   async run(p) {
     const ids = p.carrier_ids as number[];
     if (ids.length === 0) return { removed: 0 };
-    const { changes } = await db().run(`UPDATE carriers SET active = 0 WHERE id IN (${ids.map(() => "?").join(",")})`, ...ids);
+    const { changes } = await db().run(
+      `UPDATE carriers SET active = 0 WHERE user_id = ? AND id IN (${ids.map(() => "?").join(",")})`,
+      currentUserId(), ...ids,
+    );
     return { removed: changes };
   },
 };

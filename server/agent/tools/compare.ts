@@ -1,5 +1,6 @@
 import type { AgentTool } from "./registry";
 import { db, now } from "../../db";
+import { currentUserId } from "../../auth/current";
 import { getCarrier } from "../../domain/carriers";
 import { addressFor, findDispatchFor } from "../../domain/dispatches";
 import { getOffer, latestOffers, type Offer } from "../../domain/offers";
@@ -147,8 +148,8 @@ export const selectWinner: AgentTool = {
 
     // Only an open RFQ can be awarded, so two concurrent picks cannot both win.
     const { changes } = await db().run(
-      "UPDATE rfqs SET status = 'awarded', awarded_offer_id = ?, awarded_at = ? WHERE id = ? AND status = 'open'",
-      winner.id, now(), rfq.id,
+      "UPDATE rfqs SET status = 'awarded', awarded_offer_id = ?, awarded_at = ? WHERE id = ? AND user_id = ? AND status = 'open'",
+      winner.id, now(), rfq.id, currentUserId(),
     );
     if (changes === 0) throw new Error(`RFQ #${rfq.id} üçün qalib artıq seçilib və ya sorğu bağlıdır.`);
 

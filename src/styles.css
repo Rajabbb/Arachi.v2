@@ -256,3 +256,16 @@ a.logo { color: inherit; text-decoration: none; }
 .table td { border-bottom: 1px solid var(--border); padding: 8px; white-space: nowrap; }
 .table .num { text-align: right; font-variant-numeric: tabular-nums; }
 .winner { color: #15803d; font-weight: 600; }
+
+/* Login, registration and password reset */
+.auth { max-width: 420px; margin: 24px auto 0; width: 100%; }
+.auth-title { margin: 0; font-size: 1.2rem; }
+.auth .send-button { padding: 10px 16px; }
+.hint { font-size: 0.75rem; color: var(--muted); }
+.auth-links { display: flex; flex-wrap: wrap; gap: 4px 16px; justify-content: center; font-size: 0.88rem; }
+.auth-links button, .auth-links a { background: none; border: none; padding: 0; font: inherit; color: var(--accent); cursor: pointer; text-decoration: none; }
+.user-menu { display: flex; align-items: center; gap: 8px; margin-left: 8px; min-width: 0; }
+.user-name { color: var(--muted); font-size: 0.85rem; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-menu button { border: 1px solid var(--border); background: none; color: var(--text); font: inherit; font-size: 0.85rem; padding: 4px 10px; border-radius: 8px; cursor: pointer; }
+.user-menu button:hover { background: rgba(127, 127, 127, 0.15); }
+@media (max-width: 520px) { .user-name { display: none; } }

@@ -119,4 +119,38 @@ export const migrations: string[] = [
   `
   ALTER TABLE outbox ADD COLUMN provider_id TEXT;
   `,
+
+  // 8: user accounts, sessions, password resets; RFQs, carriers and messages get an owner.
+  `
+  CREATE TABLE users (
+    id INTEGER PRIMARY KEY,
+    email TEXT NOT NULL,
+    name TEXT NOT NULL DEFAULT '',
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
+  CREATE UNIQUE INDEX users_email ON users (lower(email));
+  CREATE TABLE sessions (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  );
+  CREATE INDEX sessions_user ON sessions (user_id);
+  CREATE TABLE password_resets (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT
+  );
+  CREATE INDEX password_resets_user ON password_resets (user_id);
+  ALTER TABLE rfqs ADD COLUMN user_id INTEGER REFERENCES users (id);
+  ALTER TABLE carriers ADD COLUMN user_id INTEGER REFERENCES users (id);
+  ALTER TABLE outbox ADD COLUMN user_id INTEGER REFERENCES users (id);
+  CREATE INDEX rfqs_user ON rfqs (user_id);
+  CREATE INDEX outbox_user ON outbox (user_id);
+  DROP INDEX carriers_email;
+  CREATE UNIQUE INDEX carriers_email ON carriers (user_id, lower(email)) WHERE email IS NOT NULL;
+  `,
 ];
