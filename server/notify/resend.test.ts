@@ -3,7 +3,7 @@ import { afterEach, beforeEach, test } from "node:test";
 import { freshDb } from "../test/helpers";
 import { db } from "../db";
 import { deliver, logProvider, sendsForReal, setProvider } from ".";
-import { resendProvider } from "./resend";
+import { fetchResendStatus, resendProvider } from "./resend";
 
 beforeEach(freshDb);
 afterEach(() => setProvider("email", logProvider));
@@ -53,4 +53,12 @@ test("a Resend error or a missing address marks the message undelivered", async 
 test("without a key the email channel stays a log stub", () => {
   assert.equal(sendsForReal("email"), false);
   assert.equal(sendsForReal("whatsapp"), false);
+});
+
+test("reads an email's last event from Resend; a sending-only key gets a clear message", async () => {
+  const api = fakeResend(200, { object: "email", id: "re_9", last_event: "bounced" });
+  assert.equal(await fetchResendStatus("k", "re_9", api.fetch), "bounced");
+  assert.equal(api.calls[0].url, "https://api.resend.com/emails/re_9");
+  assert.equal(await fetchResendStatus("k", "re_9", fakeResend(404, {}).fetch), undefined);
+  await assert.rejects(fetchResendStatus("k", "re_9", fakeResend(401, { message: "restricted" }).fetch), /Full access/);
 });

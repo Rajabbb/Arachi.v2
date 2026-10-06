@@ -109,6 +109,8 @@ export interface DashboardData {
   responseRate: number | null;
   statuses: { status: string; label: string; count: number }[];
   awardedValue: { currency: string; total: number }[];
+  /** Latest RFQs that did not reach a carrier (bounced email, no address, ...), with the reason. */
+  failedDeliveries: { rfq_id: number; carrier: string; channel: string; error: string | null; sent_at: string }[];
   recentOffers: {
     id: number;
     rfq_id: number;

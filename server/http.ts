@@ -11,6 +11,16 @@ export class HttpError extends Error {
 }
 
 export async function readJson(req: IncomingMessage): Promise<unknown> {
+  const body = await readBody(req);
+  try {
+    return JSON.parse(body);
+  } catch {
+    throw new HttpError(400, "Sorğu düzgün JSON deyil.");
+  }
+}
+
+/** The raw request body as text (webhook signatures are computed over it). */
+export async function readBody(req: IncomingMessage): Promise<string> {
   const chunks: Buffer[] = [];
   let size = 0;
   for await (const chunk of req) {
@@ -20,11 +30,7 @@ export async function readJson(req: IncomingMessage): Promise<unknown> {
     }
     chunks.push(chunk as Buffer);
   }
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString("utf8"));
-  } catch {
-    throw new HttpError(400, "Sorğu düzgün JSON deyil.");
-  }
+  return Buffer.concat(chunks).toString("utf8");
 }
 
 export function send(res: ServerResponse, status: number, body: unknown) {

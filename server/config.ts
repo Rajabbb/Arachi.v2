@@ -58,6 +58,8 @@ export const config = {
   emailFrom: process.env.EMAIL_FROM ?? "",
   /** Where carriers' email replies go, e.g. the team's real inbox. */
   emailReplyTo: process.env.EMAIL_REPLY_TO ?? "",
+  /** Signing secret of the Resend webhook ("whsec_..."); optional, see routes/resendWebhook.ts. */
+  resendWebhookSecret: (process.env.RESEND_WEBHOOK_SECRET ?? "").trim(),
   /** Address of the UI, used to build links sent to carriers. */
   publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "http://localhost:5173").replace(/\/$/, ""),
   /** Secret for signing carrier links; generated and stored in the DB if unset. */

@@ -12,6 +12,8 @@ export interface OutgoingMessage {
   to: string;
   subject: string;
   body: string;
+  /** The RFQ dispatch this message is for, so its delivery status can update the panel. */
+  dispatchId?: number;
 }
 
 export interface DeliveryResult {
@@ -83,8 +85,9 @@ export async function deliver(message: OutgoingMessage): Promise<DeliveryResult>
     result = { delivered: false, error: err instanceof Error ? err.message : String(err) };
   }
   await db().run(
-    `INSERT INTO outbox (channel, recipient, subject, body, delivered, error, provider_id, created_at, user_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO outbox (channel, recipient, subject, body, delivered, error, provider_id, provider_status,
+                         dispatch_id, created_at, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     message.channel,
     message.to,
     message.subject,
@@ -92,6 +95,8 @@ export async function deliver(message: OutgoingMessage): Promise<DeliveryResult>
     result.delivered ? 1 : 0,
     result.error ?? null,
     result.providerId ?? null,
+    result.providerId ? "sent" : null,
+    message.dispatchId ?? null,
     now(),
     maybeUserId(),
   );

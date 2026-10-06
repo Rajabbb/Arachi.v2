@@ -6,6 +6,7 @@ import { HttpError, readJson, send } from "./http";
 import { handleQuote } from "./routes/quote";
 import { handleFile } from "./routes/files";
 import { handleDashboard } from "./routes/dashboard";
+import { handleResendWebhook } from "./routes/resendWebhook";
 import { handleAuth, requireUser } from "./routes/auth";
 import { asUser } from "./auth/current";
 
@@ -59,6 +60,8 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
     } else if (req.method === "POST" && path === "/api/chat") {
       const user = await requireUser(req);
       await asUser(user.id, () => handleChat(req, res));
+    } else if (req.method === "POST" && path === "/api/webhooks/resend") {
+      await handleResendWebhook(req, res);
     } else if (req.method === "GET" && path === "/api/health") {
       send(res, 200, { ok: true });
     } else if (quote) {

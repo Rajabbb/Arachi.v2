@@ -2,12 +2,16 @@ import type { DashboardData } from "../../shared/protocol";
 import { db, now } from "../db";
 import { currentUserId } from "../auth/current";
 import { statusLabels, type DispatchStatus } from "./dispatches";
+import { refreshEmailStatuses } from "../notify/emailStatus";
 
 /** Numbers for the analytics panel and the get_dashboard tool. */
 export async function dashboard(periodDays: number): Promise<DashboardData> {
   if (!(periodDays > 0)) throw new Error("Dövr (gün) müsbət olmalıdır.");
   const since = new Date(Date.now() - periodDays * 86400_000).toISOString();
   const user = currentUserId();
+  // Pick up bounces and deliveries Resend reported since the last check; a
+  // Resend outage must not break the panel.
+  await refreshEmailStatuses({ userId: user, limit: 5 }).catch(() => 0);
   const one = async <T>(sql: string, ...args: (string | number)[]) => (await db().get<T>(sql, ...args))!;
 
   const rfqs = await one<{ open: number; awarded: number; created: number }>(
@@ -48,6 +52,13 @@ export async function dashboard(periodDays: number): Promise<DashboardData> {
     user,
   );
 
+  const failedDeliveries = await db().all<DashboardData["failedDeliveries"][number]>(
+    `SELECT d.rfq_id, c.name AS carrier, d.channel, d.error, d.sent_at
+     FROM dispatches d JOIN rfqs r ON r.id = d.rfq_id JOIN carriers c ON c.id = d.carrier_id
+     WHERE d.status = 'failed' AND d.sent_at >= ? AND r.user_id = ? ORDER BY d.sent_at DESC LIMIT 10`,
+    since, user,
+  );
+
   return {
     generatedAt: now(),
     periodDays,
@@ -63,6 +74,7 @@ export async function dashboard(periodDays: number): Promise<DashboardData> {
       count: counts.get(s) ?? 0,
     })),
     awardedValue,
+    failedDeliveries,
     recentOffers: recent.map((r) => ({ ...r, winner: Boolean(r.winner) })),
   };
 }

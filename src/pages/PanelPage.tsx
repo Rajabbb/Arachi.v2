@@ -101,6 +101,36 @@ export default function PanelPage({ user }: { user: User }) {
               </ul>
             </section>
 
+            {data.failedDeliveries.length > 0 && (
+              <section className="card">
+                <h3>Çatdırılmayan göndərişlər</h3>
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>RFQ</th>
+                        <th>Daşıyıcı</th>
+                        <th>Kanal</th>
+                        <th>Səbəb</th>
+                        <th>Tarix</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.failedDeliveries.map((f) => (
+                        <tr key={`${f.rfq_id}-${f.carrier}`}>
+                          <td>#{f.rfq_id}</td>
+                          <td>{f.carrier}</td>
+                          <td>{f.channel}</td>
+                          <td>{f.error ?? "—"}</td>
+                          <td>{f.sent_at.slice(0, 10)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
+
             <section className="card">
               <h3>Son təkliflər</h3>
               {data.recentOffers.length === 0 ? (

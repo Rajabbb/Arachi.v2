@@ -3,6 +3,7 @@ import { app } from "./app";
 import { config } from "./config";
 import { openDatabase } from "./db";
 import { sendsForReal } from "./notify";
+import { startEmailStatusPolling, statusCheckingEnabled } from "./notify/emailStatus";
 import { provider } from "./agent/providers";
 
 const server = createServer(app);
@@ -16,6 +17,10 @@ try {
   process.exit(1);
 }
 console.log(sendsForReal("email") ? "Email: Resend" : "Email: log only (set RESEND_API_KEY and EMAIL_FROM to send)");
+if (statusCheckingEnabled()) {
+  startEmailStatusPolling();
+  console.log("Email delivery status: checked with Resend every minute (bounces show as Çatdırılmadı)");
+}
 
 server.listen(config.port, () => {
   const ai = provider();
