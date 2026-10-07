@@ -3,6 +3,8 @@ import { beforeEach, test } from "node:test";
 import ExcelJS from "exceljs";
 import { call, freshDb, textFile } from "../../test/helpers";
 import { emptyContext } from "./registry";
+import { matchCategory } from "../../domain/carriers";
+import { tableCarriers } from "./carriers";
 
 beforeEach(freshDb);
 
@@ -16,19 +18,21 @@ test("add_carriers applies the default category and skips unusable rows", async 
   });
   assert.equal(result.added, 2);
   assert.equal(result.skipped.length, 1);
+  assert.deepEqual(result.category_defaulted, { count: 1, category: "Quru", names: ["Caspian Trans"] });
   const list = (await call("list_carriers")).result;
   assert.equal(list.carriers.find((c: { name: string }) => c.name === "Caspian Trans").category, "Quru");
   assert.equal((await call("list_carriers", { category: "Dəniz" })).result.count, 1);
 });
 
-test("import_carriers reads CSV with Azerbaijani headers and updates duplicates", async () => {
-  await call("add_carriers", { carriers: [{ name: "Old", email: "a@x.az" }] });
-  const csv = "Şirkət;E-poçt;Telefon;Kateqoriya;Alt kateqoriya\nAlfa;a@x.az;+994501112233;Quru;Türkiyə xətti\nBeta;b@x.az;;Hava;\n";
+test("import_carriers reads CSV with Azerbaijani headers and skips carriers already in the base", async () => {
+  await call("add_carriers", { carriers: [{ name: "Alfa", email: "a@x.az" }] });
+  const csv = "Şirkət;E-poçt;Telefon;Kateqoriya;Alt kateqoriya\nALFA ;A@x.az;+994501112233;Quru;Türkiyə xətti\nBeta;b@x.az;;Hava;\n";
   const { result } = await call("import_carriers", {}, emptyContext([textFile("base.csv", csv, "text/csv")]));
-  assert.deepEqual([result.added, result.updated, result.skipped.length], [1, 1, 0]);
-  const alfa = (await call("list_carriers", { subcategory: "türkiyə xətti" })).result.carriers[0];
-  assert.equal(alfa.name, "Alfa");
-  assert.equal(alfa.phone, "+994501112233");
+  assert.deepEqual([result.added, result.skipped.length], [1, 1]);
+  assert.match(result.skipped[0].reason, /artıq bazada var/);
+  // The carrier already in the base is left as it was.
+  const alfa = (await call("list_carriers")).result.carriers.find((c: { name: string }) => c.name === "Alfa");
+  assert.deepEqual([alfa.phone, alfa.subcategory], ["", ""]);
 });
 
 test("import_carriers reads Excel", async () => {
@@ -39,4 +43,105 @@ test("import_carriers reads Excel", async () => {
   assert.equal(result.added, 1);
   await call("remove_carriers", { carrier_ids: [1] });
   assert.equal((await call("list_carriers")).result.count, 0);
+});
+
+test("a carrier is not added twice: same email or same name, in the base or in the list", async () => {
+  await call("add_carriers", { carriers: [{ name: "Caspian Trans", email: "info@caspian.az" }, { name: "Phone Only", phone: "+994" }] });
+  const { result } = await call("add_carriers", {
+    carriers: [
+      { name: "caspian  trans", email: "INFO@caspian.az" }, // same carrier
+      { name: "Other Name", email: "info@caspian.az" }, // email of another carrier
+      { name: "Caspian Trans", email: "new@caspian.az" }, // name of another carrier
+      { name: "Phone only", phone: "+995" }, // same name, no email on either
+      { name: "New One", email: "n@x.az" },
+      { name: "New One", email: "n@x.az" }, // repeated in the list
+      { name: "Second", email: "N@x.az" }, // email repeated in the list
+    ],
+  });
+  assert.equal(result.added, 1);
+  assert.deepEqual(
+    result.skipped.map((s: { row: number; reason: string }) => [s.row, s.reason]),
+    [
+      [1, "artıq bazada var"],
+      [2, "bu email bazada «Caspian Trans» adı ilə var"],
+      [3, "bu ad bazada başqa email ilə var (info@caspian.az)"],
+      [4, "artıq bazada var"],
+      [6, "bu siyahıda təkrarlanır (5-ci sətir)"],
+      [7, "bu email bu siyahının 5-ci sətrində «New One» adı ilə var"],
+    ],
+  );
+  assert.equal((await call("list_carriers")).result.count, 3);
+});
+
+test("a removed carrier added again is restored, not duplicated", async () => {
+  await call("add_carriers", { carriers: [{ name: "Gone", email: "g@x.az" }] });
+  await call("remove_carriers", { carrier_ids: [1] });
+  const { result } = await call("add_carriers", { carriers: [{ name: "Gone", email: "g@x.az", category: "Hava" }] });
+  assert.deepEqual([result.added, result.restored], [0, 1]);
+  const list = (await call("list_carriers")).result;
+  assert.deepEqual([list.count, list.carriers[0].id, list.carriers[0].category], [1, 1, "Hava"]);
+});
+
+test("each carrier keeps its own category; the default only fills the gaps", async () => {
+  const { result } = await call("add_carriers", {
+    category: "Dəniz",
+    carriers: [
+      { name: "A", email: "a@x.az", category: "HAVA" },
+      { name: "B", email: "b@x.az", category: "Авиа" },
+      { name: "C", email: "c@x.az" },
+      { name: "D", email: "d@x.az", category: "Türkiyə xətti" },
+    ],
+  });
+  assert.deepEqual(result.by_category, [
+    { category: "Hava", subcategory: "", count: 2 },
+    { category: "Dəniz", subcategory: "", count: 1 },
+    { category: "Dəniz", subcategory: "Türkiyə xətti", count: 1 },
+  ]);
+  assert.equal(result.category_defaulted.count, 1);
+  assert.equal(result.category_not_recognized[0].value, "Türkiyə xətti");
+  assert.match(result.note, /update_carriers/);
+});
+
+test("category words in Azerbaijani, English, Russian and Turkish", () => {
+  const cases: [string, string | null][] = [
+    ["DƏNİZ", "Dəniz"], ["Dəniz yolu", "Dəniz"], ["Sea freight", "Dəniz"], ["Морской", "Dəniz"], ["Konteyner", "Dəniz"],
+    ["Hava", "Hava"], ["Air cargo", "Hava"], ["Авиа", "Hava"], ["Havayolu", "Hava"],
+    ["Dəmir yolu", "Dəmiryolu"], ["Railway", "Dəmiryolu"], ["Ж/Д", "Dəmiryolu"], ["Вагон", "Dəmiryolu"],
+    ["Quru", "Quru"], ["TIR", "Quru"], ["Avtomobil", "Quru"], ["Trailer", null], ["Фура", "Quru"], ["Karayolu", "Quru"],
+    ["", null], ["Türkiyə xətti", null], ["Repair", null],
+  ];
+  for (const [value, category] of cases) assert.equal(matchCategory(value), category, value);
+});
+
+test("import_carriers takes the category from the column, a section row or the sheet name", async () => {
+  const wb = new ExcelJS.Workbook();
+  wb.addWorksheet("Hava").addRows([["Daşıyıcılar"], ["Ad", "Email"], ["Sky", "s@x.az"]]);
+  wb.addWorksheet("Siyahı").addRows([
+    ["Şirkət", "Email", "Daşıma növü", "Xətt"],
+    ["Road", "r@x.az", "Quru", "Türkiyə"],
+    ["Ship", "sh@x.az", "Dəniz", "Avropa"],
+    ["Plain", "p@x.az", "", ""],
+  ]);
+  const data = Buffer.from(await wb.xlsx.writeBuffer()).toString("base64");
+  const { result } = await call("import_carriers", {}, emptyContext([{ name: "base.xlsx", type: "", data }]));
+  assert.equal(result.added, 4);
+  const byName = Object.fromEntries(
+    (await call("list_carriers")).result.carriers.map((c: { name: string; category: string; subcategory: string }) => [c.name, `${c.category}/${c.subcategory}`]),
+  );
+  assert.deepEqual(byName, { Plain: "Quru/", Road: "Quru/Türkiyə", Ship: "Dəniz/Avropa", Sky: "Hava/" });
+  assert.deepEqual(result.category_defaulted.names, ["Plain"]);
+
+  const sections = tableCarriers("", [
+    ["Name", "Email"], ["Dəniz daşıyıcıları"], ["S1", "s1@x.az"], ["Hava"], ["A1", "a1@x.az"],
+  ]);
+  assert.deepEqual(sections!.map((c) => [c.name, c.category]), [["S1", "Dəniz"], ["A1", "Hava"]]);
+});
+
+test("update_carriers changes the category of several carriers and refuses a duplicate name or email", async () => {
+  await call("add_carriers", { carriers: [{ name: "A", email: "a@x.az" }, { name: "B", email: "b@x.az" }] });
+  const { result } = await call("update_carriers", { carrier_ids: [1, 2], category: "dəniz", subcategory: "Avropa" });
+  assert.deepEqual(result.carriers.map((c: { category: string; subcategory: string }) => `${c.category}/${c.subcategory}`), ["Dəniz/Avropa", "Dəniz/Avropa"]);
+  await assert.rejects(call("update_carriers", { carrier_ids: [2], email: "A@x.az" }), /artıq bu ad və ya email/);
+  await assert.rejects(call("update_carriers", { carrier_ids: [2], category: "Kosmos" }), /Kateqoriya tanınmadı/);
+  assert.equal((await call("update_carriers", { carrier_ids: [2], subcategory: "-" })).result.carriers[0].subcategory, "");
 });
