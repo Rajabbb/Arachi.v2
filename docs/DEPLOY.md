@@ -42,7 +42,7 @@ Başqa heç bir yazını dəyişməyin və silməyin (MX, SPF/TXT, DKIM və `v2`
 3. İlk dəfə `Are you sure you want to continue connecting` soruşulsa, `yes` yazıb **Enter** basın.
 4. Parolu soruşanda yapışdırın (sağ klik) və **Enter** basın. Parol yazılanda ekranda heç nə görünmür, bu normaldır.
 
-Sətrin əvvəlində `root@...:~#` görünəndə serverin içindəsiniz. Aşağıdakı bütün əmrləri bu pəncərəyə yapışdırıb (sağ klik) **Enter** basırsınız.
+Sətrin əvvəlində `root@...` görünəndə serverin içindəsiniz. Bəzi provayderlərdə serverin əmr pəncərəsi `fish` olur; aşağıdakı əmrlərin eyni işləməsi üçün əvvəlcə `bash` yazıb **Enter** basın (hər yeni qoşulmada bir dəfə). Aşağıdakı bütün əmrləri bu pəncərəyə yapışdırıb (sağ klik) **Enter** basırsınız.
 
 ## 3. Docker və firewall
 
@@ -51,6 +51,7 @@ Bu əmrlər bir dəfə, ardıcıl icra olunur:
 ```
 apt update && apt upgrade -y
 curl -fsSL https://get.docker.com | sh
+apt install -y ufw
 ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw allow 443/udp
 ufw --force enable
 ```
