@@ -66,14 +66,10 @@ export const config = {
   resendWebhookSecret: (process.env.RESEND_WEBHOOK_SECRET ?? "").trim(),
   /**
    * Public address of the app, used in every link the app sends out (carrier
-   * quote links, password reset, RFQ/panel pages). On Render it defaults to
-   * the service's own URL (RENDER_EXTERNAL_URL); locally to the Vite dev UI.
+   * quote links, password reset, RFQ/panel pages). Locally it defaults to the
+   * Vite dev UI; on the VPS docker-compose.yml sets it to https://APP_DOMAIN.
    */
-  publicBaseUrl: (
-    process.env.PUBLIC_BASE_URL?.trim() ||
-    process.env.RENDER_EXTERNAL_URL?.trim() ||
-    "http://localhost:5173"
-  ).replace(/\/+$/, ""),
+  publicBaseUrl: (process.env.PUBLIC_BASE_URL?.trim() || "http://localhost:5173").replace(/\/+$/, ""),
   /** Built UI (npm run build) served by this server in production; ignored when missing. */
   staticDir: process.env.STATIC_DIR ?? "dist",
   /** Secret for signing carrier links; generated and stored in the DB if unset. */

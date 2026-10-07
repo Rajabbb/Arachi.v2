@@ -1,83 +1,157 @@
-# İnternetdə yerləşdirmə (Render)
+# İnternetdə yerləşdirmə (VPS)
 
-Bu addımlardan sonra V2 internetdə öz ünvanında işləyəcək (məsələn `https://arachi-v2.onrender.com`). Daşıyıcılara gedən təklif linkləri, şifrə bərpası linkləri və agentin verdiyi panel linkləri artıq `localhost` yox, bu ünvan olacaq.
+Bu addımlardan sonra V2 öz ünvanında, məsələn `https://app.v2.arachi.co`, işləyəcək. Daşıyıcılara gedən təklif linkləri, şifrə bərpası linkləri və agentin verdiyi panel linkləri artıq `localhost` yox, bu ünvan olacaq.
 
-Hər şey bir xidmətdir: eyni server həm interfeysi, həm də API-ni verir. Məlumatlar Supabase-də qalır, email Resend ilə (`sorgu@v2.arachi.co`), AI Gemini ilə işləyir. Mövcud arachi.co saytına, onun poçtuna (info@, rfq@) və DNS yazılarına heç nə toxunmur.
+Serverdə iki proqram işləyir, ikisi də Docker-də:
 
-> Açarları heç vaxt chat-a, koda və ya GitHub-a yazmayın. Onlar yalnız Render-in **Environment** bölməsinə yazılır.
+- **app**: V2-nin özü (həm interfeys, həm API). Bazanın yeni cədvəlləri (miqrasiyalar) hər başlanğıcda avtomatik tətbiq olunur.
+- **caddy**: qapıçı. `https://` sertifikatını Let's Encrypt-dən özü alır, özü yeniləyir və gələn sorğuları app-ə ötürür.
+
+Məlumatlar Supabase-də qalır, email Resend ilə (`sorgu@v2.arachi.co`), AI Gemini ilə işləyir. Mövcud arachi.co saytına, onun poçtuna (info@, rfq@) və mövcud DNS yazılarına heç nə toxunmur: DNS-də yalnız **bir yeni** yazı əlavə olunur.
+
+> Açarları heç vaxt chat-a, koda və ya GitHub-a yazmayın. Onlar yalnız serverdəki `.env` faylına yazılır.
 
 ## Lazım olanlar
 
-- GitHub hesabınız (Rajabbb)
-- Kompüterinizdəki `.env` faylı (`C:\Users\Rajab\arachi-git\.env`). Oradakı dəyərləri Render-ə köçürəcəksiniz. Faylı açmaq üçün: Fayl Explorer-də papkanı açın, `.env` faylına sağ klik edin, **Open with → Notepad**.
+- VPS: **Ubuntu 24.04**, ən azı **2 GB RAM** (1 GB-da quraşdırma yaddaş çatışmazlığından dayana bilər), 1 vCPU, 20 GB disk kifayətdir.
+- VPS-in **IP ünvanı** və **root parolu** (və ya SSH açarı). Provayder bunları VPS yaradılanda göstərir və ya emaillə göndərir.
+- Namecheap hesabı (arachi.co domeni oradadır).
+- Kompüterinizdəki `.env` faylı (`C:\Users\Rajab\arachi-git\.env`). Açmaq üçün: Fayl Explorer-də papkanı açın, `.env` faylına sağ klik, **Open with → Notepad**.
 
-## 1. Render hesabı
+Aşağıda `SIZIN_IP` gördüyünüz hər yerə VPS-in IP ünvanını yazın (məsələn `203.0.113.10`).
 
-1. [render.com](https://render.com) saytını açın, sağ yuxarıda **Get Started** basın.
-2. **GitHub** düyməsini seçin və GitHub hesabınızla daxil olun. Render icazə istəyəndə **Authorize** basın.
-3. Email təsdiqi istənsə, poçtunuza gələn linkə basın.
+## 1. DNS: ünvanı VPS-ə yönəltmək
 
-## 2. Xidməti yaratmaq (Blueprint)
+1. Namecheap-ə daxil olun, **Domain List**, `arachi.co` yanında **Manage**, yuxarıda **Advanced DNS**.
+2. **Host Records** hissəsində **Add New Record** basın:
+   - Type: **A Record**
+   - Host: `app.v2`
+   - Value: `SIZIN_IP`
+   - TTL: **Automatic**
+3. Yaşıl işarəyə (✓) basıb saxlayın.
 
-Repozitoriyada `render.yaml` faylı var, Render bütün ayarları ondan özü oxuyur.
+Başqa heç bir yazını dəyişməyin və silməyin (MX, SPF/TXT, DKIM və `v2` üçün Resend yazıları olduğu kimi qalır). Yeni yazının işləməsi adətən bir neçə dəqiqə, bəzən bir saata qədər çəkir.
 
-1. Render panelində yuxarıda **New +** basın, **Blueprint** seçin.
-2. **Connect a repository** hissəsində `Rajabbb/Arachi.v2` görünməlidir. Görünmürsə, **Configure account** basın, GitHub-da `Arachi.v2` repozitoriyasına icazə verin və geri qayıdın.
-3. `Arachi.v2` yanında **Connect** basın.
-4. **Blueprint Name** sahəsinə istənilən ad yazın, məsələn `arachi-v2`. Branch `main` olsun.
-5. Aşağıda Render boş dəyərləri soruşacaq. Hər birini `.env` faylınızdan kopyalayıb yapışdırın (bərabərlik işarəsindən **sonrakı** hissəni, dırnaqsız):
+## 2. VPS-ə qoşulmaq
 
-   | Sahə | Haradan |
-   |---|---|
-   | `GEMINI_API_KEY` | `.env`-dəki `GEMINI_API_KEY` |
-   | `DATABASE_URL` | `.env`-dəki `DATABASE_URL` (Supabase **Session pooler** sətri, parol daxil) |
-   | `RESEND_API_KEY` | `.env`-dəki `RESEND_API_KEY` |
-   | `EMAIL_FROM` | `.env`-dəki `EMAIL_FROM` (məsələn `Arachi <sorgu@v2.arachi.co>`) |
+1. Kompüterdə **Start** düyməsini basın, `PowerShell` yazın, **Windows PowerShell**-i açın.
+2. Yazın və **Enter** basın:
+   ```
+   ssh root@SIZIN_IP
+   ```
+3. İlk dəfə `Are you sure you want to continue connecting` soruşulsa, `yes` yazıb **Enter** basın.
+4. Parolu soruşanda yapışdırın (sağ klik) və **Enter** basın. Parol yazılanda ekranda heç nə görünmür, bu normaldır.
 
-   `AI_PROVIDER=gemini` və `GEMINI_MODEL=gemini-3.5-flash-lite` artıq hazır yazılıb.
-6. **Deploy Blueprint** (bəzən **Apply** adlanır) basın. Render kodu yükləyir, qurur (`npm run build`) və işə salır. Bu bir neçə dəqiqə çəkə bilər. İrəliləyişi **Logs** bölməsində görmək olar.
-7. Hazır olanda xidmətin səhifəsində yuxarıda yaşıl **Live** yazısı və ünvan görünür, məsələn `https://arachi-v2.onrender.com`. Ad tutulubsa, Render sonuna bir neçə simvol əlavə edir.
+Sətrin əvvəlində `root@...:~#` görünəndə serverin içindəsiniz. Aşağıdakı bütün əmrləri bu pəncərəyə yapışdırıb (sağ klik) **Enter** basırsınız.
 
-`PUBLIC_BASE_URL` yazmağa ehtiyac yoxdur: server Render-in verdiyi ünvanı özü götürür. **Logs**-da belə sətir görünməlidir:
+## 3. Docker və firewall
+
+Bu əmrlər bir dəfə, ardıcıl icra olunur:
+
 ```
-Links in emails and chat point to https://arachi-v2.onrender.com
+apt update && apt upgrade -y
+curl -fsSL https://get.docker.com | sh
+ufw allow OpenSSH && ufw allow 80/tcp && ufw allow 443/tcp && ufw allow 443/udp
+ufw --force enable
 ```
-Həmçinin `Database: Postgres (DATABASE_URL)` və `Email: Resend` sətirlərini yoxlayın. Bazanın yeni cədvəlləri (miqrasiyalar) hər başlanğıcda avtomatik tətbiq olunur.
 
-## 3. Yoxlamaq
+Yoxlamaq üçün `docker compose version` yazın: versiya nömrəsi görünməlidir.
 
-1. Ünvanı brauzerdə açın, öz hesabınızla daxil olun (eyni Supabase bazasıdır, hesabınız və RFQ-ləriniz yerindədir).
-2. Agentə özünüzü daşıyıcı kimi əlavə etdirin və bir RFQ göndərin. Emaildəki link `https://...onrender.com/quote/...` ilə başlamalıdır. Linki telefondan da açın.
-3. "Şifrəni unutmusunuz?" ilə bərpa emaili istəyin, link yenə Render ünvanında olmalıdır.
+## 4. Kodu yükləmək
 
-## 4. İstəyə görə: Resend webhook
+```
+git clone https://github.com/Rajabbb/Arachi.v2.git /opt/arachi-v2
+cd /opt/arachi-v2
+```
 
-Sayt artıq internetdə olduğu üçün Resend bounce-ları dərhal xəbər verə bilər (bunsuz da server Resend-dən hər dəqiqə soruşur):
+## 5. `.env` faylı (sirlər)
 
-1. Resend → **Webhooks → Add Endpoint**, ünvan `https://<sizin-ünvan>/api/webhooks/resend`.
+1. Serverdə faylı açın:
+   ```
+   nano .env
+   ```
+2. Kompüterinizdə Notepad-də açdığınız `.env`-in **bütün** məzmununu kopyalayın (Ctrl+A, Ctrl+C) və PowerShell pəncərəsinə sağ kliklə yapışdırın.
+3. Ən aşağıya bu sətri əlavə edin (ox düymələri ilə aşağı enin):
+   ```
+   APP_DOMAIN=app.v2.arachi.co
+   ```
+4. Faylda `PUBLIC_BASE_URL=...` sətri varsa, onu silin: ünvanı `APP_DOMAIN`-dən server özü qurur (`https://app.v2.arachi.co`).
+5. Bunların dolu olduğunu yoxlayın: `AI_PROVIDER=gemini`, `GEMINI_API_KEY`, `GEMINI_MODEL=gemini-3.5-flash-lite`, `DATABASE_URL`, `RESEND_API_KEY`, `EMAIL_FROM`.
+6. Saxlamaq: **Ctrl+O**, **Enter**, sonra çıxmaq: **Ctrl+X**.
+7. Faylı yalnız root oxuya bilsin:
+   ```
+   chmod 600 .env
+   ```
+
+## 6. İşə salmaq
+
+```
+docker compose up -d --build
+```
+
+İlk dəfə bir neçə dəqiqə çəkir (proqram qurulur). Sonra loglara baxın:
+
+```
+docker compose logs -f app
+```
+
+Bu sətirlər görünməlidir:
+
+```
+Database: Postgres (DATABASE_URL)
+Email: Resend
+Agent server listening on port 8787
+Links in emails and chat point to https://app.v2.arachi.co
+```
+
+Logdan çıxmaq üçün **Ctrl+C** (proqram işləməyə davam edir). Sertifikatın alındığını görmək üçün `docker compose logs caddy` yazın: `certificate obtained successfully` sətri olmalıdır.
+
+## 7. Yoxlamaq
+
+1. Brauzerdə `https://app.v2.arachi.co` açın, öz hesabınızla daxil olun (eyni Supabase bazasıdır, hesabınız və RFQ-ləriniz yerindədir). Ünvan sətrində qıfıl işarəsi olmalıdır.
+2. Agentə özünüzü daşıyıcı kimi əlavə etdirin və bir RFQ göndərin. Emaildəki link `https://app.v2.arachi.co/quote/...` ilə başlamalıdır. Linki telefondan da açın.
+3. "Şifrəni unutmusunuz?" ilə bərpa emaili istəyin, link yenə bu ünvanda olmalıdır.
+
+## 8. İstəyə görə: Resend webhook
+
+Sayt internetdə olduğu üçün Resend bounce-ları dərhal xəbər verə bilər (bunsuz da server Resend-dən hər dəqiqə soruşur):
+
+1. Resend → **Webhooks → Add Endpoint**, ünvan `https://app.v2.arachi.co/api/webhooks/resend`.
 2. Hadisələr: `email.delivered`, `email.bounced`, `email.complained`, `email.suppressed`, `email.failed`, `email.opened`. **Add** basın.
-3. Göstərilən **Signing secret**-i (`whsec_...`) kopyalayın. Render-də xidmətinizi açın, solda **Environment → Add Environment Variable**: açar `RESEND_WEBHOOK_SECRET`, dəyər həmin secret. **Save Changes** basın, xidmət özü yenidən başlayır.
-
-`EMAIL_REPLY_TO` istifadə edirsinizsə, onu da eyni yolla əlavə edin.
-
-## Pulsuz planın məhdudiyyəti
-
-Pulsuz planda xidmət təxminən 15 dəqiqə heç kim açmayanda "yatır". Kimsə yenidən açanda (siz və ya linkə basan daşıyıcı) ilk açılış təxminən bir dəqiqə gecikir, sonra normal işləyir. Məlumatlar itmir, çünki Supabase-dədir. Bu gecikmə olmasın deyə xidmətin səhifəsində **Settings → Instance Type**-dan ödənişli plana keçmək olar (qiymət render.com/pricing səhifəsindədir).
+3. Göstərilən **Signing secret**-i (`whsec_...`) kopyalayın. Serverdə `cd /opt/arachi-v2 && nano .env`, ən aşağıya `RESEND_WEBHOOK_SECRET=` yazıb secret-i yapışdırın, saxlayın (Ctrl+O, Enter, Ctrl+X), sonra:
+   ```
+   docker compose up -d
+   ```
 
 ## Yeniləmələr
 
-`main`-ə yeni dəyişiklik birləşəndə Render onu özü qurub yerləşdirir (**Events** bölməsində görünür). Kompüterinizdə heç nə etmək lazım deyil.
+`main`-ə yeni dəyişiklik birləşəndən sonra serverə qoşulun (addım 2) və yazın:
 
-## Sonra: öz domeniniz (istəyə görə)
+```
+cd /opt/arachi-v2 && sh deploy/update.sh
+```
 
-`onrender.com` əvəzinə, məsələn, `app.v2.arachi.co` istəsəniz: Render-də **Settings → Custom Domains → Add**, Render bir **CNAME** yazısı göstərir. Namecheap-də yalnız həmin **yeni** CNAME yazısını əlavə edin; mövcud MX, SPF, DKIM yazılarına (arachi.co poçtu və Resend) toxunmayın. Sonra Render-in **Environment**-ində `PUBLIC_BASE_URL=https://app.v2.arachi.co` yazın.
+Skript son kodu çəkir, proqramı yenidən qurur və işə salır; miqrasiyalar başlanğıcda özü tətbiq olunur. Sonda hər iki xidmət `Up` (app üçün `healthy`) görünməlidir.
+
+Kompüterinizdə əvvəlki kimi `npm run server` və `npm run dev` ilə yerli işləmək olar, eyni bazanı istifadə edir. Yerli linklər isə `localhost` olaraq qalır.
+
+## Faydalı əmrlər
+
+Hamısı `/opt/arachi-v2` papkasında (`cd /opt/arachi-v2`):
+
+- Vəziyyət: `docker compose ps`
+- Son loglar: `docker compose logs --tail 100 app`
+- Yenidən başlatmaq (məsələn `.env` dəyişəndən sonra): `docker compose up -d`
+- Dayandırmaq: `docker compose down` (məlumatlar Supabase-də olduğu üçün itmir)
+
+Server yenidən yüklənəndə (reboot) hər iki xidmət özü yenidən başlayır.
 
 ## Problem olsa
 
-- **Build failed**: **Logs**-da qırmızı sətirləri kopyalayıb Claude-a göndərin (açar varsa, silin).
+- **Brauzer saytı açmır və ya sertifikat xətası**: DNS yazısı hələ yayılmayıb və ya IP səhvdir. `docker compose logs caddy` yazın; xəta varsa, bir neçə dəqiqə gözləyib `docker compose restart caddy` edin. Xəta qalırsa, logdakı qırmızı sətirləri Claude-a göndərin.
+- **`APP_DOMAIN is missing in .env`**: addım 5-dəki `APP_DOMAIN=` sətri yoxdur.
 - **Could not open the database**: `DATABASE_URL` səhvdir. Supabase-də **Session pooler** sətrini (5432 portu) götürdüyünüzü və `[YOUR-PASSWORD]` yerinə parol yazdığınızı yoxlayın.
 - **Email: log only**: `RESEND_API_KEY` və ya `EMAIL_FROM` boşdur.
+- **Quraşdırma `Killed` ilə dayanır**: VPS-in yaddaşı azdır (2 GB lazımdır).
 
-## Başqa hostinq
-
-Repozitoriyada ümumi `Dockerfile` də var: Railway, Fly.io və ya istənilən Docker hostinqində eyni dəyişənlərlə işləyir (orada `PUBLIC_BASE_URL`-i saytın ünvanı ilə mütləq yazın). Docker olmadan: `npm ci --include=dev && npm run build`, sonra `npm start`; server `PORT` dəyişənindəki portu dinləyir.
+Logu Claude-a göndərməzdən əvvəl içində açar və ya parol varsa, silin.

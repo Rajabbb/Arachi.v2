@@ -1,0 +1,42 @@
+# VPS setup: the app plus Caddy, which gets and renews the HTTPS certificate
+# for APP_DOMAIN by itself. Secrets and APP_DOMAIN live in .env next to this
+# file on the server, never in git. Steps in Azerbaijani: docs/DEPLOY.md.
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: "8787"
+      PUBLIC_BASE_URL: https://${APP_DOMAIN:?APP_DOMAIN is missing in .env}
+    # Not published: only Caddy reaches it, over the compose network.
+    expose:
+      - "8787"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?APP_DOMAIN is missing in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+volumes:
+  # Certificates; kept across restarts so Let's Encrypt is not asked again.
+  caddy_data:
+  caddy_config:

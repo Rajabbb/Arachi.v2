@@ -1,0 +1,6 @@
+# HTTPS for the app: Caddy gets a Let's Encrypt certificate for APP_DOMAIN
+# once its DNS A record points to this server, and redirects http to https.
+{$APP_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy app:8787
+}

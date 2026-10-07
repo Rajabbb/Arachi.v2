@@ -27,7 +27,7 @@ npm start              # istehsal rejimi: bir server həm API-ni, həm dist/ int
 
 ## İnternetdə yerləşdirmə
 
-Addım-addım təlimat (Render): [docs/DEPLOY.md](docs/DEPLOY.md). Qısaca: `render.yaml` Render-də bir web xidməti yaradır (`npm ci --include=dev && npm run build`, sonra `npm start`, sağlamlıq yoxlaması `/healthz`). Server `PORT`-u oxuyur, `dist/`-i verir (`/quote/:token`, `/reset/:token`, `/panel` kimi ünvanlar `index.html`-ə düşür), miqrasiyaları başlanğıcda tətbiq edir. Linklərdəki ünvan `PUBLIC_BASE_URL`-dən, o boşdursa Render-in `RENDER_EXTERNAL_URL`-indən götürülür; ünvan `https://` olanda giriş cookie-si `Secure` olur. Başqa hostinq üçün `Dockerfile` var.
+Addım-addım təlimat (VPS): [docs/DEPLOY.md](docs/DEPLOY.md). Qısaca: serverdə `docker compose up -d --build` iki xidmət qaldırır: `app` (`Dockerfile`: `npm run build`, sonra `npm start`, sağlamlıq yoxlaması `/healthz`) və `caddy` (`deploy/Caddyfile`: `APP_DOMAIN` üçün HTTPS sertifikatını özü alır və sorğuları app-ə ötürür). Sirlər və `APP_DOMAIN` serverdəki `.env`-də saxlanır; `PUBLIC_BASE_URL` oradan `https://APP_DOMAIN` kimi qurulur, ona görə giriş cookie-si `Secure` olur. Server `dist/`-i verir (`/quote/:token`, `/reset/:token`, `/panel` kimi ünvanlar `index.html`-ə düşür) və miqrasiyaları başlanğıcda tətbiq edir. Yeniləmə: `sh deploy/update.sh`.
 
 ## Hesablar və giriş
 
