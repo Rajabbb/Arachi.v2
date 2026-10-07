@@ -9,7 +9,7 @@ import { handleDashboard } from "./routes/dashboard";
 import { handleResendWebhook } from "./routes/resendWebhook";
 import { handleAuth, requireUser } from "./routes/auth";
 import { asUser } from "./auth/current";
-import { handleRfqDetail, handleRfqList, handleRfqReport } from "./routes/rfqs";
+import { handleRfqDetail, handleRfqList } from "./routes/rfqs";
 import { handleCarrierDetail, handleCarrierList } from "./routes/carriers";
 import {
   ChatTurnError,
@@ -72,9 +72,6 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
     } else if (req.method === "GET" && path === "/api/rfqs") {
       const user = await requireUser(req);
       await asUser(user.id, () => handleRfqList(res));
-    } else if (req.method === "GET" && path === "/api/rfqs/report") {
-      const user = await requireUser(req);
-      await asUser(user.id, () => handleRfqReport(res));
     } else if (req.method === "GET" && rfq) {
       const user = await requireUser(req);
       await asUser(user.id, () => handleRfqDetail(res, rfq[1]));
