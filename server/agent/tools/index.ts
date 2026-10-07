@@ -10,7 +10,7 @@ import { sendReminders } from "./reminders";
 import { offerHistory } from "./history";
 import { createCustomerQuote, exportRfqs } from "./customerQuote";
 import { getDashboard } from "./dashboard";
-import { addCarriers, importCarriers, listCarriers, removeCarriers, updateCarriers } from "./carriers";
+import { addCarriers, importCarriers, listCarriers, removeCarriers, subcategoryToCategoryTool, updateCarriers } from "./carriers";
 
 /**
  * Every tool the agent can use. To add a process, write an AgentTool
@@ -30,6 +30,7 @@ export const tools = new ToolRegistry()
   .register(addCarriers)
   .register(importCarriers)
   .register(updateCarriers)
+  .register(subcategoryToCategoryTool)
   .register(listCarriers)
   .register(removeCarriers)
   // 5. Carrier quote page

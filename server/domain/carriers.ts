@@ -67,8 +67,44 @@ export function matchCategory(value: string | undefined): string | null {
 }
 
 export function normalizeCategory(value: string | undefined, fallback: string): string {
-  return matchCategory(value) ?? fallback;
+  return categoryName(value) ?? fallback;
 }
+
+/** Words around a category's own name: "A kateqoriyası", "Kateqoriya: VIP", "category B". */
+const categoryWord = /^(kateqoriya\p{L}*|category|cat\.?|категори\p{L}*|qrup\p{L}*|group)$/u;
+
+/** A cell that names a category with the word itself: "A kateqoriyası", "Kateqoriya B", "VIP qrupu". */
+export function isCategoryLabel(value: string): boolean {
+  const words = value.trim().split(/[\s:]+/).filter(Boolean);
+  return words.length >= 2 && words.length <= 4 && words.some((w) => categoryWord.test(fold(w)));
+}
+
+/**
+ * The category a value names: a transport category (Quru, Dəniz, Hava,
+ * Dəmiryolu) from any of its synonyms, otherwise the user's own label ("A
+ * kateqoriyası" -> "A", "VIP"). Spelled like an existing one when it differs
+ * only in case or accents ("a" -> "A"). Null for an empty value.
+ */
+export function categoryName(value: string | undefined, existing: string[] = []): string | null {
+  const raw = (value ?? "").trim().replace(/\s+/g, " ").replace(/^[-–—:\s]+|[-–—:.\s]+$/g, "");
+  if (!raw) return null;
+  const known = matchCategory(raw);
+  if (known) return known;
+  const words = raw.split(/[\s:]+/).filter((w) => !categoryWord.test(fold(w)));
+  const label = words.join(" ").trim() || raw;
+  return existing.find((c) => fold(c) === fold(label)) ?? label;
+}
+
+/** The user's categories in use, transport ones first. */
+export async function userCategories(): Promise<string[]> {
+  const rows = await db().all<{ category: string }>(
+    "SELECT DISTINCT category FROM carriers WHERE user_id = ? ORDER BY category",
+    currentUserId(),
+  );
+  const own = rows.map((r) => r.category).filter((c) => !(carrierCategories as readonly string[]).includes(c));
+  return [...carrierCategories, ...own];
+}
+
 
 /** How one row of carriers to add is checked before saving (see saveCarriers). */
 interface Known {
@@ -92,8 +128,8 @@ export interface SaveSummary {
   skipped: { row: number; name: string; email: string; reason: string }[];
   /** Set when some carriers had no category anywhere and got the fallback one. */
   category_defaulted?: { count: number; category: string; names: string[] };
-  /** Category values that name no known category; the value was kept as the subcategory. */
-  category_not_recognized?: { row: number; name: string; value: string; saved_as: string }[];
+  /** The user's own categories (not Quru/Dəniz/Hava/Dəmiryolu) that this list started. */
+  new_categories?: string[];
   note?: string;
 }
 
@@ -116,8 +152,9 @@ export async function saveCarriers(
     currentUserId(),
   );
   const defaulted: string[] = [];
-  const notRecognized: NonNullable<SaveSummary["category_not_recognized"]> = [];
-  const fallback = matchCategory(defaults.category) ?? "Quru";
+  const categories = await userCategories();
+  const before = new Set(categories);
+  const fallback = categoryName(defaults.category, categories) ?? "Quru";
 
   for (const [i, input] of rows.entries()) {
     const rowNo = i + 1;
@@ -152,16 +189,13 @@ export async function saveCarriers(
       continue;
     }
 
-    let category = matchCategory(input.category);
-    let subcategory = (input.subcategory ?? "").trim();
-    const rawCategory = (input.category ?? "").trim();
+    let category = categoryName(input.category, categories);
+    const subcategory = (input.subcategory ?? "").trim();
     if (!category) {
       category = fallback;
-      if (rawCategory) {
-        if (!subcategory) subcategory = rawCategory;
-        notRecognized.push({ row: rowNo, name, value: rawCategory, saved_as: `${category}${subcategory ? ` / ${subcategory}` : ""}` });
-      } else defaulted.push(name);
+      defaulted.push(name);
     }
+    if (!categories.includes(category)) categories.push(category);
     const row = {
       name,
       email,
@@ -202,11 +236,11 @@ export async function saveCarriers(
   if (defaulted.length > 0) {
     summary.category_defaulted = { count: defaulted.length, category: fallback, names: defaulted };
   }
-  if (notRecognized.length > 0) summary.category_not_recognized = notRecognized;
-  if (defaulted.length > 0 || notRecognized.length > 0) {
+  const started = categories.filter((c) => !before.has(c));
+  if (started.length > 0) summary.new_categories = started;
+  if (defaulted.length > 0) {
     summary.note =
-      `Kateqoriyası göstərilməyən və ya tanınmayan daşıyıcılar «${fallback}» kateqoriyasına yazıldı; ` +
-      "update_carriers ilə dəyişmək olar.";
+      `Kateqoriyası göstərilməyən daşıyıcılar «${fallback}» kateqoriyasına yazıldı; update_carriers ilə dəyişmək olar.`;
   }
   return summary;
 }
@@ -244,11 +278,7 @@ export async function updateCarrier(id: number, changes: CarrierChanges): Promis
     const clash = others.find((o) => (name && fold(o.name) === fold(name)) || (email && o.email?.toLowerCase() === email));
     if (clash) throw new Error(`«${clash.name}» (${clash.email ?? "email-siz"}) artıq bu ad və ya email ilə bazadadır.`);
   }
-  if (changes.category?.trim()) {
-    const category = matchCategory(changes.category);
-    if (!category) throw new Error(`Kateqoriya tanınmadı: ${changes.category}. Mümkün olanlar: ${carrierCategories.join(", ")}.`);
-    set.category = category;
-  }
+  if (changes.category?.trim()) set.category = categoryName(changes.category, await userCategories())!;
   if (changes.subcategory !== undefined && changes.subcategory !== "") {
     // "-" clears the subcategory.
     set.subcategory = changes.subcategory.trim() === "-" ? "" : changes.subcategory.trim();
@@ -274,12 +304,24 @@ export async function getCarrier(id: number): Promise<Carrier> {
   return carrier;
 }
 
-export async function findCarriers(filter: { category?: string; subcategory?: string; ids?: number[] }): Promise<Carrier[]> {
+export async function findCarriers(filter: {
+  category?: string;
+  subcategory?: string;
+  ids?: number[];
+  withOwnCategories?: boolean;
+}): Promise<Carrier[]> {
   const where = ["active = 1", "user_id = ?"];
   const args: (string | number)[] = [currentUserId()];
   if (filter.category) {
-    where.push("category = ?");
-    args.push(filter.category);
+    const category = categoryName(filter.category, await userCategories())!;
+    // RFQ matching: the transport category, plus the user's own categories (A, VIP, ...), which say nothing about transport.
+    if (filter.withOwnCategories) {
+      where.push(`(category = ? OR category NOT IN (${carrierCategories.map(() => "?").join(",")}))`);
+      args.push(category, ...carrierCategories);
+    } else {
+      where.push("category = ?");
+      args.push(category);
+    }
   }
   if (filter.subcategory) {
     where.push("lower(subcategory) = lower(?)");
@@ -291,4 +333,35 @@ export async function findCarriers(filter: { category?: string; subcategory?: st
     args.push(...filter.ids);
   }
   return db().all<Carrier>(`SELECT * FROM carriers WHERE ${where.join(" AND ")} ORDER BY name, id`, ...args);
+}
+
+/**
+ * Older versions saved a category they didn't recognise ("A kateqoriyası") as
+ * the subcategory under "Quru". Makes those subcategories the category again:
+ * carriers in `fromCategory` whose subcategory is one of `subcategories` (all
+ * of them when empty) get it as their category and lose the subcategory.
+ */
+export async function subcategoryToCategory(
+  fromCategory: string,
+  subcategories: string[],
+): Promise<{ id: number; name: string; category: string }[]> {
+  const categories = await userCategories();
+  const from = categoryName(fromCategory, categories) ?? "Quru";
+  const wanted = subcategories.map((s) => fold(s)).filter(Boolean);
+  const rows = await db().all<{ id: number; name: string; subcategory: string }>(
+    "SELECT id, name, subcategory FROM carriers WHERE user_id = ? AND category = ? AND subcategory <> '' ORDER BY id",
+    currentUserId(), from,
+  );
+  const moved: { id: number; name: string; category: string }[] = [];
+  for (const row of rows) {
+    if (wanted.length > 0 && !wanted.includes(fold(row.subcategory)) && !wanted.includes(fold(categoryName(row.subcategory) ?? ""))) continue;
+    const category = categoryName(row.subcategory, categories)!;
+    if (!categories.includes(category)) categories.push(category);
+    await db().run(
+      "UPDATE carriers SET category = ?, subcategory = '' WHERE id = ? AND user_id = ?",
+      category, row.id, currentUserId(),
+    );
+    moved.push({ id: row.id, name: row.name, category });
+  }
+  return moved;
 }

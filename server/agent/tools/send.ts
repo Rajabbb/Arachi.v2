@@ -1,5 +1,5 @@
 import type { AgentTool } from "./registry";
-import { carrierCategories, findCarriers } from "../../domain/carriers";
+import { findCarriers } from "../../domain/carriers";
 import {
   addressFor,
   findDispatchFor,
@@ -25,11 +25,11 @@ export const sendRfqToCarriers: AgentTool = {
     audience: {
       type: "string",
       description:
-        "Who receives it: matching = carriers whose category matches the RFQ's transport type; all = every carrier; category = the category/subcategory given; specific = the carrier_ids given.",
+        "Who receives it: matching = carriers whose category matches the RFQ's transport type, plus carriers in the user's own categories (A, VIP, ...); all = every carrier; category = the category/subcategory given (e.g. \"A kateqoriyasına göndər\"); specific = the carrier_ids given.",
       enum: ["matching", "all", "category", "specific"],
       default: "matching",
     },
-    category: { type: "string", description: "Category for audience=category.", enum: ["", ...carrierCategories], default: "" },
+    category: { type: "string", description: "Category for audience=category: a transport category or the user's own (A, B, VIP, ...).", default: "" },
     subcategory: { type: "string", description: "Optional subcategory filter, e.g. Türkiyə xətti.", default: "" },
     carrier_ids: { type: "array", description: "Carrier ids for audience=specific.", items: { type: "integer" }, default: [] },
     channels: {
@@ -52,7 +52,7 @@ export const sendRfqToCarriers: AgentTool = {
         : audience === "category"
           ? findCarriers({ category: (p.category as string) || undefined, subcategory })
           : audience === "matching"
-            ? findCarriers({ category: rfq.transport_type, subcategory })
+            ? findCarriers({ category: rfq.transport_type, subcategory, withOwnCategories: true })
             : findCarriers({ subcategory }));
     if (carriers.length === 0) {
       throw new Error("Seçimə uyğun aktiv daşıyıcı tapılmadı. Əvvəlcə daşıyıcı bazasına daşıyıcı əlavə edin.");

@@ -95,10 +95,10 @@ test("each carrier keeps its own category; the default only fills the gaps", asy
   assert.deepEqual(result.by_category, [
     { category: "Hava", subcategory: "", count: 2 },
     { category: "Dəniz", subcategory: "", count: 1 },
-    { category: "Dəniz", subcategory: "Türkiyə xətti", count: 1 },
+    { category: "Türkiyə xətti", subcategory: "", count: 1 },
   ]);
   assert.equal(result.category_defaulted.count, 1);
-  assert.equal(result.category_not_recognized[0].value, "Türkiyə xətti");
+  assert.deepEqual(result.new_categories, ["Türkiyə xətti"]);
   assert.match(result.note, /update_carriers/);
 });
 
@@ -142,7 +142,7 @@ test("update_carriers changes the category of several carriers and refuses a dup
   const { result } = await call("update_carriers", { carrier_ids: [1, 2], category: "dəniz", subcategory: "Avropa" });
   assert.deepEqual(result.carriers.map((c: { category: string; subcategory: string }) => `${c.category}/${c.subcategory}`), ["Dəniz/Avropa", "Dəniz/Avropa"]);
   await assert.rejects(call("update_carriers", { carrier_ids: [2], email: "A@x.az" }), /artıq bu ad və ya email/);
-  await assert.rejects(call("update_carriers", { carrier_ids: [2], category: "Kosmos" }), /Kateqoriya tanınmadı/);
+  assert.equal((await call("update_carriers", { carrier_ids: [2], category: "vip kateqoriyası" })).result.carriers[0].category, "vip");
   assert.equal((await call("update_carriers", { carrier_ids: [2], subcategory: "-" })).result.carriers[0].subcategory, "");
 });
 
@@ -208,4 +208,48 @@ test("import_carriers finds name, email and category by content when headers are
   assert.equal(result.added, 1);
   const rows = (await call("list_carriers")).result.carriers.map((c: { name: string; category: string }) => `${c.name}/${c.category}`);
   assert.deepEqual(rows, ["Asim Logistics/Dəniz", "Blue Sea Shipping/Dəniz", "Kapital Trans/Hava", "Road Co/Quru", "Sky Co/Hava"]);
+});
+
+test("the user's own categories (A, B) are categories, not subcategories under Quru", async () => {
+  // The user's example: Ogullar in A, BABALAR in B.
+  const text = "Bu daşıyıcıları əlavə et:\nOgullar - burzuyevrcb5@gmail.com - A kateqoriyası\nBABALAR - memetorres057@gmail.com - B kateqoriyası";
+  // A model that put the label in subcategory and left the category to the default.
+  const { result } = await call(
+    "add_carriers",
+    {
+      carriers: [
+        { name: "Ogullar", email: "burzuyevrcb5@gmail.com", subcategory: "A kateqoriyası" },
+        { name: "BABALAR", email: "memetorres057@gmail.com", subcategory: "B kateqoriyası" },
+      ],
+    },
+    emptyContext([], text),
+  );
+  assert.deepEqual(result.new_categories, ["A", "B"]);
+  assert.equal(result.category_defaulted, undefined);
+  // "a" and "A" are one category; a new carrier joins it.
+  await call("add_carriers", { carriers: [{ name: "Yeni", email: "y@x.az", category: "a" }] });
+  const rows = (await call("list_carriers")).result.carriers.map((c: { name: string; category: string }) => `${c.name}/${c.category}`);
+  assert.deepEqual(rows, ["BABALAR/B", "Ogullar/A", "Yeni/A"]);
+  assert.equal((await call("list_carriers", { category: "A kateqoriyası" })).result.count, 2);
+});
+
+test("typed lines and files carry the user's own categories", () => {
+  const lines = parseCarrierLines("A kateqoriyası:\nOgullar - o@x.az\nB:\nBABALAR, b@x.az, kateqoriya: B\nVip Co - v@x.az - VIP");
+  assert.deepEqual(lines.map((c) => [c.name, c.category]), [["Ogullar", "A"], ["BABALAR", "B"], ["Vip Co", "VIP"]]);
+  const rows = tableCarriers("", [["Ad", "Email", "Kateqoriya"], ["Ogullar", "o@x.az", "A kateqoriyası"]]);
+  assert.equal(rows![0].category, "A kateqoriyası");
+});
+
+test("subcategory_to_category repairs carriers saved as Quru with the category in the subcategory", async () => {
+  await call("add_carriers", {
+    carriers: [
+      { name: "Ogullar", email: "o@x.az", category: "Quru", subcategory: "A kateqoriyası" },
+      { name: "BABALAR", email: "b@x.az", category: "Quru", subcategory: "B kateqoriyası" },
+      { name: "Avto Trans", email: "t@x.az", category: "Quru", subcategory: "Türkiyə xətti" },
+    ],
+  });
+  const { result } = await call("subcategory_to_category", { subcategories: ["A kateqoriyası", "b"] });
+  assert.deepEqual(result.carriers.map((c: { name: string; category: string }) => `${c.name}/${c.category}`), ["Ogullar/A", "BABALAR/B"]);
+  const avto = (await call("list_carriers", { category: "Quru" })).result.carriers;
+  assert.deepEqual(avto.map((c: { name: string; subcategory: string }) => `${c.name}/${c.subcategory}`), ["Avto Trans/Türkiyə xətti"]);
 });
