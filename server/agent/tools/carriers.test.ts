@@ -4,7 +4,7 @@ import ExcelJS from "exceljs";
 import { call, freshDb, textFile } from "../../test/helpers";
 import { emptyContext } from "./registry";
 import { matchCategory } from "../../domain/carriers";
-import { tableCarriers } from "./carriers";
+import { parseCarrierLines, tableCarriers } from "./carrierParse";
 
 beforeEach(freshDb);
 
@@ -134,7 +134,7 @@ test("import_carriers takes the category from the column, a section row or the s
   const sections = tableCarriers("", [
     ["Name", "Email"], ["Dəniz daşıyıcıları"], ["S1", "s1@x.az"], ["Hava"], ["A1", "a1@x.az"],
   ]);
-  assert.deepEqual(sections!.map((c) => [c.name, c.category]), [["S1", "Dəniz"], ["A1", "Hava"]]);
+  assert.deepEqual(sections!.map((c: { name: string; category?: string }) => [c.name, c.category]), [["S1", "Dəniz"], ["A1", "Hava"]]);
 });
 
 test("update_carriers changes the category of several carriers and refuses a duplicate name or email", async () => {
@@ -144,4 +144,68 @@ test("update_carriers changes the category of several carriers and refuses a dup
   await assert.rejects(call("update_carriers", { carrier_ids: [2], email: "A@x.az" }), /artıq bu ad və ya email/);
   await assert.rejects(call("update_carriers", { carrier_ids: [2], category: "Kosmos" }), /Kateqoriya tanınmadı/);
   assert.equal((await call("update_carriers", { carrier_ids: [2], subcategory: "-" })).result.carriers[0].subcategory, "");
+});
+
+// Typical lists users type in chat: what each line must become.
+const typedLines: [string, { name: string; email?: string; phone?: string; category?: string }][] = [
+  ["Asim Logistics - asim@x.az - Dəniz", { name: "Asim Logistics", email: "asim@x.az", category: "Dəniz" }],
+  ["Asim Logistics, asim@x.az, Hava", { name: "Asim Logistics", email: "asim@x.az", category: "Hava" }],
+  ["Asim Logistics; asim@x.az; +994 50 111 22 33; Quru", { name: "Asim Logistics", email: "asim@x.az", phone: "+994 50 111 22 33", category: "Quru" }],
+  ["Asim Logistics\tasim@x.az\tDəmir yolu", { name: "Asim Logistics", email: "asim@x.az", category: "Dəmir yolu" }],
+  ["1. Asim Logistics asim@x.az Dəniz", { name: "Asim Logistics", email: "asim@x.az", category: "Dəniz" }],
+  ["- Blue Sea Shipping <ops@bluesea.com>", { name: "Blue Sea Shipping", email: "ops@bluesea.com" }],
+  ["Ad: Asim Logistics, email: asim@x.az, kateqoriya: sea freight", { name: "Asim Logistics", email: "asim@x.az", category: "sea freight" }],
+  ["asim@x.az Asim Logistics", { name: "Asim Logistics", email: "asim@x.az" }],
+  ["Asim Logistics | asim@x.az | Морской", { name: "Asim Logistics", email: "asim@x.az", category: "Морской" }],
+];
+
+test("typed carrier lines: name, email, phone and category in any common layout", () => {
+  for (const [line, want] of typedLines) {
+    const [got] = parseCarrierLines(line);
+    assert.deepEqual(
+      { name: got.name, email: got.email, phone: got.phone, category: got.category },
+      { phone: undefined, category: undefined, ...want },
+      line,
+    );
+  }
+  const sectioned = parseCarrierLines("Bu daşıyıcıları əlavə et:\nDəniz daşıyıcıları:\nA - a@x.az\nB - b@x.az\nHava:\nC - c@x.az");
+  assert.deepEqual(sectioned.map((c) => [c.name, c.category]), [["A", "Dəniz"], ["B", "Dəniz"], ["C", "Hava"]]);
+});
+
+test("add_carriers fixes a name or category the model dropped, from the user's own message", async () => {
+  const text = "Bu daşıyıcıları bazaya əlavə et:\nAsim Logistics - asim@x.az - Dəniz\nKapital Trans - kt@x.az - Hava\nRoad Co - road@x.az";
+  // What a small model may send: the email as the name, no categories.
+  const { result } = await call(
+    "add_carriers",
+    { carriers: [{ name: "asim@x.az", email: "asim@x.az" }, { name: "", email: "kt@x.az" }, { name: "Road Co", email: "road@x.az" }] },
+    emptyContext([], text),
+  );
+  assert.equal(result.added, 3);
+  const rows = (await call("list_carriers")).result.carriers.map((c: { name: string; email: string; category: string }) => [c.name, c.email, c.category]);
+  assert.deepEqual(rows, [
+    ["Asim Logistics", "asim@x.az", "Dəniz"],
+    ["Kapital Trans", "kt@x.az", "Hava"],
+    ["Road Co", "road@x.az", "Quru"],
+  ]);
+  assert.deepEqual(result.category_defaulted.names, ["Road Co"]);
+});
+
+test("add_carriers with an empty list adds what the user typed", async () => {
+  const { result } = await call("add_carriers", { carriers: [] }, emptyContext([], "Asim Logistics, asim@x.az, Dəniz"));
+  assert.equal(result.added, 1);
+  assert.equal((await call("list_carriers", { category: "Dəniz" })).result.carriers[0].name, "Asim Logistics");
+});
+
+test("import_carriers finds name, email and category by content when headers are unknown or missing", async () => {
+  const noHeader = "Asim Logistics;asim@x.az;Dəniz\nKapital Trans;kt@x.az;Hava\n";
+  let { result } = await call("import_carriers", {}, emptyContext([textFile("a.csv", noHeader, "text/csv")]));
+  assert.equal(result.added, 2);
+  const unknownHeaders = "Firma adı,Elektron ünvan,Daşıma\nRoad Co,road@x.az,Quru\nSky Co,sky@x.az,Air\n";
+  ({ result } = await call("import_carriers", {}, emptyContext([textFile("b.csv", unknownHeaders, "text/csv")])));
+  assert.equal(result.added, 2);
+  const upper = "ŞİRKƏT;EMAİL;KATEQORİYA\nBlue Sea Shipping;ops@bluesea.com;DƏNİZ\n";
+  ({ result } = await call("import_carriers", {}, emptyContext([textFile("c.csv", upper, "text/csv")])));
+  assert.equal(result.added, 1);
+  const rows = (await call("list_carriers")).result.carriers.map((c: { name: string; category: string }) => `${c.name}/${c.category}`);
+  assert.deepEqual(rows, ["Asim Logistics/Dəniz", "Blue Sea Shipping/Dəniz", "Kapital Trans/Hava", "Road Co/Quru", "Sky Co/Hava"]);
 });
