@@ -21,6 +21,8 @@ export interface ParamSpec {
 export interface ToolContext {
   /** Files the user attached to the current message. */
   files: UploadedFile[];
+  /** The text of the user's current message. */
+  text: string;
   /** Files the tool generated for the user to download. */
   downloads: Download[];
 }
@@ -40,8 +42,8 @@ export interface ToolExecution {
   content: string;
 }
 
-export function emptyContext(files: UploadedFile[] = []): ToolContext {
-  return { files, downloads: [] };
+export function emptyContext(files: UploadedFile[] = [], text = ""): ToolContext {
+  return { files, text, downloads: [] };
 }
 
 export class ToolRegistry {

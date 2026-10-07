@@ -17,3 +17,4 @@ export async function handleRfqDetail(res: ServerResponse, id: string) {
   const body: RfqDetailData = await rfqDetail(n);
   send(res, 200, body);
 }
+

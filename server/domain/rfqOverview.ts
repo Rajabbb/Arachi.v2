@@ -33,7 +33,7 @@ function priceComparable(rfq: Pick<Rfq, "currency">, offers: Pick<Offer, "curren
   return new Set(offers.map((o) => o.currency)).size === 1 ? offers : [];
 }
 
-function bestPrice(rfq: Pick<Rfq, "currency">, offers: Pick<Offer, "currency" | "price">[]): RfqListItem["bestPrice"] {
+export function bestPrice(rfq: Pick<Rfq, "currency">, offers: Pick<Offer, "currency" | "price">[]): RfqListItem["bestPrice"] {
   const candidates = priceComparable(rfq, offers) as Pick<Offer, "currency" | "price">[];
   if (!candidates.length) return null;
   const best = candidates.reduce((a, b) => (b.price < a.price ? b : a));

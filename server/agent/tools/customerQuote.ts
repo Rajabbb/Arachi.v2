@@ -1,17 +1,13 @@
-import ExcelJS from "exceljs";
 import type { AgentTool, ToolContext } from "./registry";
-import { db, now } from "../../db";
-import { currentUserId } from "../../auth/current";
+import { now } from "../../db";
 import { getCarrier } from "../../domain/carriers";
-import { statusLabels, type DispatchStatus } from "../../domain/dispatches";
 import { fileUrl, storeFile } from "../../domain/files";
 import { getOffer, latestOffers, type Offer } from "../../domain/offers";
-import { addDays, currencies, getRfq, type Rfq } from "../../domain/rfqs";
+import { addDays, checkDate, currencies, getRfq, type Rfq } from "../../domain/rfqs";
 import { renderPdf, table } from "../../docs/pdf";
+import { collectReport, offerCount, reportPdf, reportWorkbook, XLSX } from "../../docs/rfqReport";
 
 /** Process 10: the official quote for the customer (PDF) and Excel/PDF exports. */
-
-const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 async function saveDownload(
   ctx: ToolContext,
@@ -52,6 +48,7 @@ const text = {
     total: "Yekun məbləğ",
     freight: "Yükdaşıma xidməti",
     flexible: "çevik",
+    defaultValidity: (d: number) => `Etibarlılıq müddəti standart olaraq ${d} gündür.`,
     footer: "Qiymətə göstərilən marşrut üzrə yükdaşıma daxildir. Təklif yuxarıdakı tarixədək qüvvədədir.",
   },
   en: {
@@ -74,6 +71,7 @@ const text = {
     total: "Total",
     freight: "Freight service",
     flexible: "flexible",
+    defaultValidity: (d: number) => `Standard validity period: ${d} days.`,
     footer: "The price covers transportation along the route above. This offer is valid until the date above.",
   },
 };
@@ -94,6 +92,47 @@ async function baseOffer(rfq: Rfq, offerId: number): Promise<Offer> {
   return best;
 }
 
+/** How long a customer quote stays valid when neither the carrier nor the user gave a date. */
+export const DEFAULT_QUOTE_VALIDITY_DAYS = 7;
+
+export interface QuoteValidity {
+  valid_until: string;
+  /** user = asked for in chat, carrier = the carrier offer's date, default = DEFAULT_QUOTE_VALIDITY_DAYS. */
+  source: "user" | "carrier" | "default";
+  note: string;
+  warning: string;
+}
+
+/**
+ * The quote's valid-until date. A date or day count the user asked for wins (with a warning when it outlives
+ * the carrier's offer); otherwise the carrier's own validity date; otherwise the standard period.
+ */
+export function quoteValidity(issued: string, carrierValidUntil: string, validityDays: number, validUntil: string): QuoteValidity {
+  checkDate("Təklifin etibarlılıq tarixi", validUntil);
+  if (validityDays < 0) throw new Error("Etibarlılıq müddəti (gün) mənfi ola bilməz.");
+  const from = new Date(`${issued}T00:00:00Z`);
+  const user = validUntil || (validityDays > 0 ? addDays(validityDays, from) : "");
+  if (user) {
+    if (user < issued) throw new Error(`Etibarlılıq tarixi (${user}) təklif tarixindən (${issued}) əvvəl ola bilməz.`);
+    const warning = carrierValidUntil && user > carrierValidUntil
+      ? `Diqqət: daşıyıcının təklifi yalnız ${carrierValidUntil} tarixinədək etibarlıdır, müştəri təklifi isə ${user} tarixinədək yazıldı.`
+      : "";
+    return { valid_until: user, source: "user", note: "İstifadəçinin istədiyi müddət.", warning };
+  }
+  if (carrierValidUntil && carrierValidUntil >= issued) {
+    return { valid_until: carrierValidUntil, source: "carrier", note: "Daşıyıcı təklifinin etibarlılıq tarixi götürüldü.", warning: "" };
+  }
+  const days = DEFAULT_QUOTE_VALIDITY_DAYS;
+  return {
+    valid_until: addDays(days, from),
+    source: "default",
+    note: `Daşıyıcı etibarlılıq tarixi yazmayıb, standart ${days} gün götürüldü; dəyişmək üçün müddəti və ya tarixi yazın.`,
+    warning: carrierValidUntil
+      ? `Diqqət: daşıyıcının təklifinin müddəti ${carrierValidUntil} tarixində bitib; qiyməti daşıyıcı ilə təsdiqləyin.`
+      : "",
+  };
+}
+
 export function customerPrice(price: number, from: string, to: string, feePercent: number, rate: number) {
   if (feePercent < 0) throw new Error("Xidmət haqqı faizi mənfi ola bilməz.");
   let cost = price;
@@ -109,7 +148,7 @@ export function customerPrice(price: number, from: string, to: string, feePercen
 export const createCustomerQuote: AgentTool = {
   name: "create_customer_quote",
   description:
-    "Creates the official quote PDF for the end customer from a carrier offer, adding the service fee on top of the carrier price. By default uses the winning offer (or the cheapest one) and hides the carrier's name. Returns a download link.",
+    "Creates the official quote PDF for the end customer from a carrier offer, adding the service fee on top of the carrier price. By default uses the winning offer (or the cheapest one) and hides the carrier's name. Returns a download link. Always tell the user the valid_until date with its validity_note, and any warning.",
   params: {
     rfq_id: { type: "integer", description: "RFQ number." },
     offer_id: { type: "integer", description: "Offer to base the quote on; 0 = winner, else cheapest.", default: 0 },
@@ -118,7 +157,16 @@ export const createCustomerQuote: AgentTool = {
     eur_usd_rate: { type: "number", description: "USD per 1 EUR, needed only when converting.", default: 0 },
     customer_name: { type: "string", description: "Customer shown on the quote; empty = not shown.", default: "" },
     language: { type: "string", description: "Language of the PDF.", enum: ["az", "en"], default: "az" },
-    validity_days: { type: "integer", description: "How many days the quote stays valid.", default: 7 },
+    validity_days: {
+      type: "integer",
+      description: "Days the quote stays valid, only when the user asks; 0 = the carrier offer's validity date, else 7 days.",
+      default: 0,
+    },
+    valid_until: {
+      type: "string",
+      description: "Exact valid-until date YYYY-MM-DD, only when the user gives one; overrides validity_days.",
+      default: "",
+    },
     show_carrier: { type: "boolean", description: "Show the carrier's name to the customer.", default: false },
   },
   async run(p, ctx) {
@@ -130,12 +178,13 @@ export const createCustomerQuote: AgentTool = {
     const s = text[p.language as "az" | "en"];
     const en = p.language === "en";
     const issued = now().slice(0, 10);
-    const validUntil = addDays(p.validity_days as number);
+    const validity = quoteValidity(issued, offer.valid_until, p.validity_days as number, p.valid_until as string);
+    const validUntil = validity.valid_until;
     const number = `Q-${rfq.id}-${offer.id}`;
 
     const pdf = await renderPdf((doc) => {
-      doc.font("bold").fontSize(20).text("Arachi");
-      doc.font("regular").fontSize(14).fillColor("#4f46e5").text(s.title).fillColor("black").moveDown();
+      // No platform brand on customer-facing documents: the offer heading is the top line.
+      doc.font("bold").fontSize(20).fillColor("#4f46e5").text(s.title).fillColor("black").moveDown();
       doc.fontSize(10);
       const meta: [string, string][] = [
         [s.no, number],
@@ -160,7 +209,9 @@ export const createCustomerQuote: AgentTool = {
       doc.moveDown();
       // The fee is built into the customer's price; it is not shown as a separate line.
       table(doc, [s.service, s.total], [[`${s.freight}: ${rfq.origin} → ${rfq.destination}`, money(price.total, currency)]], [3, 1]);
-      doc.moveDown().fontSize(9).fillColor("#555555").text(s.footer).fillColor("black");
+      doc.moveDown().fontSize(9).fillColor("#555555").text(s.footer);
+      if (validity.source === "default") doc.text(s.defaultValidity(DEFAULT_QUOTE_VALIDITY_DAYS));
+      doc.fillColor("black");
     });
 
     const download = await saveDownload(ctx, "rfq", rfq.id, `${number}.pdf`, "application/pdf", pdf);
@@ -173,102 +224,34 @@ export const createCustomerQuote: AgentTool = {
       service_fee: money(price.fee, currency),
       customer_total: money(price.total, currency),
       valid_until: validUntil,
+      validity_source: validity.source,
+      validity_note: validity.note,
+      ...(validity.warning ? { warning: validity.warning } : {}),
       download,
     };
   },
 };
 
-interface ExportRow {
-  rfq: Rfq;
-  dispatches: { carrier: string; status: string }[];
-  offers: (Offer & { carrier_name: string })[];
-}
-
-async function collect(rfqId: number, status: string): Promise<ExportRow[]> {
-  const rfqs = rfqId
-    ? [await getRfq(rfqId)]
-    : await db().all<Rfq>(
-        `SELECT * FROM rfqs WHERE user_id = ? ${status === "all" ? "" : "AND status = ?"} ORDER BY id`,
-        currentUserId(), ...(status === "all" ? [] : [status]),
-      );
-  const rows: ExportRow[] = [];
-  for (const rfq of rfqs) {
-    const dispatches = await db().all<{ name: string; status: DispatchStatus }>(
-      "SELECT c.name, d.status FROM dispatches d JOIN carriers c ON c.id = d.carrier_id WHERE d.rfq_id = ? AND c.user_id = ? ORDER BY c.name, c.id",
-      rfq.id, currentUserId(),
-    );
-    rows.push({
-      rfq,
-      dispatches: dispatches.map((d) => ({ carrier: d.name, status: statusLabels[d.status] })),
-      offers: await latestOffers(rfq.id),
-    });
-  }
-  return rows;
-}
-
-const rfqStatusLabels: Record<string, string> = { open: "Açıq", awarded: "Qalib seçilib", closed: "Bağlı" };
-
 export const exportRfqs: AgentTool = {
   name: "export_rfqs",
-  description: "Exports RFQs with their carriers' statuses and latest offers to Excel (default) or PDF and returns a download link.",
+  description:
+    "The report of RFQs as a file: by default every RFQ the user has created, in Excel with a totals sheet, one row per RFQ (date, route, cargo, status, delivery funnel, offers received, cheapest price, winner), every latest offer, and each carrier's status. PDF on request. Returns a download link. Use it for 'all RFQs report', 'export', 'hesabat'.",
   params: {
     rfq_id: { type: "integer", description: "One RFQ; 0 = all RFQs.", default: 0 },
     status: { type: "string", description: "With rfq_id 0: which RFQs.", enum: ["all", "open", "awarded", "closed"], default: "all" },
     format: { type: "string", description: "File format.", enum: ["xlsx", "pdf"], default: "xlsx" },
   },
   async run(p, ctx) {
-    const rows = await collect(p.rfq_id as number, p.status as string);
+    const rows = await collectReport(p.rfq_id as number, p.status as string);
     if (rows.length === 0) throw new Error("İxrac üçün RFQ tapılmadı.");
     const stamp = now().slice(0, 10);
-    const base = p.rfq_id ? `RFQ-${p.rfq_id}` : `RFQ-ler-${stamp}`;
-
-    const rfqHeader = ["RFQ", "Haradan", "Haraya", "Yük", "Çəki (kq)", "Nəqliyyat", "Yükləmə", "Valyuta", "Status", "Göndərilib", "Təklif", "Ən ucuz"];
-    const rfqRow = (r: ExportRow) => {
-      const cheapest = r.offers[0];
-      return [
-        `#${r.rfq.id}`, r.rfq.origin, r.rfq.destination, r.rfq.cargo_type, r.rfq.weight_kg, r.rfq.transport_type,
-        r.rfq.loading_date || "çevik", r.rfq.currency, rfqStatusLabels[r.rfq.status] ?? r.rfq.status,
-        r.dispatches.length, r.offers.length, cheapest ? `${cheapest.price} ${cheapest.currency}` : "",
-      ];
-    };
-    const offerHeader = ["RFQ", "Daşıyıcı", "Təklif / versiya", "Qiymət", "Valyuta", "Tranzit (gün)", "Etibarlıdır", "Qeydlər", "Qalib"];
-    const offerRows = rows.flatMap((r) =>
-      r.offers.map((o) => [
-        `#${r.rfq.id}`, o.carrier_name, `№${o.offer_no} v${o.version}`, o.price, o.currency, o.transit_days, o.valid_until, o.notes,
-        r.rfq.awarded_offer_id === o.id ? "✓" : "",
-      ]),
-    );
-    const statusRows = rows.flatMap((r) => r.dispatches.map((d) => [`#${r.rfq.id}`, d.carrier, d.status]));
-
-    let download;
-    if (p.format === "xlsx") {
-      const wb = new ExcelJS.Workbook();
-      const add = (name: string, header: string[], data: (string | number)[][]) => {
-        const ws = wb.addWorksheet(name);
-        ws.addRow(header).font = { bold: true };
-        ws.addRows(data);
-        ws.columns.forEach((c) => (c.width = 16));
-        ws.views = [{ state: "frozen", ySplit: 1 }];
-      };
-      add("RFQ-lər", rfqHeader, rows.map(rfqRow));
-      add("Təkliflər", offerHeader, offerRows);
-      add("Statuslar", ["RFQ", "Daşıyıcı", "Status"], statusRows);
-      const data = new Uint8Array(await wb.xlsx.writeBuffer());
-      download = await saveDownload(ctx, "export", 0, `${base}.xlsx`, XLSX, data);
-    } else {
-      const pdf = await renderPdf(
-        (doc) => {
-          doc.font("bold").fontSize(16).text(`Arachi · ${p.rfq_id ? `RFQ #${p.rfq_id}` : "RFQ-lər"} · ${stamp}`).moveDown(0.5);
-          table(doc, rfqHeader, rows.map((r) => rfqRow(r).map(String)), [5, 10, 10, 10, 7, 8, 8, 6, 9, 9, 6, 9]);
-          if (offerRows.length) {
-            doc.moveDown().font("bold").fontSize(12).text("Təkliflər").moveDown(0.3);
-            table(doc, offerHeader, offerRows.map((r) => r.map(String)), [5, 14, 6, 8, 6, 7, 9, 20, 5]);
-          }
-        },
-        { landscape: true },
-      );
-      download = await saveDownload(ctx, "export", 0, `${base}.pdf`, "application/pdf", pdf);
-    }
-    return { rfqs: rows.length, offers: offerRows.length, format: p.format, download };
+    const base = p.rfq_id ? `RFQ-${p.rfq_id}` : `RFQ-hesabati-${stamp}`;
+    const download = p.format === "xlsx"
+      ? await saveDownload(ctx, "export", 0, `${base}.xlsx`, XLSX, await reportWorkbook(rows))
+      : await saveDownload(
+          ctx, "export", 0, `${base}.pdf`, "application/pdf",
+          await reportPdf(rows, `${p.rfq_id ? `RFQ #${p.rfq_id}` : "RFQ hesabatı"} · ${stamp}`),
+        );
+    return { rfqs: rows.length, offers: offerCount(rows), format: p.format, download };
   },
 };

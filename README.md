@@ -151,13 +151,13 @@ API açarı yalnız serverdə (`.env`) saxlanılır, brauzerə heç vaxt göndə
 | 1 | RFQ yaratmaq | `create_rfq`, `list_rfqs` | Quru nəqliyyat, USD, tarixlər çevik, təklif müddəti 3 gün |
 | 2 | AI ilə avtomatik doldurma | `autofill_rfq` | PDF/şəkil/Excel/mətndən; tam olanda RFQ dərhal yaradılır |
 | 3 | Daşıyıcılara göndərmək | `send_rfq_to_carriers`, `list_outbox` | RFQ-nin nəqliyyat növünə uyğun daşıyıcılar, email, təkrar göndərmə yox |
-| 4 | Daşıyıcı bazası | `add_carriers`, `import_carriers`, `list_carriers`, `remove_carriers` | Kateqoriya Quru, dil az; eyni email yenilənir |
+| 4 | Daşıyıcı bazası | `add_carriers`, `import_carriers`, `update_carriers`, `subcategory_to_category`, `list_carriers`, `remove_carriers` | Hər daşıyıcı öz kateqoriyası ilə: Quru/Dəniz/Hava/Dəmiryolu və ya öz adınız (A, B, VIP); yoxdursa Quru, dil az; ad və ya email bazada varsa əlavə olunmur |
 | 5 | Daşıyıcının təklif səhifəsi | `get_quote_link` + `/quote/:token` səhifəsi | Girişsiz, AZ/EN, mobil |
 | 6 | Gələn təkliflər və statuslar | `list_offers`, `record_offer` | Göndərildi, Çatdırıldı, Baxıldı, Təklif alındı, Çatdırılmadı |
 | 7 | Müqayisə və qalib seçmək | `compare_offers`, `select_winner` | Qiymətə görə, qalibə bildiriş |
 | 8 | Xatırlatma | `send_reminders` | 24 saatdan bir, ən çox 3 dəfə, baxıb cavab verməyənlər də daxil |
 | 9 | Təklif tarixçəsi | `offer_history` | v1, v2, ... və dəyişiklik |
-| 10 | Rəsmi təklif PDF və ixrac | `create_customer_quote`, `export_rfqs` | Xidmət haqqı 10%, daşıyıcı adı gizli, 7 gün etibarlı; ixrac Excel |
+| 10 | Rəsmi təklif PDF və ixrac | `create_customer_quote`, `export_rfqs` | Xidmət haqqı 10%, daşıyıcı adı gizli, 7 gün etibarlı; bütün RFQ-lərin hesabatı Excel (Xülasə, RFQ-lər, Təkliflər, Statuslar) |
 | 11 | Analitika paneli | `get_dashboard` + `/panel` səhifəsi və hər RFQ üçün `/panel/rfq/:id` | Son 30 gün |
 
 Hər mesaj `outbox` cədvəlinə yazılır. Email `RESEND_API_KEY` və `EMAIL_FROM` qurulubsa Resend ilə real göndərilir, qurulmayıbsa yalnız jurnala yazılır. WhatsApp/Telegram üçün `setProvider(...)` ilə provayder qoşmaq kifayətdir. Verilənlər `DATABASE_URL` qurulubsa Supabase-də, qurulmayıbsa `data/arachi.db` faylındadır (git-ə düşmür).

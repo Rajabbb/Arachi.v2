@@ -45,7 +45,7 @@ export async function runTurn<M>(
   const messages: M[] = [...transcript, provider.userMessage(text, attachments)];
   const toolCalls: ToolCallSummary[] = [];
   const definitions = tools.definitions();
-  const ctx = emptyContext(files);
+  const ctx = emptyContext(files, text);
 
   const abort = (reply: string): TurnResult => ({
     reply,
