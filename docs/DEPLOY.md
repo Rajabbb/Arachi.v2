@@ -13,7 +13,7 @@ Məlumatlar Supabase-də qalır, email Resend ilə (`sorgu@v2.arachi.co`), AI Ge
 
 ## Lazım olanlar
 
-- VPS: **Ubuntu 24.04**, ən azı **2 GB RAM** (1 GB-da quraşdırma yaddaş çatışmazlığından dayana bilər), 1 vCPU, 20 GB disk kifayətdir.
+- VPS: **Ubuntu 24.04**, ən azı **1 GB RAM** (2 GB-dan az olanda addım 3-də əlavə swap yaddaşı açılır), 1 vCPU, 20 GB disk kifayətdir.
 - VPS-in **IP ünvanı** və **root parolu** (və ya SSH açarı). Provayder bunları VPS yaradılanda göstərir və ya emaillə göndərir.
 - Namecheap hesabı (arachi.co domeni oradadır).
 - Kompüterinizdəki `.env` faylı (`C:\Users\Rajab\arachi-git\.env`). Açmaq üçün: Fayl Explorer-də papkanı açın, `.env` faylına sağ klik, **Open with → Notepad**.
@@ -56,6 +56,13 @@ ufw --force enable
 ```
 
 Yoxlamaq üçün `docker compose version` yazın: versiya nömrəsi görünməlidir.
+
+VPS-in yaddaşı 2 GB-dan azdırsa, quraşdırma yaddaş çatışmazlığından dayanmasın deyə 2 GB əlavə (swap) yaddaş açın:
+
+```
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo '/swapfile none swap sw 0 0' >> /etc/fstab
+```
 
 ## 4. Kodu yükləmək
 
@@ -152,6 +159,6 @@ Server yenidən yüklənəndə (reboot) hər iki xidmət özü yenidən başlay�
 - **`APP_DOMAIN is missing in .env`**: addım 5-dəki `APP_DOMAIN=` sətri yoxdur.
 - **Could not open the database**: `DATABASE_URL` səhvdir. Supabase-də **Session pooler** sətrini (5432 portu) götürdüyünüzü və `[YOUR-PASSWORD]` yerinə parol yazdığınızı yoxlayın.
 - **Email: log only**: `RESEND_API_KEY` və ya `EMAIL_FROM` boşdur.
-- **Quraşdırma `Killed` ilə dayanır**: VPS-in yaddaşı azdır (2 GB lazımdır).
+- **Quraşdırma `Killed` ilə dayanır**: VPS-in yaddaşı azdır. Addım 3-dəki swap əmrlərini icra edib yenidən cəhd edin.
 
 Logu Claude-a göndərməzdən əvvəl içində açar və ya parol varsa, silin.
