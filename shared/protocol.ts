@@ -174,6 +174,57 @@ export interface DashboardData {
     created_at: string;
     winner: boolean;
   }[];
+  /** The last 12 months (Baku time), oldest first, for the panel's charts; independent of periodDays. */
+  monthly: MonthlyPoint[];
+}
+
+/** One month's activity: RFQs made, offers received, sends and how many of them got an offer. */
+export interface MonthlyPoint {
+  /** "2026-10" */
+  month: string;
+  rfqs: number;
+  /** Separate offers received (not their updates). */
+  offers: number;
+  /** Carriers an RFQ was sent to in the month. */
+  sent: number;
+  /** Of those sends, the ones answered with an offer. */
+  offered: number;
+  /** RFQs whose winner was chosen in the month. */
+  awarded: number;
+  /** offered out of sent, in percent; null when nothing was sent. */
+  responseRate: number | null;
+}
+
+/** GET /api/report?month=YYYY-MM — one month's report, shown in the panel (no file download). */
+export interface MonthlyReportData {
+  month: string;
+  rfqsCreated: number;
+  offersReceived: number;
+  sent: number;
+  offered: number;
+  responseRate: number | null;
+  /** RFQs whose winner was chosen in the month. */
+  awarded: number;
+  /** Winning prices of those RFQs, per currency (never added across currencies). */
+  awardedValue: { currency: string; total: number }[];
+  /** RFQs created in the month, oldest first. */
+  rfqs: {
+    id: number;
+    origin: string;
+    destination: string;
+    cargo_type: string;
+    weight_kg: number;
+    created_at: string;
+    status: string;
+    statusLabel: string;
+    carriersSent: number;
+    carriersResponded: number;
+    offers: number;
+    bestPrice: { price: number; currency: string } | null;
+    winner: { carrier: string; price: number; currency: string } | null;
+  }[];
+  /** Carriers an RFQ was sent to in the month, best first (wins, then offers). */
+  carriers: { carrier_id: number; name: string; sent: number; offered: number; responseRate: number | null; won: number }[];
 }
 
 /** The signed-in user, from /api/auth/me, login, register and password reset. */

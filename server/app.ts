@@ -6,7 +6,7 @@ import { HttpError, send } from "./http";
 import { db } from "./db";
 import { handleQuote } from "./routes/quote";
 import { handleFile } from "./routes/files";
-import { handleDashboard } from "./routes/dashboard";
+import { handleDashboard, handleMonthlyReport } from "./routes/dashboard";
 import { handleResendWebhook } from "./routes/resendWebhook";
 import { serveStatic } from "./static";
 import { handleAuth, requireUser } from "./routes/auth";
@@ -91,6 +91,9 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
     } else if (req.method === "GET" && path === "/api/dashboard") {
       const user = await requireUser(req);
       await asUser(user.id, () => handleDashboard(req, res));
+    } else if (req.method === "GET" && path === "/api/report") {
+      const user = await requireUser(req);
+      await asUser(user.id, () => handleMonthlyReport(req, res));
     } else if (req.method === "GET" && path === "/api/rfqs") {
       const user = await requireUser(req);
       await asUser(user.id, () => handleRfqList(res));
