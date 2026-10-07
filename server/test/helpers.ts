@@ -5,6 +5,7 @@ import { emptyContext, type ToolContext } from "../agent/tools/registry";
 import { tools } from "../agent/tools";
 import { asUser } from "../auth/current";
 import { resetLoginLimits } from "../auth/accounts";
+import { resetRateLimits } from "../rateLimit";
 
 /**
  * Which database the tests run on: in-memory SQLite by default;
@@ -27,6 +28,7 @@ export let testUserId = 0;
 export async function freshDb() {
   resetLinkSecret();
   resetLoginLimits();
+  resetRateLimits();
   if (testTarget.kind === "sqlite") {
     await openDatabase(testTarget);
   } else {

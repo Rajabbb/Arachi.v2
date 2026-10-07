@@ -13,6 +13,15 @@ import {
 } from "../auth/accounts";
 import { config } from "../config";
 import { HttpError, readJson, send } from "../http";
+import { clientIp, limit } from "../rateLimit";
+
+/** Requests per client address for each form: [max, window in minutes]. */
+const limits: Record<string, [number, number]> = {
+  login: [30, 15],
+  register: [5, 60],
+  forgot: [5, 60],
+  reset: [10, 15],
+};
 
 const COOKIE = "arachi_session";
 
@@ -67,6 +76,8 @@ export async function handleAuth(req: IncomingMessage, res: ServerResponse, acti
     return send(res, 200, { ok: true });
   }
 
+  const rule = limits[action];
+  if (rule) limit(`${action}:${clientIp(req)}`, ...rule);
   const body = await readJson(req);
   switch (action) {
     case "register":
