@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import ExcelJS from "exceljs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, beforeEach, test } from "node:test";
@@ -162,4 +163,24 @@ test("RFQ pages need a login", async () => {
 test("create_rfq returns the RFQ's page link", async () => {
   const { result } = await call("create_rfq", { origin: "Bakı", destination: "Aktau", cargo_type: "Taxıl", weight_kg: 2000 }, undefined, alice.id);
   assert.match(result.page_url, /\/panel\/rfq\/2$/);
+});
+
+test("the panel's Excel report holds only the signed-in user's RFQs", async () => {
+  await call("create_rfq", { origin: "Gəncə", destination: "Bakı", cargo_type: "Un", weight_kg: 800 }, undefined, bob.id);
+  const download = async (who: typeof alice) => {
+    const cookie = (await fetch(`${base}/api/auth/login`, {
+      method: "POST",
+      body: JSON.stringify({ email: who === alice ? "alice@arachi.az" : "bob@arachi.az", password: "parol1234" }),
+    })).headers.get("set-cookie")!.split(";")[0];
+    const r = await fetch(`${base}/api/rfqs/report`, { headers: { cookie } });
+    assert.equal(r.status, 200);
+    assert.match(r.headers.get("content-disposition")!, /RFQ-hesabati-.*\.xlsx/);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(Buffer.from(await r.arrayBuffer()) as unknown as ArrayBuffer);
+    const ws = wb.getWorksheet("RFQ-lər")!;
+    return Array.from({ length: ws.rowCount - 1 }, (_, i) => String(ws.getRow(i + 2).getCell(3).value));
+  };
+  assert.deepEqual(await download(alice), ["Bakı"]);
+  assert.deepEqual(await download(bob), ["Gəncə"]);
+  assert.equal((await fetch(`${base}/api/rfqs/report`)).status, 401);
 });

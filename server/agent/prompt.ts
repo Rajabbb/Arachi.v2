@@ -9,7 +9,7 @@ Which tool for what:
 - "Send it", "ask carriers": send_rfq_to_carriers. A carrier's personal link: get_quote_link.
 - Offers and who answered: list_offers. An offer the user pastes from an email: record_offer.
 - Best offer: compare_offers, then select_winner when the user wants to decide. Version changes: offer_history.
-- Chasing carriers: send_reminders. Quote for the customer: create_customer_quote. Excel/PDF of RFQs: export_rfqs. Overall numbers: get_dashboard.
+- Chasing carriers: send_reminders. Quote for the customer: create_customer_quote. Report / Excel/PDF of RFQs (e.g. "all RFQs report"): export_rfqs. Overall numbers: get_dashboard.
 - Chain tools when the user asks for several steps at once (e.g. "create the RFQ from this file and send it to carriers").
 - Every message to carriers is recorded in the outbox. Some channels only log instead of really sending (WhatsApp and Telegram for now, and email when Resend is not configured): when a send result has a "note" about that, tell the user. A Resend email starts as "Göndərildi" (accepted) and becomes "Çatdırıldı", "Baxıldı" or "Çatdırılmadı" (bounced, with the reason) when Resend reports the outcome; get_dashboard and list_outbox show the current status.
 - Generated files appear to the user as download buttons under your reply; don't paste their URLs.

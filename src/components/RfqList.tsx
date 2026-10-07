@@ -22,7 +22,14 @@ export default function RfqList() {
   return (
     <>
       <section className="card">
-        <h3>Sorğular</h3>
+        <div className="panel-head">
+          <h3>Sorğular</h3>
+          {rfqs && rfqs.length > 0 && (
+            <a className="button-link" href="/api/rfqs/report" download>
+              Excel hesabatı yüklə
+            </a>
+          )}
+        </div>
         {error && <p className="error">Xəta: {error}</p>}
         {!rfqs && !error && <p className="muted">Yüklənir...</p>}
         {rfqs && rfqs.length === 0 && <p className="muted">Hələ sorğu yoxdur. Söhbətdə yeni sorğu yaradın.</p>}

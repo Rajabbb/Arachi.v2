@@ -1,17 +1,13 @@
-import ExcelJS from "exceljs";
 import type { AgentTool, ToolContext } from "./registry";
-import { db, now } from "../../db";
-import { currentUserId } from "../../auth/current";
+import { now } from "../../db";
 import { getCarrier } from "../../domain/carriers";
-import { statusLabels, type DispatchStatus } from "../../domain/dispatches";
 import { fileUrl, storeFile } from "../../domain/files";
 import { getOffer, latestOffers, type Offer } from "../../domain/offers";
 import { addDays, checkDate, currencies, getRfq, type Rfq } from "../../domain/rfqs";
 import { renderPdf, table } from "../../docs/pdf";
+import { collectReport, offerCount, reportPdf, reportWorkbook, XLSX } from "../../docs/rfqReport";
 
 /** Process 10: the official quote for the customer (PDF) and Excel/PDF exports. */
-
-const XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 async function saveDownload(
   ctx: ToolContext,
@@ -236,97 +232,26 @@ export const createCustomerQuote: AgentTool = {
   },
 };
 
-interface ExportRow {
-  rfq: Rfq;
-  dispatches: { carrier: string; status: string }[];
-  offers: (Offer & { carrier_name: string })[];
-}
-
-async function collect(rfqId: number, status: string): Promise<ExportRow[]> {
-  const rfqs = rfqId
-    ? [await getRfq(rfqId)]
-    : await db().all<Rfq>(
-        `SELECT * FROM rfqs WHERE user_id = ? ${status === "all" ? "" : "AND status = ?"} ORDER BY id`,
-        currentUserId(), ...(status === "all" ? [] : [status]),
-      );
-  const rows: ExportRow[] = [];
-  for (const rfq of rfqs) {
-    const dispatches = await db().all<{ name: string; status: DispatchStatus }>(
-      "SELECT c.name, d.status FROM dispatches d JOIN carriers c ON c.id = d.carrier_id WHERE d.rfq_id = ? AND c.user_id = ? ORDER BY c.name, c.id",
-      rfq.id, currentUserId(),
-    );
-    rows.push({
-      rfq,
-      dispatches: dispatches.map((d) => ({ carrier: d.name, status: statusLabels[d.status] })),
-      offers: await latestOffers(rfq.id),
-    });
-  }
-  return rows;
-}
-
-const rfqStatusLabels: Record<string, string> = { open: "Açıq", awarded: "Qalib seçilib", closed: "Bağlı" };
-
 export const exportRfqs: AgentTool = {
   name: "export_rfqs",
-  description: "Exports RFQs with their carriers' statuses and latest offers to Excel (default) or PDF and returns a download link.",
+  description:
+    "The report of RFQs as a file: by default every RFQ the user has created, in Excel with a totals sheet, one row per RFQ (date, route, cargo, status, delivery funnel, offers received, cheapest price, winner), every latest offer, and each carrier's status. PDF on request. Returns a download link. Use it for 'all RFQs report', 'export', 'hesabat'.",
   params: {
     rfq_id: { type: "integer", description: "One RFQ; 0 = all RFQs.", default: 0 },
     status: { type: "string", description: "With rfq_id 0: which RFQs.", enum: ["all", "open", "awarded", "closed"], default: "all" },
     format: { type: "string", description: "File format.", enum: ["xlsx", "pdf"], default: "xlsx" },
   },
   async run(p, ctx) {
-    const rows = await collect(p.rfq_id as number, p.status as string);
+    const rows = await collectReport(p.rfq_id as number, p.status as string);
     if (rows.length === 0) throw new Error("İxrac üçün RFQ tapılmadı.");
     const stamp = now().slice(0, 10);
-    const base = p.rfq_id ? `RFQ-${p.rfq_id}` : `RFQ-ler-${stamp}`;
-
-    const rfqHeader = ["RFQ", "Haradan", "Haraya", "Yük", "Çəki (kq)", "Nəqliyyat", "Yükləmə", "Valyuta", "Status", "Göndərilib", "Təklif", "Ən ucuz"];
-    const rfqRow = (r: ExportRow) => {
-      const cheapest = r.offers[0];
-      return [
-        `#${r.rfq.id}`, r.rfq.origin, r.rfq.destination, r.rfq.cargo_type, r.rfq.weight_kg, r.rfq.transport_type,
-        r.rfq.loading_date || "çevik", r.rfq.currency, rfqStatusLabels[r.rfq.status] ?? r.rfq.status,
-        r.dispatches.length, r.offers.length, cheapest ? `${cheapest.price} ${cheapest.currency}` : "",
-      ];
-    };
-    const offerHeader = ["RFQ", "Daşıyıcı", "Təklif / versiya", "Qiymət", "Valyuta", "Tranzit (gün)", "Etibarlıdır", "Qeydlər", "Qalib"];
-    const offerRows = rows.flatMap((r) =>
-      r.offers.map((o) => [
-        `#${r.rfq.id}`, o.carrier_name, `№${o.offer_no} v${o.version}`, o.price, o.currency, o.transit_days, o.valid_until, o.notes,
-        r.rfq.awarded_offer_id === o.id ? "✓" : "",
-      ]),
-    );
-    const statusRows = rows.flatMap((r) => r.dispatches.map((d) => [`#${r.rfq.id}`, d.carrier, d.status]));
-
-    let download;
-    if (p.format === "xlsx") {
-      const wb = new ExcelJS.Workbook();
-      const add = (name: string, header: string[], data: (string | number)[][]) => {
-        const ws = wb.addWorksheet(name);
-        ws.addRow(header).font = { bold: true };
-        ws.addRows(data);
-        ws.columns.forEach((c) => (c.width = 16));
-        ws.views = [{ state: "frozen", ySplit: 1 }];
-      };
-      add("RFQ-lər", rfqHeader, rows.map(rfqRow));
-      add("Təkliflər", offerHeader, offerRows);
-      add("Statuslar", ["RFQ", "Daşıyıcı", "Status"], statusRows);
-      const data = new Uint8Array(await wb.xlsx.writeBuffer());
-      download = await saveDownload(ctx, "export", 0, `${base}.xlsx`, XLSX, data);
-    } else {
-      const pdf = await renderPdf(
-        (doc) => {
-          doc.font("bold").fontSize(16).text(`${p.rfq_id ? `RFQ #${p.rfq_id}` : "RFQ-lər"} · ${stamp}`).moveDown(0.5);
-          table(doc, rfqHeader, rows.map((r) => rfqRow(r).map(String)), [5, 10, 10, 10, 7, 8, 8, 6, 9, 9, 6, 9]);
-          if (offerRows.length) {
-            doc.moveDown().font("bold").fontSize(12).text("Təkliflər").moveDown(0.3);
-            table(doc, offerHeader, offerRows.map((r) => r.map(String)), [5, 14, 6, 8, 6, 7, 9, 20, 5]);
-          }
-        },
-        { landscape: true },
-      );
-      download = await saveDownload(ctx, "export", 0, `${base}.pdf`, "application/pdf", pdf);
-    }
-    return { rfqs: rows.length, offers: offerRows.length, format: p.format, download };
+    const base = p.rfq_id ? `RFQ-${p.rfq_id}` : `RFQ-hesabati-${stamp}`;
+    const download = p.format === "xlsx"
+      ? await saveDownload(ctx, "export", 0, `${base}.xlsx`, XLSX, await reportWorkbook(rows))
+      : await saveDownload(
+          ctx, "export", 0, `${base}.pdf`, "application/pdf",
+          await reportPdf(rows, `${p.rfq_id ? `RFQ #${p.rfq_id}` : "RFQ hesabatı"} · ${stamp}`),
+        );
+    return { rfqs: rows.length, offers: offerCount(rows), format: p.format, download };
   },
 };
