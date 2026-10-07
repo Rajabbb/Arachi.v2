@@ -187,8 +187,8 @@ export const createCustomerQuote: AgentTool = {
     const number = `Q-${rfq.id}-${offer.id}`;
 
     const pdf = await renderPdf((doc) => {
-      doc.font("bold").fontSize(20).text("Arachi");
-      doc.font("regular").fontSize(14).fillColor("#4f46e5").text(s.title).fillColor("black").moveDown();
+      // No platform brand on customer-facing documents: the offer heading is the top line.
+      doc.font("bold").fontSize(20).fillColor("#4f46e5").text(s.title).fillColor("black").moveDown();
       doc.fontSize(10);
       const meta: [string, string][] = [
         [s.no, number],
@@ -316,7 +316,7 @@ export const exportRfqs: AgentTool = {
     } else {
       const pdf = await renderPdf(
         (doc) => {
-          doc.font("bold").fontSize(16).text(`Arachi · ${p.rfq_id ? `RFQ #${p.rfq_id}` : "RFQ-lər"} · ${stamp}`).moveDown(0.5);
+          doc.font("bold").fontSize(16).text(`${p.rfq_id ? `RFQ #${p.rfq_id}` : "RFQ-lər"} · ${stamp}`).moveDown(0.5);
           table(doc, rfqHeader, rows.map((r) => rfqRow(r).map(String)), [5, 10, 10, 10, 7, 8, 8, 6, 9, 9, 6, 9]);
           if (offerRows.length) {
             doc.moveDown().font("bold").fontSize(12).text("Təkliflər").moveDown(0.3);
