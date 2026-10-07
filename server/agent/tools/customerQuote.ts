@@ -183,8 +183,8 @@ export const createCustomerQuote: AgentTool = {
     const number = `Q-${rfq.id}-${offer.id}`;
 
     const pdf = await renderPdf((doc) => {
-      doc.font("bold").fontSize(20).text("Arachi");
-      doc.font("regular").fontSize(14).fillColor("#4f46e5").text(s.title).fillColor("black").moveDown();
+      // No platform brand on customer-facing documents: the offer heading is the top line.
+      doc.font("bold").fontSize(20).fillColor("#4f46e5").text(s.title).fillColor("black").moveDown();
       doc.fontSize(10);
       const meta: [string, string][] = [
         [s.no, number],
