@@ -2,5 +2,15 @@
 # once its DNS A record points to this server, and redirects http to https.
 {$APP_DOMAIN} {
 	encode zstd gzip
+	header {
+		# Browsers only use https for this site from now on.
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		# Other sites cannot show the app inside a frame (clickjacking).
+		X-Frame-Options DENY
+		# Links to other sites do not carry the page address (quote and reset links have tokens).
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
 	reverse_proxy app:8787
 }

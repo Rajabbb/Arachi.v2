@@ -8,6 +8,8 @@ import { asUser } from "../auth/current";
 import { insertRfq } from "../domain/rfqs";
 import { hashPassword, verifyPassword } from "../auth/password";
 import { addUser, call, freshDb } from "../test/helpers";
+import { config } from "../config";
+import { clientIp } from "../rateLimit";
 
 let server: Server;
 let base: string;
@@ -159,4 +161,40 @@ test("the first account takes over data from before accounts; later ones start e
   assert.equal((await second("/api/dashboard?days=30")).body.activeRfqs, 0);
   assert.equal((await call("list_rfqs", {}, undefined, body.user.id)).result.length, 1);
   assert.equal((await call("list_rfqs", {}, undefined, other.body.user.id)).result.length, 0);
+});
+
+test("one address can ask for only a few reset emails and accounts per hour", async () => {
+  for (let i = 0; i < 5; i++) {
+    assert.equal((await browser()("/api/auth/forgot", { email: `x${i}@b.az` })).status, 200);
+  }
+  const blocked = await browser()("/api/auth/forgot", { email: "x9@b.az" });
+  assert.equal(blocked.status, 429);
+  assert.match(blocked.body.error, /dəqiqə sonra/);
+  // Other forms keep their own count.
+  assert.equal((await browser()("/api/auth/register", { email: "a@b.az", password: "parol1234" })).status, 200);
+});
+
+test("with signup closed only the first account can register", async () => {
+  config.allowSignup = false;
+  try {
+    assert.equal((await browser()("/api/auth/register", { email: "first@b.az", password: "parol1234" })).status, 200);
+    const second = await browser()("/api/auth/register", { email: "second@b.az", password: "parol1234" });
+    assert.equal(second.status, 403);
+    // A taken email gets the same answer, so it is not revealed.
+    assert.equal((await browser()("/api/auth/register", { email: "first@b.az", password: "parol1234" })).status, 403);
+    assert.equal((await browser()("/api/auth/login", { email: "first@b.az", password: "parol1234" })).status, 200);
+  } finally {
+    config.allowSignup = true;
+  }
+});
+
+test("the client address comes from Caddy's X-Forwarded-For entry only behind the proxy", () => {
+  const req = { headers: { "x-forwarded-for": "6.6.6.6, 203.0.113.7" }, socket: { remoteAddress: "172.18.0.3" } } as any;
+  assert.equal(clientIp(req), "172.18.0.3");
+  config.trustProxy = true;
+  try {
+    assert.equal(clientIp(req), "203.0.113.7");
+  } finally {
+    config.trustProxy = false;
+  }
 });

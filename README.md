@@ -27,7 +27,7 @@ npm start              # istehsal rejimi: bir server həm API-ni, həm dist/ int
 
 ## İnternetdə yerləşdirmə
 
-Addım-addım təlimat (VPS): [docs/DEPLOY.md](docs/DEPLOY.md). Qısaca: serverdə `docker compose up -d --build` iki xidmət qaldırır: `app` (`Dockerfile`: `npm run build`, sonra `npm start`, sağlamlıq yoxlaması `/healthz`) və `caddy` (`deploy/Caddyfile`: `APP_DOMAIN` üçün HTTPS sertifikatını özü alır və sorğuları app-ə ötürür). Sirlər və `APP_DOMAIN` serverdəki `.env`-də saxlanır; `PUBLIC_BASE_URL` oradan `https://APP_DOMAIN` kimi qurulur, ona görə giriş cookie-si `Secure` olur. Server `dist/`-i verir (`/quote/:token`, `/reset/:token`, `/panel` kimi ünvanlar `index.html`-ə düşür) və miqrasiyaları başlanğıcda tətbiq edir. Yeniləmə: `sh deploy/update.sh`.
+Addım-addım təlimat (VPS): [docs/DEPLOY.md](docs/DEPLOY.md). Qısaca: serverdə `docker compose up -d --build` üç xidmət qaldırır: `app` (`Dockerfile`: `npm run build`, sonra `npm start`, sağlamlıq yoxlaması `/healthz`) və `caddy` (`deploy/Caddyfile`: `APP_DOMAIN` üçün HTTPS sertifikatını özü alır və sorğuları app-ə ötürür) və `backup` (`deploy/backup.sh`: hər gün `pg_dump` ilə `backups/` papkasına, son 14 nüsxə). Sirlər və `APP_DOMAIN` serverdəki `.env`-də saxlanır; `PUBLIC_BASE_URL` oradan `https://APP_DOMAIN` kimi qurulur, ona görə giriş cookie-si `Secure` olur. Server `dist/`-i verir (`/quote/:token`, `/reset/:token`, `/panel` kimi ünvanlar `index.html`-ə düşür) və miqrasiyaları başlanğıcda tətbiq edir. Yeniləmə: `sh deploy/update.sh`. VPS-də yeni hesab yaratmaq bağlıdır (`ALLOW_SIGNUP`), giriş formaları IP üzrə limitlidir (`server/rateLimit.ts`).
 
 ## Hesablar və giriş
 

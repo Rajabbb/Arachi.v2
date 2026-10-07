@@ -74,4 +74,11 @@ export const config = {
   staticDir: process.env.STATIC_DIR ?? "dist",
   /** Secret for signing carrier links; generated and stored in the DB if unset. */
   linkSecret: process.env.ARACHI_LINK_SECRET ?? "",
+  /**
+   * Whether anyone may create an account once one exists. The VPS turns it off
+   * in docker-compose.yml (ALLOW_SIGNUP=true in .env opens it again).
+   */
+  allowSignup: process.env.ALLOW_SIGNUP?.trim().toLowerCase() !== "false",
+  /** Behind a reverse proxy (Caddy on the VPS): read the client address from X-Forwarded-For. */
+  trustProxy: ["1", "true"].includes(process.env.TRUST_PROXY?.trim().toLowerCase() ?? ""),
 };

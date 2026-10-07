@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { app } from "./app";
 import { config } from "./config";
+import { freshDb } from "./test/helpers";
 
 let server: Server;
 let base: string;
@@ -14,6 +15,7 @@ let dir: string;
 const original = config.staticDir;
 
 before(async () => {
+  await freshDb();
   dir = mkdtempSync(join(tmpdir(), "arachi-static-"));
   mkdirSync(join(dir, "assets"));
   writeFileSync(join(dir, "index.html"), "<!doctype html><div id=root></div>");
@@ -62,7 +64,7 @@ test("paths cannot escape the build folder", async () => {
   }
 });
 
-test("health check answers for the hosting platform", async () => {
+test("health check answers when the database does", async () => {
   const res = await fetch(`${base}/healthz`);
   assert.equal(res.status, 200);
   assert.deepEqual(await res.json(), { ok: true });

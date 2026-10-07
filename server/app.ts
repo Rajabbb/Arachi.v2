@@ -3,6 +3,7 @@ import type { ChatError } from "../shared/protocol";
 import { AgentError } from "./agent/loop";
 import { provider } from "./agent/providers";
 import { HttpError, send } from "./http";
+import { db } from "./db";
 import { handleQuote } from "./routes/quote";
 import { handleFile } from "./routes/files";
 import { handleDashboard } from "./routes/dashboard";
@@ -38,6 +39,26 @@ function toError(err: unknown): { status: number; body: ChatError } {
   return { status: 500, body: { error: "Serverdə gözlənilməz xəta baş verdi." } };
 }
 
+/**
+ * Up only when the database answers too, so the Docker health check and an
+ * uptime monitor notice a lost Supabase connection, not just a running process.
+ */
+async function handleHealth(res: ServerResponse) {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("timed out after 3 s")), 3000);
+  });
+  try {
+    await Promise.race([db().get("SELECT 1 AS ok"), timeout]);
+    send(res, 200, { ok: true });
+  } catch (err) {
+    console.error("Health check: database unreachable:", err instanceof Error ? err.message : err);
+    send(res, 503, { ok: false, error: "Baza cavab vermir." });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 /** Routes one HTTP request; index.ts serves it, tests call it directly. */
 export async function app(req: IncomingMessage, res: ServerResponse) {
   try {
@@ -64,7 +85,7 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
     } else if (req.method === "POST" && path === "/api/webhooks/resend") {
       await handleResendWebhook(req, res);
     } else if (req.method === "GET" && (path === "/api/health" || path === "/healthz")) {
-      send(res, 200, { ok: true });
+      await handleHealth(res);
     } else if (quote) {
       await handleQuote(req, res, quote[1]);
     } else if (req.method === "GET" && path === "/api/dashboard") {

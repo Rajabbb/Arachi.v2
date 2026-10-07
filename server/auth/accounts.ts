@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { config } from "../config";
 import { db, now, transaction } from "../db";
 import { HttpError } from "../http";
 import { publicUrl } from "../links";
@@ -60,6 +61,7 @@ export async function findUserByEmail(email: string): Promise<(User & { password
 /**
  * Creates an account. The first account to register takes over everything
  * created before accounts existed (RFQs, carriers, messages with no owner).
+ * With signup closed (config.allowSignup), only that first account can register.
  */
 export async function register(input: { email: string; password: string; name?: string }): Promise<User> {
   const email = normalizeEmail(input.email);
@@ -67,6 +69,9 @@ export async function register(input: { email: string; password: string; name?: 
   const name = (input.name ?? "").trim().slice(0, 100);
   const hash = await hashPassword(input.password);
   return transaction(async () => {
+    if (!config.allowSignup && (await db().get("SELECT id FROM users LIMIT 1"))) {
+      throw new HttpError(403, "Yeni hesab yaratmaq bağlıdır. Hesab lazımdırsa, administratora müraciət edin.");
+    }
     if (await findUserByEmail(email)) throw new HttpError(409, "Bu email ilə hesab artıq var. Daxil olun və ya şifrəni bərpa edin.");
     const user = (await db().get<User>(
       "INSERT INTO users (email, name, password_hash, created_at) VALUES (?, ?, ?, ?) RETURNING id, email, name, created_at",

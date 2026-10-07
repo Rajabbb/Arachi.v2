@@ -2,10 +2,11 @@
 
 Bu addımlardan sonra V2 öz ünvanında, məsələn `https://app.v2.arachi.co`, işləyəcək. Daşıyıcılara gedən təklif linkləri, şifrə bərpası linkləri və agentin verdiyi panel linkləri artıq `localhost` yox, bu ünvan olacaq.
 
-Serverdə iki proqram işləyir, ikisi də Docker-də:
+Serverdə üç proqram işləyir, hamısı Docker-də:
 
 - **app**: V2-nin özü (həm interfeys, həm API). Bazanın yeni cədvəlləri (miqrasiyalar) hər başlanğıcda avtomatik tətbiq olunur.
 - **caddy**: qapıçı. `https://` sertifikatını Let's Encrypt-dən özü alır, özü yeniləyir və gələn sorğuları app-ə ötürür.
+- **backup**: hər gün bazanın ehtiyat nüsxəsini serverə yazır ("Etibarlılıq və təhlükəsizlik" bölməsi).
 
 Məlumatlar Supabase-də qalır, email Resend ilə (`sorgu@v2.arachi.co`), AI Gemini ilə işləyir. Mövcud arachi.co saytına, onun poçtuna (info@, rfq@) və mövcud DNS yazılarına heç nə toxunmur: DNS-də yalnız **bir yeni** yazı əlavə olunur.
 
@@ -139,7 +140,7 @@ Sayt internetdə olduğu üçün Resend bounce-ları dərhal xəbər verə bilə
 cd /opt/arachi-v2 && sh deploy/update.sh
 ```
 
-Skript son kodu çəkir, proqramı yenidən qurur və işə salır; miqrasiyalar başlanğıcda özü tətbiq olunur. Sonda hər iki xidmət `Up` (app üçün `healthy`) görünməlidir.
+Skript son kodu çəkir, proqramı yenidən qurur və işə salır; miqrasiyalar başlanğıcda özü tətbiq olunur. Sonda üç xidmət (`app`, `caddy`, `backup`) `Up` (app üçün `healthy`) görünməlidir.
 
 Kompüterinizdə əvvəlki kimi `npm run server` və `npm run dev` ilə yerli işləmək olar, eyni bazanı istifadə edir. Yerli linklər isə `localhost` olaraq qalır.
 
@@ -152,7 +153,90 @@ Hamısı `/opt/arachi-v2` papkasında (`cd /opt/arachi-v2`):
 - Yenidən başlatmaq (məsələn `.env` dəyişəndən sonra): `docker compose up -d`
 - Dayandırmaq: `docker compose down` (məlumatlar Supabase-də olduğu üçün itmir)
 
-Server yenidən yüklənəndə (reboot) hər iki xidmət özü yenidən başlayır.
+- Bazanın ehtiyat nüsxələri: `ls -lh backups`
+
+Server yenidən yüklənəndə (reboot) bütün xidmətlər özü yenidən başlayır.
+
+## Etibarlılıq və təhlükəsizlik
+
+Serverdə üç xidmət işləyir: **app**, **caddy** və **backup**. Proqramın içində bunlar artıq var, sizdən heç nə tələb etmir:
+
+- Server və ya Docker yenidən başlayanda hər üç xidmət özü qalxır.
+- Giriş səhifəsində bir email üçün 10 səhv şifrədən sonra 15 dəqiqəlik kilid; bir ünvandan (IP) 15 dəqiqədə 30-dan çox giriş cəhdi, saatda 5-dən çox qeydiyyat və ya şifrə bərpası istəyi qəbul olunmur.
+- Yeni hesab yaratmaq bağlıdır: yalnız ilk hesab (sizinki) var. Kiməsə hesab açmaq lazım olsa, `.env`-ə `ALLOW_SIGNUP=true` yazıb `docker compose up -d` edin, o qeydiyyatdan keçəndən sonra sətri silib yenə `docker compose up -d` edin.
+- Brauzerə təhlükəsizlik başlıqları gedir (yalnız https, başqa saytın içində açılmamaq).
+- `/healthz` ünvanı yalnız baza da cavab verəndə "OK" deyir.
+
+### Bazanın ehtiyat nüsxəsi (backup)
+
+Supabase-in pulsuz planı bazanın ehtiyat nüsxəsini saxlamır. Ona görə **backup** xidməti hər gün bazanın nüsxəsini serverdə `/opt/arachi-v2/backups` papkasına yazır (`arachi-2026-10-08.sql.gz` kimi) və son 14 günü saxlayır. Bu, Supabase-də məlumat təsadüfən silinsə və ya layihə itsə, geri qaytarmaq üçündür.
+
+Yoxlamaq (serverdə, `cd /opt/arachi-v2`):
+
+```
+docker compose logs backup
+ls -lh backups
+```
+
+Logda `Backup saved: arachi-...sql.gz` görünməlidir. `Backup FAILED` görünsə, üstündəki sətirləri (parolu silib) Claude-a göndərin.
+
+Server özü də sıradan çıxa bilər, ona görə ayda bir dəfə son nüsxəni kompüterinizə endirin. Kompüterdə **PowerShell** açın (serverə qoşulmadan) və yazın (tarixi `ls -lh backups`-da gördüyünüzlə əvəz edin):
+
+```
+scp root@SIZIN_IP:/opt/arachi-v2/backups/arachi-2026-10-08.sql.gz .
+```
+
+Fayl PowerShell-in açıldığı papkaya (adətən `C:\Users\Rajab`) düşür.
+
+Nüsxədən bərpa etmək lazım olsa, özünüz heç nə icra etməyin: Claude-a yazın, vəziyyətə uyğun addımları verəcək (bərpa mövcud məlumatın üzərinə yazır).
+
+### Serverin avtomatik təhlükəsizlik yeniləmələri
+
+Ubuntu təhlükəsizlik yamalarını özü quraşdıra bilər. Bir dəfə icra edin (`bash` yazdıqdan sonra):
+
+```
+apt install -y unattended-upgrades
+echo 'APT::Periodic::Update-Package-Lists "1"; APT::Periodic::Unattended-Upgrade "1";' > /etc/apt/apt.conf.d/20auto-upgrades
+systemctl enable --now unattended-upgrades
+systemctl is-enabled docker
+```
+
+Sonuncu əmr `enabled` yazmalıdır (Docker server açılanda özü başlayır). `disabled` yazsa: `systemctl enable docker`.
+
+Bəzi yeniləmələr (məsələn nüvə) serverin yenidən başlamasını tələb edir. Ayda bir dəfə serverə qoşulub `ls /var/run/reboot-required` yazın: `No such file` cavabı gəlsə, heç nə lazım deyil; fayl görünsə, `reboot` yazın. Server 1-2 dəqiqəyə qalxır və sayt özü işə düşür (yoxlamaq üçün brauzerdə açın).
+
+### Sayt düşəndə xəbər almaq (pulsuz)
+
+1. [uptimerobot.com](https://uptimerobot.com) saytında pulsuz hesab açın.
+2. **New monitor** (və ya **Add New Monitor**) basın:
+   - Monitor type: **HTTP(s)**
+   - URL: `https://app.v2.arachi.co/healthz`
+   - Interval: **5 minutes**
+3. Bildiriş üçün öz emailinizi seçin və saxlayın.
+
+Sayt və ya baza 5 dəqiqədən çox cavab verməsə, email gələcək; düzələndə də xəbər verəcək.
+
+### İstəyə görə: parolsuz SSH girişi (açarla)
+
+İndi serverə root parolu ilə girirsiniz. İnternetdəki botlar hər gün bu cür parolları təxmin etməyə çalışır. Açarla giriş daha təhlükəsizdir, amma səhv edilsə, serverə girişi bağlaya bilər, ona görə addımları sırası ilə edin və 3-cü addımı yalnız 2-ci addım işləyəndən sonra edin.
+
+1. Kompüterdə **PowerShell** açın (serverə qoşulmadan) və yazın:
+   ```
+   ssh-keygen -t ed25519
+   ```
+   Hər sualda sadəcə **Enter** basın. Sonra açarı serverə köçürün (parol bir dəfə soruşulacaq):
+   ```
+   type $env:USERPROFILE\.ssh\id_ed25519.pub | ssh root@SIZIN_IP "mkdir -p ~/.ssh; cat >> ~/.ssh/authorized_keys"
+   ```
+2. Yeni PowerShell pəncərəsində `ssh root@SIZIN_IP` yazın. Parol **soruşulmadan** içəri girirsinizsə, açar işləyir. Parol soruşulursa, dayanın və 3-cü addımı etməyin; Claude-a yazın.
+3. Yalnız 2-ci addım işlədisə, serverdə (`bash` yazdıqdan sonra) parolla girişi bağlayın:
+   ```
+   echo 'PasswordAuthentication no' > /etc/ssh/sshd_config.d/00-no-password.conf
+   systemctl reload ssh
+   ```
+   Bu pəncərəni bağlamadan yeni PowerShell-də yenə `ssh root@SIZIN_IP` ilə girişi yoxlayın.
+
+Bundan sonra serverə yalnız bu kompüterdən girmək olur. Kompüter itsə və ya dəyişsə, VPS provayderinin saytındakı **Console** (brauzerdə terminal) ilə girib `rm /etc/ssh/sshd_config.d/00-no-password.conf && systemctl reload ssh` yazın, parolla giriş geri qayıdır.
 
 ## Problem olsa
 
@@ -160,6 +244,7 @@ Server yenidən yüklənəndə (reboot) hər iki xidmət özü yenidən başlay�
 - **`APP_DOMAIN is missing in .env`**: addım 5-dəki `APP_DOMAIN=` sətri yoxdur.
 - **Could not open the database**: `DATABASE_URL` səhvdir. Supabase-də **Session pooler** sətrini (5432 portu) götürdüyünüzü və `[YOUR-PASSWORD]` yerinə parol yazdığınızı yoxlayın.
 - **Email: log only**: `RESEND_API_KEY` və ya `EMAIL_FROM` boşdur.
+- **`Yeni hesab yaratmaq bağlıdır`**: bu normaldır, yuxarıda "Etibarlılıq və təhlükəsizlik" bölməsinə baxın.
 - **Quraşdırma `Killed` ilə dayanır**: VPS-in yaddaşı azdır. Addım 3-dəki swap əmrlərini icra edib yenidən cəhd edin.
 
 Logu Claude-a göndərməzdən əvvəl içində açar və ya parol varsa, silin.

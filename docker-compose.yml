@@ -10,6 +10,10 @@ services:
       NODE_ENV: production
       PORT: "8787"
       PUBLIC_BASE_URL: https://${APP_DOMAIN:?APP_DOMAIN is missing in .env}
+      # Only the first account can register; ALLOW_SIGNUP=true in .env opens it.
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
+      # Login limits count per visitor address, which Caddy passes on.
+      TRUST_PROXY: "1"
     # Not published: only Caddy reaches it, over the compose network.
     expose:
       - "8787"
@@ -35,6 +39,20 @@ services:
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
+
+  # Daily copy of the database into ./backups (deploy/backup.sh). Supabase's
+  # free plan keeps no backups of its own.
+  backup:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    env_file: .env
+    entrypoint: ["sh", "/backup.sh"]
+    volumes:
+      - ./deploy/backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    logging:
+      driver: json-file
+      options: { max-size: "1m", max-file: "3" }
 
 volumes:
   # Certificates; kept across restarts so Let's Encrypt is not asked again.
