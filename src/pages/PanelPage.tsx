@@ -4,6 +4,8 @@ import UserMenu from "../components/UserMenu";
 import type { User } from "../lib/auth";
 import RfqList from "../components/RfqList";
 import CarrierList from "../components/CarrierList";
+import MonthlyCharts from "../components/MonthlyCharts";
+import MonthlyReport from "../components/MonthlyReport";
 import { offerTag } from "../lib/offers";
 import { useRefresh } from "../lib/useRefresh";
 
@@ -14,10 +16,17 @@ function initialDays(): number {
   return periods.includes(d) ? d : 30;
 }
 
-type Tab = "rfqs" | "carriers";
+const tabs = [
+  ["rfqs", "Sorğular"],
+  ["carriers", "Daşıyıcılar"],
+  ["report", "Aylıq hesabat"],
+] as const;
+
+type Tab = (typeof tabs)[number][0];
 
 function initialTab(): Tab {
-  return new URLSearchParams(window.location.search).get("tab") === "carriers" ? "carriers" : "rfqs";
+  const t = new URLSearchParams(window.location.search).get("tab");
+  return tabs.find(([key]) => key === t)?.[0] ?? "rfqs";
 }
 
 function money(total: number, currency: string): string {
@@ -33,7 +42,13 @@ export default function PanelPage({ user }: { user: User }) {
   const refresh = useRefresh();
 
   useEffect(() => {
-    history.replaceState(null, "", `/panel?days=${days}${tab === "carriers" ? "&tab=carriers" : ""}`);
+    const params = new URLSearchParams(window.location.search);
+    params.set("days", String(days));
+    if (tab === "rfqs") params.delete("tab");
+    else params.set("tab", tab);
+    // The report keeps its month in the address too, so a reload stays on it.
+    if (tab !== "report") params.delete("month");
+    history.replaceState(null, "", `/panel?${params}`);
   }, [days, tab]);
 
   useEffect(() => {
@@ -101,15 +116,18 @@ export default function PanelPage({ user }: { user: User }) {
               ))}
             </div>
 
+            <MonthlyCharts months={data.monthly} />
+
             <div className="lang-switch panel-tabs" role="tablist" aria-label="Bölmə">
-              <button type="button" role="tab" aria-selected={tab === "rfqs"} className={tab === "rfqs" ? "active" : ""} onClick={() => setTab("rfqs")}>
-                Sorğular
-              </button>
-              <button type="button" role="tab" aria-selected={tab === "carriers"} className={tab === "carriers" ? "active" : ""} onClick={() => setTab("carriers")}>
-                Daşıyıcılar
-              </button>
+              {tabs.map(([key, label]) => (
+                <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? "active" : ""} onClick={() => setTab(key)}>
+                  {label}
+                </button>
+              ))}
             </div>
-            {tab === "rfqs" ? <RfqList /> : <CarrierList />}
+            {tab === "rfqs" && <RfqList />}
+            {tab === "carriers" && <CarrierList />}
+            {tab === "report" && <MonthlyReport refresh={refresh} />}
 
             <section className="card">
               <h3>Göndərmə statusları · son {data.periodDays} gün</h3>

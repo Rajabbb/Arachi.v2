@@ -3,6 +3,7 @@ import { db, now } from "../db";
 import { currentUserId } from "../auth/current";
 import { statusLabels, type DispatchStatus } from "./dispatches";
 import { refreshEmailStatuses } from "../notify/emailStatus";
+import { monthlyTrend } from "./analytics";
 
 /** Numbers for the analytics panel and the get_dashboard tool. */
 export async function dashboard(periodDays: number): Promise<DashboardData> {
@@ -88,5 +89,6 @@ export async function dashboard(periodDays: number): Promise<DashboardData> {
     awardedValue,
     failedDeliveries,
     recentOffers: recent.map((r) => ({ ...r, winner: Boolean(r.winner) })),
+    monthly: await monthlyTrend(12),
   };
 }

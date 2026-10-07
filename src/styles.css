@@ -8,6 +8,10 @@
   --accent-text: #ffffff;
   --user-bubble: #4f46e5;
   --assistant-bubble: #ffffff;
+  /* Chart series (categorical slots 1-2, validated for colorblind separation on --surface) */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --chart-grid: #eceef3;
   color-scheme: light dark;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
@@ -20,6 +24,9 @@
     --muted: #9aa0ae;
     --border: #2c303c;
     --assistant-bubble: #1f232e;
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --chart-grid: #2a2e39;
   }
 }
 
@@ -396,3 +403,56 @@ a.logo { color: inherit; text-decoration: none; }
 .carrier-rfq { border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
 .carrier-rfq.row-winner { border-color: rgba(21, 128, 61, 0.4); }
 .carrier-rfq-status { margin: 4px 0 0; }
+
+/* Charts (panel trends, carrier price history) */
+.charts { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
+.chart-figure { margin: 0; min-width: 0; }
+.chart-figure figcaption { font-size: 0.9rem; font-weight: 600; }
+.chart-note { margin: 2px 0 6px; font-size: 0.8rem; color: var(--muted); }
+.chart { position: relative; width: 100%; min-height: 200px; touch-action: pan-y; }
+.chart svg { display: block; overflow: visible; }
+.chart-grid { stroke: var(--chart-grid); stroke-width: 1; }
+.chart-baseline { stroke: var(--border); stroke-width: 1; }
+.chart-axis { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart-value { fill: var(--text); font-size: 12px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.chart-band { fill: rgba(127, 127, 127, 0.08); }
+.chart-hit { fill: transparent; }
+.chart-crosshair { stroke: var(--muted); stroke-width: 1; opacity: 0.5; }
+.chart-tip {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  pointer-events: none;
+  min-width: 140px;
+  max-width: 220px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+  z-index: 2;
+}
+.chart-tip-row { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.chart-legend { list-style: none; display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 4px 0 6px; padding: 0; font-size: 0.8rem; color: var(--muted); }
+.chart-legend li { display: flex; align-items: center; gap: 6px; }
+.chart-key { display: inline-block; width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+.chart-key-line { height: 2px; width: 14px; border-radius: 1px; }
+.chart-table { margin-top: 10px; font-size: 0.85rem; }
+.chart-table summary { cursor: pointer; color: var(--muted); }
+.price-summary { margin: 0 0 6px; display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; }
+.price-summary dt { font-size: 0.75rem; color: var(--muted); }
+.price-summary dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+
+/* Monthly report tab */
+.report-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.report-head h3 { margin: 0; }
+.report-month { display: flex; align-items: center; gap: 2px; }
+.report-month select { font: inherit; font-size: 0.9rem; color: var(--text); background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; }
+.report-month .icon-button { color: var(--text); }
+.report-month .icon-button:disabled { opacity: 0.3; cursor: not-allowed; }
+.report h4 { margin: 18px 0 6px; font-size: 0.95rem; }
+.report-tiles { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.report-tiles .tile { background: var(--bg); }
+.report-tiles .tile-value { font-size: 1.3rem; }

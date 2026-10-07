@@ -4,6 +4,7 @@ import UserMenu from "../components/UserMenu";
 import { getJson, money } from "../lib/api";
 import type { User } from "../lib/auth";
 import { offerTag } from "../lib/offers";
+import PriceHistory from "../components/PriceHistory";
 
 const channelLabels: Record<string, string> = {
   email: "E-poçt",
@@ -74,6 +75,8 @@ export default function CarrierPage({ user, id }: { user: User; id: number }) {
                 </div>
               ))}
             </dl>
+
+            <PriceHistory rfqs={data.rfqs} />
 
             <section className="card">
               <h3>Sorğu tarixçəsi</h3>
