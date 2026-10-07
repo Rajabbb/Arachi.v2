@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import type { RfqListItem, RfqListData } from "../../shared/protocol";
 import { getJson, money } from "../lib/api";
 import { offerTag } from "../lib/offers";
+import { useRefresh } from "../lib/useRefresh";
 
 /**
  * The panel's list of all the user's RFQs (each row opens the RFQ's own
@@ -10,12 +11,13 @@ import { offerTag } from "../lib/offers";
 export default function RfqList() {
   const [rfqs, setRfqs] = useState<RfqListItem[] | null>(null);
   const [error, setError] = useState("");
+  const refresh = useRefresh();
 
   useEffect(() => {
     getJson<RfqListData>("/api/rfqs")
-      .then((d) => setRfqs(d.rfqs))
+      .then((d) => (setRfqs(d.rfqs), setError("")))
       .catch((e: Error) => setError(e.message));
-  }, []);
+  }, [refresh]);
 
   const withOffers = rfqs?.filter((r) => r.offers.length > 0) ?? [];
 

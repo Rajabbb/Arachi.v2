@@ -86,3 +86,37 @@ test("signature check accepts any of several v1 signatures", () => {
   const ok = verifyResendSignature(secret, { id: h["svix-id"], timestamp: h["svix-timestamp"], signature: `v1,AAAA ${h["svix-signature"]}` }, body);
   assert.equal(ok, true);
 });
+
+test("a suppressed event carries its reason into the dispatch error", async () => {
+  config.resendWebhookSecret = secret;
+  const suppressed = JSON.stringify({
+    type: "email.suppressed",
+    data: { email_id: "re_1", suppressed: { message: "Recipient is on the suppression list", type: "OnAccountSuppressionList" } },
+  });
+  assert.equal((await post(suppressed, sign(suppressed))).status, 200);
+  const d = await dispatchStatus();
+  assert.equal(d.status, "failed");
+  assert.match(d.error, /suppression list/);
+});
+
+test("delivered then opened move the dispatch forward, and a late delivered does not move it back", async () => {
+  config.resendWebhookSecret = secret;
+  const event = (type: string) => JSON.stringify({ type, data: { email_id: "re_1" } });
+  for (const type of ["email.delivered", "email.opened", "email.delivered"]) {
+    const body = event(type);
+    assert.equal((await post(body, sign(body, `msg_${type}`))).status, 200);
+  }
+  assert.equal((await dispatchStatus()).status, "viewed");
+});
+
+test("events Resend sends that are not about our emails are accepted and ignored", async () => {
+  config.resendWebhookSecret = secret;
+  for (const body of [
+    JSON.stringify({ type: "email.received", data: { email_id: "re_in" } }),
+    JSON.stringify({ type: "contact.created", data: { id: "c_1" } }),
+    JSON.stringify({ type: "email.clicked", data: { email_id: "re_unknown" } }),
+  ]) {
+    assert.equal((await post(body, sign(body))).status, 200);
+  }
+  assert.equal((await dispatchStatus()).status, "sent");
+});
