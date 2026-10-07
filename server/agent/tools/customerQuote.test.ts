@@ -4,7 +4,8 @@ import ExcelJS from "exceljs";
 import { call, freshDb } from "../../test/helpers";
 import { emptyContext } from "./registry";
 import { fileFromToken } from "../../domain/files";
-import { customerPrice } from "./customerQuote";
+import { addDays } from "../../domain/rfqs";
+import { customerPrice, DEFAULT_QUOTE_VALIDITY_DAYS, quoteValidity } from "./customerQuote";
 
 beforeEach(async () => {
   await freshDb();
@@ -47,4 +48,39 @@ test("Excel export has RFQs, offers and statuses; PDF export works", async () =>
   assert.equal(wb.getWorksheet("Təkliflər")!.rowCount, 3);
   const pdf = (await call("export_rfqs", { rfq_id: 1, format: "pdf" })).result;
   assert.match(pdf.download.name, /^RFQ-1\.pdf$/);
+});
+
+test("quote validity: carrier date, else the standard period, user override wins with a warning", () => {
+  const issued = "2026-10-07";
+  assert.equal(DEFAULT_QUOTE_VALIDITY_DAYS, 7);
+  assert.deepEqual(
+    [quoteValidity(issued, "", 0, "").valid_until, quoteValidity(issued, "", 0, "").source],
+    ["2026-10-14", "default"],
+  );
+  const carrier = quoteValidity(issued, "2026-10-20", 0, "");
+  assert.deepEqual([carrier.valid_until, carrier.source, carrier.warning], ["2026-10-20", "carrier", ""]);
+  const expired = quoteValidity(issued, "2026-10-01", 0, "");
+  assert.deepEqual([expired.valid_until, expired.source], ["2026-10-14", "default"]);
+  assert.match(expired.warning, /bitib/);
+  const longer = quoteValidity(issued, "2026-10-12", 10, "");
+  assert.deepEqual([longer.valid_until, longer.source], ["2026-10-17", "user"]);
+  assert.match(longer.warning, /2026-10-12/);
+  assert.equal(quoteValidity(issued, "2026-10-30", 10, "").warning, "");
+  assert.equal(quoteValidity(issued, "", 10, "2026-11-01").valid_until, "2026-11-01");
+  assert.throws(() => quoteValidity(issued, "", 0, "2026-10-01"));
+  assert.throws(() => quoteValidity(issued, "", 0, "01.11.2026"));
+});
+
+test("customer quote takes the carrier's validity date, else 7 days", async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  let { result } = await call("create_customer_quote", { rfq_id: 1 });
+  assert.equal(result.valid_until, addDays(7, new Date(`${today}T00:00:00Z`)));
+  assert.equal(result.validity_source, "default");
+  await call("record_offer", { rfq_id: 1, carrier_id: 1, price: 800, transit_days: 2, valid_until: addDays(20) });
+  ({ result } = await call("create_customer_quote", { rfq_id: 1 }));
+  assert.equal(result.customer_total, "880.00 USD");
+  assert.deepEqual([result.valid_until, result.validity_source, result.warning], [addDays(20), "carrier", undefined]);
+  ({ result } = await call("create_customer_quote", { rfq_id: 1, validity_days: 30 }));
+  assert.equal(result.validity_source, "user");
+  assert.match(result.warning, /Diqqət/);
 });
