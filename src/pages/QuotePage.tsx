@@ -222,7 +222,7 @@ export default function QuotePage({ token }: { token: string }) {
 
       <main className="page-body">
         {!data && !error && <p className="muted">{s.loading}</p>}
-        {error && <p className="error">{s.error}: {error}</p>}
+        {error && <p className="error" role="alert">{s.error}: {error}</p>}
 
         {rfq && (
           <>

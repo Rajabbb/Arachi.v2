@@ -25,9 +25,9 @@ export default function RfqList() {
     <>
       <section className="card">
         <h3>Sorğular</h3>
-        {error && <p className="error">Xəta: {error}</p>}
-        {!rfqs && !error && <p className="muted">Yüklənir...</p>}
-        {rfqs && rfqs.length === 0 && <p className="muted">Hələ sorğu yoxdur. Söhbətdə yeni sorğu yaradın.</p>}
+        {error && <p className="error" role="alert">Xəta: {error}</p>}
+        {!rfqs && !error && <p className="loading" role="status">Yüklənir...</p>}
+        {rfqs && rfqs.length === 0 && <p className="empty">Hələ sorğu yoxdur. Söhbətdə yeni sorğu yaradın.</p>}
         {rfqs && rfqs.length > 0 && (
           <div className="table-wrap">
             <table className="table rows-link">
@@ -71,7 +71,7 @@ export default function RfqList() {
         <section className="card">
           <h3>Təkliflər sorğular üzrə</h3>
           {withOffers.length === 0 ? (
-            <p className="muted">Hələ təklif yoxdur.</p>
+            <p className="empty">Hələ təklif yoxdur.</p>
           ) : (
             <div className="offer-groups">
               {withOffers.map((r) => (

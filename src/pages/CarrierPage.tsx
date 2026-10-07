@@ -46,7 +46,7 @@ export default function CarrierPage({ user, id }: { user: User; id: number }) {
     : [];
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <header className="header">
         <a className="logo" href="/">Arachi</a>
         <span className="badge">V2</span>
@@ -58,8 +58,8 @@ export default function CarrierPage({ user, id }: { user: User; id: number }) {
       </header>
       <main className="page-body">
         <a className="back-link" href="/panel?tab=carriers">← Daşıyıcı bazasına qayıt</a>
-        {error && <p className="error">Xəta: {error}</p>}
-        {!data && !error && <p className="muted">Yüklənir...</p>}
+        {error && <p className="error" role="alert">Xəta: {error}</p>}
+        {!data && !error && <p className="loading" role="status">Yüklənir...</p>}
         {data && c && (
           <>
             <div className="panel-head">
@@ -81,7 +81,7 @@ export default function CarrierPage({ user, id }: { user: User; id: number }) {
             <section className="card">
               <h3>Sorğu tarixçəsi</h3>
               {data.rfqs.length === 0 ? (
-                <p className="muted">Bu daşıyıcıya hələ sorğu göndərilməyib.</p>
+                <p className="empty">Bu daşıyıcıya hələ sorğu göndərilməyib.</p>
               ) : (
                 <div className="carrier-rfqs">
                   {data.rfqs.map(({ rfq, dispatch, offers }) => (

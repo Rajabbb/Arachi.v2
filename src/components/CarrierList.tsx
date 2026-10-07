@@ -41,10 +41,10 @@ export default function CarrierList() {
   return (
     <section className="card">
       <h3>Daşıyıcı bazası</h3>
-      {error && <p className="error">Xəta: {error}</p>}
-      {!carriers && !error && <p className="muted">Yüklənir...</p>}
+      {error && <p className="error" role="alert">Xəta: {error}</p>}
+      {!carriers && !error && <p className="loading" role="status">Yüklənir...</p>}
       {carriers && carriers.length === 0 && (
-        <p className="muted">Hələ daşıyıcı yoxdur. Söhbətdə daşıyıcı əlavə edin və ya Excel faylı yükləyin.</p>
+        <p className="empty">Hələ daşıyıcı yoxdur. Söhbətdə daşıyıcı əlavə edin və ya Excel faylı yükləyin.</p>
       )}
       {carriers && carriers.length > 0 && (
         <>
@@ -83,7 +83,7 @@ export default function CarrierList() {
             əlavə etmək və ya dəyişmək üçün söhbətdə yazın.
           </p>
           {shown.length === 0 ? (
-            <p className="muted">Axtarışa uyğun daşıyıcı tapılmadı.</p>
+            <p className="empty">Axtarışa uyğun daşıyıcı tapılmadı.</p>
           ) : (
             <div className="table-wrap">
               <table className="table rows-link">

@@ -48,7 +48,7 @@ export default function RfqPage({ user, id }: { user: User; id: number }) {
     : [];
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <header className="header">
         <a className="logo" href="/">Arachi</a>
         <span className="badge">V2</span>
@@ -60,8 +60,8 @@ export default function RfqPage({ user, id }: { user: User; id: number }) {
       </header>
       <main className="page-body">
         <a className="back-link" href="/panel">← Panelə qayıt</a>
-        {error && <p className="error">Xəta: {error}</p>}
-        {!data && !error && <p className="muted">Yüklənir...</p>}
+        {error && <p className="error" role="alert">Xəta: {error}</p>}
+        {!data && !error && <p className="loading" role="status">Yüklənir...</p>}
         {data && rfq && (
           <>
             <div className="panel-head">
@@ -100,7 +100,7 @@ export default function RfqPage({ user, id }: { user: User; id: number }) {
             <section className="card">
               <h3>Təkliflərin müqayisəsi</h3>
               {data.offers.length === 0 ? (
-                <p className="muted">Hələ təklif yoxdur.</p>
+                <p className="empty">Hələ təklif yoxdur.</p>
               ) : (
                 <>
                   {data.mixedCurrencies && (
@@ -178,7 +178,7 @@ export default function RfqPage({ user, id }: { user: User; id: number }) {
             <section className="card">
               <h3>Daşıyıcılar və göndərmə statusu</h3>
               {data.carriers.length === 0 ? (
-                <p className="muted">Sorğu hələ heç bir daşıyıcıya göndərilməyib.</p>
+                <p className="empty">Sorğu hələ heç bir daşıyıcıya göndərilməyib.</p>
               ) : (
                 <div className="table-wrap">
                   <table className="table">

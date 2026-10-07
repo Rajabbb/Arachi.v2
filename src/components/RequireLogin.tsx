@@ -11,7 +11,7 @@ export default function RequireLogin({ children }: { children: (user: User) => R
     currentUser().then(setUser, (err: Error) => setError(err.message));
   }, []);
 
-  if (error) return <p className="error page-body">{error}</p>;
+  if (error) return <p className="error page-body" role="alert">{error}</p>;
   if (user === undefined) return null;
   if (user === null) return <AuthPage onSignedIn={setUser} />;
   return <>{children(user)}</>;
