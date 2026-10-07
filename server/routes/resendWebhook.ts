@@ -39,8 +39,21 @@ function header(req: IncomingMessage, name: string): string | undefined {
 
 interface ResendEvent {
   type?: string;
-  data?: { email_id?: string; bounce?: { message?: string } };
+  data?: {
+    email_id?: string;
+    bounce?: { message?: string };
+    failed?: { reason?: string };
+    suppressed?: { message?: string };
+  };
 }
+
+/** Why Resend could not deliver, as its bounced, failed and suppressed events say. */
+function failureDetail(data: ResendEvent["data"]): string | undefined {
+  return data?.bounce?.message || data?.failed?.reason || data?.suppressed?.message || undefined;
+}
+
+/** The last rejection logged, so a wrong secret shows once in the log, not on every event. */
+let lastRejection = 0;
 
 /**
  * POST /api/webhooks/resend — Resend's delivery events (email.delivered,
@@ -58,6 +71,13 @@ export async function handleResendWebhook(req: IncomingMessage, res: ServerRespo
     signature: header(req, "svix-signature") ?? header(req, "webhook-signature"),
   };
   if (secret && !verifyResendSignature(secret, headers, body)) {
+    if (Date.now() - lastRejection > 3600_000) {
+      lastRejection = Date.now();
+      console.warn(
+        "Resend webhook rejected: signature does not match RESEND_WEBHOOK_SECRET " +
+          "(copy the Signing secret of this endpoint from Resend → Webhooks again).",
+      );
+    }
     throw new HttpError(401, "Webhook imzası yanlışdır.");
   }
   let event: ResendEvent;
@@ -69,8 +89,12 @@ export async function handleResendWebhook(req: IncomingMessage, res: ServerRespo
   const emailId = event.data?.email_id;
   const status = event.type?.startsWith("email.") ? event.type.slice("email.".length) : undefined;
   if (emailId && status) {
-    if (secret) await applyEmailStatus(emailId, status, event.data?.bounce?.message);
-    else await checkEmailNow(emailId);
+    if (secret) {
+      const matched = await applyEmailStatus(emailId, status, failureDetail(event.data));
+      if (matched) console.log(`Resend webhook: ${event.type} for ${emailId}`);
+    } else {
+      await checkEmailNow(emailId);
+    }
   }
   send(res, 200, { ok: true });
 }

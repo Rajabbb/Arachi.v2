@@ -4,6 +4,7 @@ import UserMenu from "../components/UserMenu";
 import { getJson, money } from "../lib/api";
 import type { User } from "../lib/auth";
 import { offerTag } from "../lib/offers";
+import { useRefresh } from "../lib/useRefresh";
 
 const channelLabels: Record<string, string> = {
   email: "E-poçt",
@@ -19,12 +20,13 @@ const dateTime = (iso: string | null) => (iso ? iso.slice(0, 16).replace("T", " 
 export default function RfqPage({ user, id }: { user: User; id: number }) {
   const [data, setData] = useState<RfqDetailData | null>(null);
   const [error, setError] = useState("");
+  const refresh = useRefresh();
 
   useEffect(() => {
     getJson<RfqDetailData>(`/api/rfqs/${id}`)
-      .then(setData)
+      .then((d) => (setData(d), setError("")))
       .catch((e: Error) => setError(e.message));
-  }, [id]);
+  }, [id, refresh]);
 
   const rfq = data?.rfq;
   const winner = data?.offers.find((o) => o.winner);

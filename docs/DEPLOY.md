@@ -123,14 +123,15 @@ Logdan çıxmaq üçün **Ctrl+C** (proqram işləməyə davam edir). Sertifikat
 
 ## 8. İstəyə görə: Resend webhook
 
-Sayt internetdə olduğu üçün Resend bounce-ları dərhal xəbər verə bilər (bunsuz da server Resend-dən hər dəqiqə soruşur):
+Sayt internetdə olduğu üçün Resend bounce-ları dərhal xəbər verə bilər (bunsuz da server Resend-dən hər dəqiqə soruşur, webhook qoşulandan sonra da bu ehtiyat kimi işləyir). Açıq panel və RFQ səhifəsi 30 saniyədən bir, həm də vərəqəyə qayıdanda özü yenilənir.
 
 1. Resend → **Webhooks → Add Endpoint**, ünvan `https://app.v2.arachi.co/api/webhooks/resend`.
 2. Hadisələr: `email.delivered`, `email.bounced`, `email.complained`, `email.suppressed`, `email.failed`, `email.opened`. **Add** basın.
-3. Göstərilən **Signing secret**-i (`whsec_...`) kopyalayın. Serverdə `cd /opt/arachi-v2 && nano .env`, ən aşağıya `RESEND_WEBHOOK_SECRET=` yazıb secret-i yapışdırın, saxlayın (Ctrl+O, Enter, Ctrl+X), sonra:
+3. Endpoint-in səhifəsində **Signing secret**-i (`whsec_...`) kopyalayın. Serverdə `cd /opt/arachi-v2 && nano .env`, ən aşağıya `RESEND_WEBHOOK_SECRET=` yazıb secret-i yapışdırın (boşluqsuz, dırnaqsız), saxlayın (Ctrl+O, Enter, Ctrl+X), sonra:
    ```
-   docker compose up -d
+   docker compose up -d --force-recreate app
    ```
+4. Yoxlamaq: `docker compose logs app | grep -i webhook` sətirində `Resend webhook at /api/webhooks/resend` görünməlidir. Növbəti emaildən sonra Resend-də endpoint-in **Deliveries/Events** siyahısında hadisələr `200` ilə görünür. `401` görünürsə və ya jurnalda `Resend webhook rejected` yazılıbsa, `.env`-dəki secret bu endpoint-in secret-i deyil: 3-cü addımı təkrarlayın.
 
 ## Yeniləmələr
 

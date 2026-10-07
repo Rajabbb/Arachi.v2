@@ -24,6 +24,9 @@ if (statusCheckingEnabled()) {
   startEmailStatusPolling();
   console.log("Email delivery status: checked with Resend every minute (bounces show as Çatdırılmadı)");
 }
+if (config.resendWebhookSecret) {
+  console.log("Email delivery status: Resend webhook at /api/webhooks/resend, signed events applied right away");
+}
 
 server.listen(config.port, () => {
   const ai = provider();

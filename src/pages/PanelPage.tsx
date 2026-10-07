@@ -5,6 +5,7 @@ import type { User } from "../lib/auth";
 import RfqList from "../components/RfqList";
 import CarrierList from "../components/CarrierList";
 import { offerTag } from "../lib/offers";
+import { useRefresh } from "../lib/useRefresh";
 
 const periods = [7, 30, 90, 365];
 
@@ -29,6 +30,7 @@ export default function PanelPage({ user }: { user: User }) {
   const [tab, setTab] = useState(initialTab);
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState("");
+  const refresh = useRefresh();
 
   useEffect(() => {
     history.replaceState(null, "", `/panel?days=${days}${tab === "carriers" ? "&tab=carriers" : ""}`);
@@ -45,7 +47,7 @@ export default function PanelPage({ user }: { user: User }) {
         setError("");
       })
       .catch((e: Error) => setError(e.message));
-  }, [days]);
+  }, [days, refresh]);
 
   const maxStatus = Math.max(1, ...(data?.statuses.map((s) => s.count) ?? [1]));
   const tiles: [string, string, string?][] = data
