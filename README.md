@@ -21,7 +21,13 @@ npm run dev            # interfeys; /api sorğuları serverə yönləndirilir
 npm test               # alətlərin testləri (SQLite)
 npm run test:pg        # eyni testlər Postgres-də (PGlite, Supabase miqrasiyaları ilə)
 npm run migrate        # miqrasiyaları DATABASE_URL bazasına tətbiq edir
+npm run build          # interfeysi dist/ papkasına qurur
+npm start              # istehsal rejimi: bir server həm API-ni, həm dist/ interfeysini verir
 ```
+
+## İnternetdə yerləşdirmə
+
+Addım-addım təlimat (VPS): [docs/DEPLOY.md](docs/DEPLOY.md). Qısaca: serverdə `docker compose up -d --build` iki xidmət qaldırır: `app` (`Dockerfile`: `npm run build`, sonra `npm start`, sağlamlıq yoxlaması `/healthz`) və `caddy` (`deploy/Caddyfile`: `APP_DOMAIN` üçün HTTPS sertifikatını özü alır və sorğuları app-ə ötürür). Sirlər və `APP_DOMAIN` serverdəki `.env`-də saxlanır; `PUBLIC_BASE_URL` oradan `https://APP_DOMAIN` kimi qurulur, ona görə giriş cookie-si `Secure` olur. Server `dist/`-i verir (`/quote/:token`, `/reset/:token`, `/panel` kimi ünvanlar `index.html`-ə düşür) və miqrasiyaları başlanğıcda tətbiq edir. Yeniləmə: `sh deploy/update.sh`.
 
 ## Hesablar və giriş
 
@@ -133,6 +139,7 @@ API açarı yalnız serverdə (`.env`) saxlanılır, brauzerə heç vaxt göndə
   - `notify/` — email/WhatsApp/Telegram göndərmə interfeysi; email Resend ilə (`resend.ts`), qalanları hələ yalnız jurnala yazır
   - `auth/` — hesablar: şifrə heşi (`password.ts`), qeydiyyat, giriş, sessiya və şifrə bərpası (`accounts.ts`), sorğunun hansı istifadəçi adından işlədiyi (`current.ts`)
   - `app.ts` — HTTP marşrutları (`/api/auth/*`, `/api/chat`, `/api/dashboard`, ...); `index.ts` serveri başladır
+  - `static.ts` — istehsalda qurulmuş interfeysi (`dist/`) verir
   - `links.ts` — daşıyıcı linkləri üçün imzalı tokenlər
   - `routes/` — daşıyıcı təklif səhifəsi API-si, fayl yükləmə, analitika
 - `src/pages/` — daşıyıcının təklif səhifəsi (`/quote/:token`), analitika paneli (`/panel`, sorğular siyahısı ilə), hər sorğunun ayrıca səhifəsi (`/panel/rfq/:id`), giriş/qeydiyyat və şifrə bərpası (`/reset/:token`)

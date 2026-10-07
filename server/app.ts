@@ -7,6 +7,7 @@ import { handleQuote } from "./routes/quote";
 import { handleFile } from "./routes/files";
 import { handleDashboard } from "./routes/dashboard";
 import { handleResendWebhook } from "./routes/resendWebhook";
+import { serveStatic } from "./static";
 import { handleAuth, requireUser } from "./routes/auth";
 import { asUser } from "./auth/current";
 import { handleRfqDetail, handleRfqList } from "./routes/rfqs";
@@ -62,7 +63,7 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
       );
     } else if (req.method === "POST" && path === "/api/webhooks/resend") {
       await handleResendWebhook(req, res);
-    } else if (req.method === "GET" && path === "/api/health") {
+    } else if (req.method === "GET" && (path === "/api/health" || path === "/healthz")) {
       send(res, 200, { ok: true });
     } else if (quote) {
       await handleQuote(req, res, quote[1]);
@@ -83,7 +84,7 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
       await asUser(user.id, () => handleCarrierDetail(res, carrier[1]));
     } else if (file && req.method === "GET") {
       await handleFile(res, file[1]);
-    } else {
+    } else if (path.startsWith("/api/") || !(await serveStatic(req, res, path))) {
       send(res, 404, { error: "Tapılmadı." });
     }
   } catch (err) {
