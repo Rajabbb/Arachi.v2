@@ -1,4 +1,4 @@
-import { fold, matchCategory, type CarrierInput } from "../../domain/carriers";
+import { categoryName, fold, isCategoryLabel, matchCategory, type CarrierInput } from "../../domain/carriers";
 
 /**
  * Reading carriers out of what the user gave: a table (Excel/CSV) with or
@@ -124,8 +124,8 @@ export function tableCarriers(sheet: string, rows: string[][]): CarrierInput[] |
   const inputs: CarrierInput[] = [];
   for (const r of data) {
     const filled = r.map((c) => (c ?? "").trim()).filter(Boolean);
-    if (filled.length === 1 && Object.keys(map).length >= 2 && isCategoryCell(filled[0])) {
-      if (map.category === undefined) section = matchCategory(filled[0])!;
+    if (filled.length === 1 && Object.keys(map).length >= 2 && (isCategoryCell(filled[0]) || isCategoryLabel(filled[0]))) {
+      if (map.category === undefined) section = categoryName(filled[0])!;
       continue;
     }
     // A title or note row ("Daşıyıcılar"), not a carrier.
@@ -150,8 +150,9 @@ export function tableCarriers(sheet: string, rows: string[][]): CarrierInput[] |
  * Carriers typed in chat, one per line, in whatever form people type them:
  * "Asim Logistics - asim@x.az - Dəniz", "Asim Logistics, asim@x.az, +994 50 111 22 33",
  * "1. Asim Logistics asim@x.az Hava", "Ad: Asim, email: asim@x.az". A line
- * naming only a category ("Dəniz daşıyıcıları:") sets the category of the
- * lines after it. Lines with neither an email nor a phone are not carriers.
+ * naming only a category ("Dəniz daşıyıcıları:", "A kateqoriyası:") sets the
+ * category of the lines after it. A short value after the name is the
+ * category ("Ogullar - o@x.az - A"). Lines with neither an email nor a phone are not carriers.
  */
 export function parseCarrierLines(text: string): CarrierInput[] {
   const out: CarrierInput[] = [];
@@ -168,19 +169,31 @@ export function parseCarrierLines(text: string): CarrierInput[] {
 
     const phones = cells.filter(isPhone);
     if (emails.length === 0 && phones.length === 0) {
-      if (cells.length === 1 && isCategoryCell(cells[0])) section = matchCategory(cells[0])!;
+      const only = cells.length === 1 ? cells[0] : "";
+      if (only && (isCategoryCell(only) || isCategoryLabel(only))) section = categoryName(only)!;
       continue;
     }
 
     let name: string | undefined;
     let category: string | undefined;
+    let categoryNext = false;
     for (const cell of cells) {
-      if (isPhone(cell) || labels.test(fold(cell))) continue;
-      if (!category && isCategoryCell(cell)) {
-        category = cell;
+      if (isPhone(cell)) continue;
+      if (labels.test(fold(cell))) {
+        // "kateqoriya: A": the next value is the category.
+        categoryNext = /^(kateqoriya|category|категория)/.test(fold(cell));
         continue;
       }
-      if (name) continue;
+      if (!category && (categoryNext || isCategoryCell(cell) || isCategoryLabel(cell))) {
+        category = cell;
+        categoryNext = false;
+        continue;
+      }
+      if (name) {
+        // "Ogullar - o@x.az - A": a short value after the name is its category.
+        if (!category && cell.split(/\s+/).length <= 3) category = cell;
+        continue;
+      }
       // "Asim Logistics Dəniz": a category word typed after the name.
       const words = cell.split(/\s+/);
       const last = fold(words[words.length - 1]);
@@ -213,7 +226,7 @@ export function repairCarrier(carrier: CarrierInput, sources: CarrierInput[]): C
     name: badName && sourceName ? sourceName : carrier.name,
     email: carrier.email || source.email || email || undefined,
     phone: carrier.phone || source.phone,
-    category: matchCategory(source.category) ? source.category : carrier.category,
+    category: source.category?.trim() ? source.category : carrier.category,
     subcategory: carrier.subcategory || source.subcategory,
   };
 }

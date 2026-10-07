@@ -1,6 +1,6 @@
 import type { AgentTool } from "./registry";
 import type { UploadedFile } from "../../../shared/protocol";
-import { carrierCategories, findCarriers, saveCarriers, updateCarrier, type CarrierInput } from "../../domain/carriers";
+import { findCarriers, saveCarriers, subcategoryToCategory, updateCarrier, type CarrierInput } from "../../domain/carriers";
 import { parseCarrierLines, repairCarrier, tableCarriers } from "./carrierParse";
 import { isSpreadsheet, readSpreadsheet } from "../files";
 import { db } from "../../db";
@@ -19,9 +19,10 @@ const carrierSchema = {
     category: {
       type: "string",
       description:
-        "This carrier's own category (Quru, Dəniz, Hava or Dəmiryolu) when the user gave one for it; carriers in one list may have different categories.",
+        "This carrier's category exactly as the user named it: a transport category (Quru, Dəniz, Hava, Dəmiryolu) or the user's own " +
+        "label such as A, B, VIP (\"A kateqoriyası\" -> \"A\"). Carriers in one list may have different categories. Never move the user's category into subcategory.",
     },
-    subcategory: { type: "string", description: "e.g. Türkiyə xətti, Avropa." },
+    subcategory: { type: "string", description: "Only when the user gives a separate subcategory or direction, e.g. Türkiyə xətti, Avropa." },
     language: { type: "string", enum: ["az", "en"] },
   },
   required: ["name"],
@@ -32,8 +33,7 @@ const defaultParams = {
     type: "string",
     description:
       "Category only for carriers that have no category of their own, e.g. when the user says the whole list is sea carriers. " +
-      "Never use it to give one category to carriers whose categories differ; put those on each carrier.",
-    enum: carrierCategories,
+      "Never use it to give one category to carriers whose categories differ; put those on each carrier. Any category name is allowed.",
     default: "Quru",
   },
   language: {
@@ -154,7 +154,7 @@ export const listCarriers: AgentTool = {
   name: "list_carriers",
   description: "Lists active carriers in the carrier base, optionally by category and subcategory, with counts per category.",
   params: {
-    category: { type: "string", description: "Only this category; empty means all.", default: "" },
+    category: { type: "string", description: "Only this category (transport or the user's own, e.g. A); empty means all.", default: "" },
     subcategory: { type: "string", description: "Only this subcategory; empty means all.", default: "" },
   },
   async run(p) {
@@ -189,7 +189,7 @@ export const updateCarriers: AgentTool = {
     "the same change applies to every id given (e.g. move several carriers to Dəniz). A name or email another carrier already has is refused.",
   params: {
     carrier_ids: { type: "array", description: "Carrier ids to change.", items: { type: "integer" } },
-    category: { type: "string", description: "New category (Quru, Dəniz, Hava or Dəmiryolu); empty keeps it.", default: "" },
+    category: { type: "string", description: "New category: Quru, Dəniz, Hava, Dəmiryolu or the user's own (A, B, VIP, ...); empty keeps it.", default: "" },
     subcategory: { type: "string", description: 'New subcategory; "-" clears it; empty keeps it.', default: "" },
     name: { type: "string", description: "New name (only with one id); empty keeps it.", default: "" },
     email: { type: "string", description: "New email (only with one id); empty keeps it.", default: "" },
@@ -205,5 +205,26 @@ export const updateCarriers: AgentTool = {
     const updated = [];
     for (const id of ids) updated.push(await updateCarrier(id, changes));
     return { updated: updated.length, carriers: updated };
+  },
+};
+
+export const subcategoryToCategoryTool: AgentTool = {
+  name: "subcategory_to_category",
+  description:
+    "Repairs carriers saved by an older version: the user's own category (e.g. \"A kateqoriyası\") was stored as the subcategory under " +
+    "Quru. Makes the subcategory the category (\"A kateqoriyası\" -> \"A\") and clears it. Use when the user says their categories " +
+    "ended up as Quru, or asks to move subcategories into the category.",
+  params: {
+    from_category: { type: "string", description: "Category the carriers are wrongly in.", default: "Quru" },
+    subcategories: {
+      type: "array",
+      description: "Only carriers with these subcategories; empty means every carrier in from_category that has a subcategory.",
+      items: { type: "string" },
+      default: [],
+    },
+  },
+  async run(p) {
+    const moved = await subcategoryToCategory(p.from_category as string, p.subcategories as string[]);
+    return { moved: moved.length, carriers: moved };
   },
 };

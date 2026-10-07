@@ -38,3 +38,12 @@ test("channel preference, category audience and no double sending", async () => 
   assert.equal(again.result.sent, 1);
   assert.equal(again.result.skipped, 1);
 });
+
+test("the user's own categories: reached by name, and included in transport matching", async () => {
+  await call("add_carriers", { carriers: [{ name: "Ogullar", email: "o@x.az", category: "A kateqoriyası" }] });
+  const byCategory = await call("send_rfq_to_carriers", { rfq_id: 1, audience: "category", category: "a" });
+  assert.deepEqual(byCategory.result.results.map((r: { name: string }) => r.name), ["Ogullar"]);
+  // Matching a Quru RFQ: the Quru carriers plus Ogullar (category A), not the sea carrier.
+  const matching = await call("send_rfq_to_carriers", { rfq_id: 1, resend: true });
+  assert.deepEqual(matching.result.results.map((r: { name: string }) => r.name).sort(), ["Ogullar", "Road A", "Road B"]);
+});
