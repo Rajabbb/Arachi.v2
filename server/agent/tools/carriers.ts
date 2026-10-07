@@ -1,8 +1,7 @@
 import type { AgentTool } from "./registry";
 import type { UploadedFile } from "../../../shared/protocol";
-import {
-  carrierCategories, findCarriers, matchCategory, saveCarriers, updateCarrier, type CarrierInput,
-} from "../../domain/carriers";
+import { carrierCategories, findCarriers, saveCarriers, updateCarrier, type CarrierInput } from "../../domain/carriers";
+import { parseCarrierLines, repairCarrier, tableCarriers } from "./carrierParse";
 import { isSpreadsheet, readSpreadsheet } from "../files";
 import { db } from "../../db";
 import { currentUserId } from "../../auth/current";
@@ -12,8 +11,8 @@ import { currentUserId } from "../../auth/current";
 const carrierSchema = {
   type: "object",
   properties: {
-    name: { type: "string" },
-    email: { type: "string" },
+    name: { type: "string", description: "Company/carrier name exactly as the user wrote it (not the email)." },
+    email: { type: "string", description: "Email address only." },
     phone: { type: "string" },
     whatsapp: { type: "string" },
     telegram: { type: "string" },
@@ -49,6 +48,7 @@ export const addCarriers: AgentTool = {
   name: "add_carriers",
   description:
     "Adds carriers typed in chat to the carrier base. Each needs a name and at least one contact (email, phone, WhatsApp or Telegram). " +
+    "name is the company/carrier name the user wrote, never the email address; copy it exactly. " +
     "Give each carrier its own category/subcategory when the user stated it. A carrier whose name or email is already in the base " +
     "(or repeated in the list) is not added; the result lists skipped rows with the reason, how new carriers were grouped by category, " +
     "and which got the default category: tell the user all of it. To change an existing carrier use update_carriers.",
@@ -56,40 +56,17 @@ export const addCarriers: AgentTool = {
     carriers: { type: "array", description: "Carriers to add.", items: carrierSchema },
     ...defaultParams,
   },
-  async run(p) {
-    return saveCarriers(p.carriers as CarrierInput[], {
+  async run(p, ctx) {
+    // What the user typed or attached, to correct a name or category the model dropped.
+    const sources = parseCarrierLines(ctx.text);
+    for (const file of ctx.files.filter(isTable)) sources.push(...(await fileCarriers(file)));
+    const given = (p.carriers as CarrierInput[]).map((c) => repairCarrier(c, sources));
+    return saveCarriers(given.length > 0 ? given : sources, {
       category: p.category as string,
       language: p.language as string,
     });
   },
 };
-
-const headerAliases: Record<keyof CarrierInput, RegExp> = {
-  name: /^(name|ad|adı|şirkət|sirket|company|daşıyıcı|carrier|название|компания)/i,
-  email: /(e-?mail|e-?poçt|почта)/i,
-  phone: /^(phone|tel|telefon|mobil|телефон)/i,
-  whatsapp: /whats ?app/i,
-  telegram: /telegram/i,
-  subcategory: /(alt ?kateqoriya|subcategory|sub-category|xətt|line|route)/i,
-  category: /(kateqoriya|category|növ|type|категория|вид|тип)/i,
-  language: /^(dil|language|lang)/i,
-};
-
-/** Maps a header row to carrier fields; returns null when no name/email column is found. */
-export function mapHeader(header: string[]): Partial<Record<keyof CarrierInput, number>> | null {
-  const map: Partial<Record<keyof CarrierInput, number>> = {};
-  header.forEach((cell, i) => {
-    const c = cell.trim();
-    // Check subcategory before category: "alt kateqoriya" also contains "kateqoriya".
-    for (const key of ["subcategory", "whatsapp", "telegram", "email", "phone", "category", "language", "name"] as const) {
-      if (map[key] === undefined && headerAliases[key].test(c)) {
-        map[key] = i;
-        return;
-      }
-    }
-  });
-  return map.name !== undefined || map.email !== undefined ? map : null;
-}
 
 export function parseCsv(text: string): string[][] {
   const firstLine = text.split(/\r?\n/, 1)[0];
@@ -132,40 +109,9 @@ async function readTables(file: UploadedFile): Promise<{ sheet: string; rows: st
   return [{ sheet: "", rows: parseCsv(Buffer.from(file.data, "base64").toString("utf8").replace(/^\uFEFF/, "")) }];
 }
 
-/**
- * Carrier rows of one table. The header may sit under a title row. Without a
- * category column, the category comes from a section row that only names one
- * ("Dəniz daşıyıcıları") or from the sheet name ("Hava").
- */
-export function tableCarriers(sheet: string, rows: string[][]): CarrierInput[] | null {
-  // A title row above the header ("Daşıyıcılar") can look like a one-column header; prefer a fuller row.
-  const first = rows.slice(0, 5);
-  const columns = (r: string[]) => Object.keys(mapHeader(r) ?? {}).length;
-  const fuller = first.findIndex((r) => columns(r) >= 2);
-  const headerAt = fuller >= 0 ? fuller : first.findIndex((r) => columns(r) > 0);
-  if (headerAt < 0) return null;
-  const map = mapHeader(rows[headerAt])!;
-  let section = map.category === undefined ? matchCategory(sheet) ?? undefined : undefined;
+async function fileCarriers(file: UploadedFile): Promise<CarrierInput[]> {
   const inputs: CarrierInput[] = [];
-  for (const r of rows.slice(headerAt + 1)) {
-    const filled = r.map((c) => (c ?? "").trim()).filter(Boolean);
-    const sectionRow = filled.length === 1 && Object.keys(map).length >= 2 && !filled[0].includes("@");
-    if (sectionRow && map.category === undefined && matchCategory(filled[0])) {
-      section = matchCategory(filled[0])!;
-      continue;
-    }
-    const get = (k: keyof CarrierInput) => (map[k] === undefined ? undefined : (r[map[k]!] ?? "").trim());
-    inputs.push({
-      name: get("name") || get("email") || "",
-      email: get("email"),
-      phone: get("phone"),
-      whatsapp: get("whatsapp"),
-      telegram: get("telegram"),
-      category: get("category") || section,
-      subcategory: get("subcategory"),
-      language: get("language"),
-    });
-  }
+  for (const table of await readTables(file)) inputs.push(...(tableCarriers(table.sheet, table.rows) ?? []));
   return inputs;
 }
 
@@ -193,10 +139,9 @@ export const importCarriers: AgentTool = {
       ? ctx.files.find((f) => f.name === p.file_name)
       : ctx.files.find(isTable);
     if (!file) throw new Error("Bu mesajda Excel və ya CSV fayl tapılmadı.");
-    const inputs: CarrierInput[] = [];
-    for (const table of await readTables(file)) inputs.push(...(tableCarriers(table.sheet, table.rows) ?? []));
+    const inputs = await fileCarriers(file);
     if (inputs.length === 0) {
-      throw new Error("Faylın ilk sətirlərində ad və ya email sütunu tapılmadı.");
+      throw new Error("Faylda daşıyıcı adı və ya email sütunu tapılmadı.");
     }
     return {
       file: file.name,
