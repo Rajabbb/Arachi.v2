@@ -4,6 +4,7 @@ import { AgentError } from "./agent/loop";
 import { provider } from "./agent/providers";
 import { HttpError, send } from "./http";
 import { db } from "./db";
+import { config } from "./config";
 import { handleQuote } from "./routes/quote";
 import { handleFile } from "./routes/files";
 import { handleDashboard, handleMonthlyReport } from "./routes/dashboard";
@@ -59,10 +60,33 @@ async function handleHealth(res: ServerResponse) {
   }
 }
 
+const appOrigin = new URL(config.publicBaseUrl).origin;
+
+/**
+ * Changes (POST, DELETE, ...) only from the app's own pages. The session
+ * cookie is SameSite=Lax, which still lets sibling subdomains of the same
+ * site post with it; browsers always send Origin on such requests, so a
+ * foreign one is refused. Server-to-server calls (webhooks) send none.
+ */
+function checkOrigin(req: IncomingMessage) {
+  if (req.method === "GET" || req.method === "HEAD") return;
+  const origin = req.headers.origin;
+  if (!origin || origin === appOrigin) return;
+  // The page's own address also counts (e.g. 127.0.0.1 instead of localhost in development).
+  let host: string | undefined;
+  try {
+    host = new URL(origin).host;
+  } catch {
+    host = undefined;
+  }
+  if (host !== req.headers.host) throw new HttpError(403, "Bu sorğu başqa saytdan gəlib və qəbul edilmir.");
+}
+
 /** Routes one HTTP request; index.ts serves it, tests call it directly. */
 export async function app(req: IncomingMessage, res: ServerResponse) {
   try {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
+    if (path.startsWith("/api/")) checkOrigin(req);
     const quote = path.match(/^\/api\/quote\/([\w.-]+)$/);
     const file = path.match(/^\/api\/files\/([\w.-]+)$/);
     const auth = path.match(/^\/api\/auth\/(\w+)$/);

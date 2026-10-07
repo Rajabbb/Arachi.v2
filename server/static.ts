@@ -4,6 +4,23 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { extname, join, resolve, sep } from "node:path";
 import { config } from "./config";
 
+/**
+ * What the page may load: only its own scripts, styles and API, so injected
+ * markup cannot pull in or send data to another site. Styles allow inline
+ * attributes (React's style prop); images allow data:/blob: previews.
+ */
+const pagePolicy = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "connect-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join("; ");
+
 const types: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -62,6 +79,7 @@ export async function serveStatic(req: IncomingMessage, res: ServerResponse, pat
     // Vite puts a content hash in asset names, so they never change; the page itself must be re-checked.
     "cache-control": isIndex ? "no-cache" : decoded.startsWith("/assets/") ? "public, max-age=31536000, immutable" : "public, max-age=3600",
     "x-content-type-options": "nosniff",
+    ...(isIndex ? { "content-security-policy": pagePolicy } : {}),
   });
   if (req.method === "HEAD") {
     res.end();

@@ -7,6 +7,10 @@ import { groupByOffer, offerVersions, submitOffer } from "../domain/offers";
 import { getRfq } from "../domain/rfqs";
 import { HttpError, readJson, send } from "../http";
 import { asUser } from "../auth/current";
+import { clientIp, limit } from "../rateLimit";
+
+/** Documents one quote submission may carry. */
+const MAX_FILES = 10;
 
 /**
  * The carrier's quote page API. The signed token in the link is the only
@@ -25,6 +29,8 @@ async function respond(req: IncomingMessage, res: ServerResponse, dispatch: Disp
     return send(res, 200, await pageData(dispatch));
   }
   if (req.method === "POST") {
+    // The link needs no login, so cap how often one address can submit (and store files).
+    limit(`quote:${clientIp(req)}`, 30, 60);
     const body = parseSubmission(await readJson(req));
     try {
       await submitOffer({
@@ -108,5 +114,6 @@ function parseSubmission(body: unknown): QuoteSubmission {
       (Array.isArray(b.files) &&
         b.files.every((f) => typeof f?.name === "string" && typeof f.type === "string" && typeof f.data === "string")));
   if (!ok) throw new HttpError(400, "Təklifin formatı yanlışdır.");
+  if ((b.files?.length ?? 0) > MAX_FILES) throw new HttpError(400, `Ən çox ${MAX_FILES} sənəd əlavə etmək olar.`);
   return b as QuoteSubmission;
 }

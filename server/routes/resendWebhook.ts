@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { config } from "../config";
-import { HttpError, readBody, send } from "../http";
+import { HttpError, readBody, send, SMALL_BODY_BYTES } from "../http";
 import { applyEmailStatus, checkEmailNow } from "../notify/emailStatus";
 
 /** Signatures older or newer than this are rejected, against replays. */
@@ -63,7 +63,7 @@ let lastRejection = 0;
  * fetched from the Resend API, so a forged request cannot change anything.
  */
 export async function handleResendWebhook(req: IncomingMessage, res: ServerResponse) {
-  const body = await readBody(req);
+  const body = await readBody(req, SMALL_BODY_BYTES);
   const secret = config.resendWebhookSecret;
   const headers = {
     id: header(req, "svix-id") ?? header(req, "webhook-id"),

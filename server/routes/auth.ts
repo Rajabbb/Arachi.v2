@@ -12,7 +12,7 @@ import {
   type User,
 } from "../auth/accounts";
 import { config } from "../config";
-import { HttpError, readJson, send } from "../http";
+import { HttpError, readJson, send, SMALL_BODY_BYTES } from "../http";
 import { clientIp, limit } from "../rateLimit";
 
 /** Requests per client address for each form: [max, window in minutes]. */
@@ -78,7 +78,7 @@ export async function handleAuth(req: IncomingMessage, res: ServerResponse, acti
 
   const rule = limits[action];
   if (rule) limit(`${action}:${clientIp(req)}`, ...rule);
-  const body = await readJson(req);
+  const body = await readJson(req, SMALL_BODY_BYTES);
   switch (action) {
     case "register":
       return signIn(res, await register({ email: field(body, "email"), password: field(body, "password"), name: field(body, "name") }));
