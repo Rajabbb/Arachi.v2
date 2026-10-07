@@ -1,4 +1,4 @@
-import type { Download, UploadedFile } from "../../../shared/protocol";
+import type { Confirmation, Download, UploadedFile } from "../../../shared/protocol";
 import type { ToolDefinition } from "../providers/types";
 
 /**
@@ -25,6 +25,19 @@ export interface ToolContext {
   text: string;
   /** Files the tool generated for the user to download. */
   downloads: Download[];
+  /**
+   * Set during a chat turn: stores an action for the user to confirm with
+   * "Bəli" / "Xeyr". Tools with `confirm` then prepare instead of running.
+   */
+  askUser?: (tool: string, params: Record<string, unknown>, summary: string) => Promise<Confirmation>;
+  /** Actions prepared in this turn, shown under the reply. */
+  confirmations: Confirmation[];
+}
+
+/** What the user will be asked to confirm, and the exact parameters that will then run. */
+export interface ConfirmPlan {
+  summary: string;
+  params: Record<string, unknown>;
 }
 
 export interface AgentTool {
@@ -32,6 +45,13 @@ export interface AgentTool {
   description: string;
   params: Record<string, ParamSpec>;
   run(params: Record<string, unknown>, ctx: ToolContext): Promise<unknown>;
+  /**
+   * For tools that send messages: what this call would do, for the user to
+   * confirm; null when it would send nothing (it then just runs).
+   */
+  confirm?(params: Record<string, unknown>): Promise<ConfirmPlan | null>;
+  /** One line for the chat after the user confirmed and the tool ran. */
+  done?(result: unknown): string;
 }
 
 export interface ToolExecution {
@@ -43,7 +63,7 @@ export interface ToolExecution {
 }
 
 export function emptyContext(files: UploadedFile[] = [], text = ""): ToolContext {
-  return { files, text, downloads: [] };
+  return { files, text, downloads: [], confirmations: [] };
 }
 
 export class ToolRegistry {
@@ -55,6 +75,10 @@ export class ToolRegistry {
     }
     this.tools.set(tool.name, tool);
     return this;
+  }
+
+  get(name: string): AgentTool | undefined {
+    return this.tools.get(name);
   }
 
   /** Provider-neutral tool definitions, in registration order. */
@@ -78,6 +102,27 @@ export class ToolRegistry {
     }
 
     try {
+      if (tool.confirm && ctx.askUser) {
+        const plan = await tool.confirm(resolved.params);
+        if (plan) {
+          // The same action asked twice in a turn gets one card, not two.
+          const same = ctx.confirmations.find((c) => c.text === plan.summary);
+          const confirmation = same ?? (await ctx.askUser(name, plan.params, plan.summary));
+          if (!same) ctx.confirmations.push(confirmation);
+          return {
+            ...resolved,
+            ok: true,
+            content: JSON.stringify({
+              status: "waiting_for_user",
+              will_do: plan.summary,
+              note:
+                "Nothing has been sent yet. Under your reply the user sees exactly this with \"Bəli\" (yes) and \"Xeyr\" (no) buttons; " +
+                "it runs only when they press Bəli. Say in one short sentence what will happen and ask them to press Bəli. " +
+                "Don't call this tool again for the same action, even if they answer yes in text.",
+            }),
+          };
+        }
+      }
       const result = await tool.run(resolved.params, ctx);
       return {
         ...resolved,

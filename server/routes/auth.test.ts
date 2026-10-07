@@ -6,6 +6,7 @@ import { app } from "../app";
 import { db } from "../db";
 import { asUser } from "../auth/current";
 import { insertRfq } from "../domain/rfqs";
+import { login, register } from "../auth/accounts";
 import { hashPassword, verifyPassword } from "../auth/password";
 import { addUser, call, freshDb } from "../test/helpers";
 import { config } from "../config";
@@ -103,10 +104,20 @@ test("a forged or expired session cookie is rejected", async () => {
 test("too many wrong passwords lock the login for a while", async () => {
   const b = browser();
   await b("/api/auth/register", { email: "a@b.az", password: "parol1234" });
-  for (let i = 0; i < 10; i++) {
+  for (let i = 0; i < 5; i++) {
     assert.equal((await b("/api/auth/login", { email: "a@b.az", password: `səhv${i}` })).status, 401);
   }
   assert.equal((await b("/api/auth/login", { email: "a@b.az", password: "parol1234" })).status, 429);
+});
+
+test("a stranger's wrong passwords do not lock the owner out, but many from anywhere do", async () => {
+  await register({ email: "a@b.az", password: "parol1234" });
+  for (let i = 0; i < 5; i++) await assert.rejects(login("a@b.az", "səhv", "6.6.6.6"), /yanlışdır/);
+  await assert.rejects(login("a@b.az", "parol1234", "6.6.6.6"), /dəqiqə sonra/);
+  assert.equal((await login("a@b.az", "parol1234", "1.2.3.4")).email, "a@b.az");
+  // 30 failures spread over many addresses lock the account itself.
+  for (let i = 0; i < 25; i++) await assert.rejects(login("a@b.az", "səhv", `10.0.0.${i}`), /yanlışdır/);
+  await assert.rejects(login("a@b.az", "parol1234", "1.2.3.4"), /Bu hesaba/);
 });
 
 test("password reset by email link", async () => {

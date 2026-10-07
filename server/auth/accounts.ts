@@ -20,9 +20,15 @@ export const SESSION_DAYS = 30;
 const RESET_MINUTES = 60;
 /** Reset emails one account may request per hour. */
 const RESETS_PER_HOUR = 3;
-/** Failed logins per email before it is locked for LOCK_MINUTES. */
-const MAX_FAILED_LOGINS = 10;
+/** Failed logins for one email from one address before that pair is locked for LOCK_MINUTES. */
+const MAX_FAILED_LOGINS = 5;
 const LOCK_MINUTES = 15;
+/**
+ * Failed logins for one email from all addresses together before the email
+ * is locked for ACCOUNT_LOCK_MINUTES (guessing spread over many addresses).
+ */
+const MAX_ACCOUNT_FAILURES = 30;
+const ACCOUNT_LOCK_MINUTES = 60;
 export const MIN_PASSWORD_LENGTH = 8;
 
 const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -98,23 +104,47 @@ export function resetLoginLimits() {
   failedLogins.clear();
 }
 
-export async function login(emailInput: string, password: string): Promise<User> {
+/** The live failure count under `key`, forgetting it once `minutes` have passed. */
+function failures(key: string, minutes: number): number {
+  const entry = failedLogins.get(key);
+  if (entry && Date.now() - entry.since > minutes * 60_000) failedLogins.delete(key);
+  return failedLogins.get(key)?.count ?? 0;
+}
+
+function countFailure(key: string) {
+  if (failedLogins.size > 10_000) {
+    const stale = Date.now() - ACCOUNT_LOCK_MINUTES * 60_000;
+    for (const [k, e] of failedLogins) if (e.since < stale) failedLogins.delete(k);
+  }
+  const entry = failedLogins.get(key) ?? { count: 0, since: Date.now() };
+  entry.count++;
+  failedLogins.set(key, entry);
+}
+
+/**
+ * Checks an email and password. Wrong passwords lock the email for the
+ * address they came from (so a stranger cannot lock the owner out from
+ * elsewhere), and many wrong passwords from anywhere lock the email itself.
+ */
+export async function login(emailInput: string, password: string, clientAddress = "unknown"): Promise<User> {
   const email = emailInput.trim().toLowerCase();
-  const failed = failedLogins.get(email);
-  if (failed && Date.now() - failed.since > LOCK_MINUTES * 60_000) failedLogins.delete(email);
-  else if (failed && failed.count >= MAX_FAILED_LOGINS) {
+  const pairKey = `${clientAddress}|${email}`;
+  const accountKey = `*|${email}`;
+  if (failures(pairKey, LOCK_MINUTES) >= MAX_FAILED_LOGINS) {
     throw new HttpError(429, `Çox sayda uğursuz cəhd oldu. ${LOCK_MINUTES} dəqiqə sonra yenidən cəhd edin və ya şifrəni bərpa edin.`);
+  }
+  if (failures(accountKey, ACCOUNT_LOCK_MINUTES) >= MAX_ACCOUNT_FAILURES) {
+    throw new HttpError(429, `Bu hesaba çox sayda uğursuz cəhd oldu. ${ACCOUNT_LOCK_MINUTES} dəqiqə sonra yenidən cəhd edin və ya şifrəni bərpa edin.`);
   }
   const user = await findUserByEmail(email);
   // Check a password even for an unknown email, so timing does not reveal which emails have accounts.
   const ok = await verifyPassword(password, user?.password_hash ?? dummyHash ?? (dummyHash = await hashPassword("x")));
   if (!user || !ok) {
-    const entry = failedLogins.get(email) ?? { count: 0, since: Date.now() };
-    entry.count++;
-    failedLogins.set(email, entry);
+    countFailure(pairKey);
+    countFailure(accountKey);
     throw new HttpError(401, "Email və ya şifrə yanlışdır.");
   }
-  failedLogins.delete(email);
+  failedLogins.delete(pairKey);
   const { password_hash: _, ...rest } = user;
   return rest;
 }

@@ -2,13 +2,15 @@ import { useEffect, useRef } from "react";
 import type { Message } from "../types";
 import { formatSize } from "../lib/agent";
 import MarkdownText from "./MarkdownText";
+import ConfirmCard from "./ConfirmCard";
 
 interface Props {
   messages: Message[];
   busy: boolean;
+  onConfirm?: (confirmationId: string, approve: boolean) => Promise<void>;
 }
 
-export default function MessageList({ messages, busy }: Props) {
+export default function MessageList({ messages, busy, onConfirm }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -42,6 +44,10 @@ export default function MessageList({ messages, busy }: Props) {
                 ))}
               </ul>
             )}
+            {onConfirm &&
+              m.confirmations?.map((c) => (
+                <ConfirmCard key={c.id} confirmation={c} onAnswer={(approve) => onConfirm(c.id, approve)} />
+              ))}
           </div>
         </div>
       ))}

@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { ConversationSummary } from "../shared/protocol";
 import type { Message } from "./types";
 import { AgentRequestError, sendToAgent, toAttachment } from "./lib/agent";
-import { deleteConversation, listConversations, loadConversation } from "./lib/conversations";
+import { answerConfirmation, deleteConversation, listConversations, loadConversation, toMessage } from "./lib/conversations";
 import MessageList from "./components/MessageList";
 import Composer from "./components/Composer";
 import ConversationList from "./components/ConversationList";
@@ -107,6 +107,7 @@ export default function App({ user }: { user: User }) {
           text: res.reply,
           attachments: [],
           downloads: res.downloads,
+          confirmations: res.confirmations,
           createdAt: Date.now(),
         },
       ]);
@@ -119,6 +120,18 @@ export default function App({ user }: { user: User }) {
       setBusy(false);
       void refreshList();
     }
+  }
+
+  async function handleConfirm(confirmationId: string, approve: boolean) {
+    const res = await answerConfirmation(confirmationId, approve);
+    setMessages((prev) => [
+      ...prev.map((m) =>
+        m.confirmations?.some((c) => c.id === confirmationId)
+          ? { ...m, confirmations: m.confirmations.map((c) => (c.id === confirmationId ? res.confirmation : c)) }
+          : m,
+      ),
+      ...(res.message ? [toMessage(res.message)] : []),
+    ]);
   }
 
   const title = conversations.find((c) => c.id === activeId)?.title ?? "Yeni söhbət";
@@ -154,7 +167,7 @@ export default function App({ user }: { user: User }) {
           <UserMenu user={user} />
         </header>
         <div className="chat-title" title={title}>{title}</div>
-        <MessageList messages={loading ? [] : [welcome, ...messages]} busy={busy || loading} />
+        <MessageList messages={loading ? [] : [welcome, ...messages]} busy={busy || loading} onConfirm={handleConfirm} />
         <Composer disabled={busy || loading} onSend={handleSend} />
       </div>
     </div>

@@ -456,3 +456,14 @@ a.logo { color: inherit; text-decoration: none; }
 .report-tiles { grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
 .report-tiles .tile { background: var(--bg); }
 .report-tiles .tile-value { font-size: 1.3rem; }
+
+/* An action waiting for the user's "Bəli" / "Xeyr" under an agent reply. */
+.confirm-card { margin-top: 10px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 10px; }
+.confirm-card:not(.pending) { border-color: var(--border); }
+.confirm-text { margin: 0; white-space: pre-line; font-size: 0.9rem; }
+.confirm-actions { display: flex; gap: 8px; margin-top: 10px; }
+.confirm-actions .send-button { padding: 6px 14px; }
+.confirm-no { border: 1px solid var(--border); background: none; color: var(--text); font: inherit; padding: 6px 14px; border-radius: 8px; cursor: pointer; }
+.confirm-no:disabled { opacity: 0.45; cursor: not-allowed; }
+.confirm-status { margin: 8px 0 0; font-size: 0.85rem; }
+.confirm-error { margin: 8px 0 0; font-size: 0.85rem; color: #d33; }

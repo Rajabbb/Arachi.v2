@@ -1,4 +1,4 @@
-import type { Download } from "../shared/protocol";
+import type { Confirmation, Download } from "../shared/protocol";
 
 export type Role = "user" | "assistant";
 
@@ -16,5 +16,7 @@ export interface Message {
   attachments: Attachment[];
   /** Files the agent generated (PDF quotes, Excel exports). */
   downloads?: Download[];
+  /** Actions waiting for the user's "Bəli" / "Xeyr". */
+  confirmations?: Confirmation[];
   createdAt: number;
 }

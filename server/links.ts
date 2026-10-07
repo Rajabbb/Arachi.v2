@@ -37,13 +37,25 @@ async function mac(payload: string): Promise<string> {
   return createHmac("sha256", await secret()).update(payload).digest("base64url");
 }
 
-export async function signToken(kind: string, id: number): Promise<string> {
-  const payload = Buffer.from(`${kind}:${id}`).toString("base64url");
+/**
+ * Signs `kind:id`, or `kind:id:expiry` (Unix seconds) when `ttlSeconds` is
+ * given: such a token stops working once that time has passed.
+ */
+export async function signToken(kind: string, id: number, ttlSeconds?: number): Promise<string> {
+  const parts = [kind, id, ...(ttlSeconds ? [Math.floor(Date.now() / 1000) + ttlSeconds] : [])];
+  const payload = Buffer.from(parts.join(":")).toString("base64url");
   return `${payload}.${await mac(payload)}`;
 }
 
-/** Returns the id the token was signed for, or null if it is invalid. */
-export async function verifyToken(kind: string, token: string): Promise<number | null> {
+/**
+ * Returns the id the token was signed for, or null if it is invalid or has
+ * expired. With `requireExpiry`, a token signed without an expiry is refused too.
+ */
+export async function verifyToken(
+  kind: string,
+  token: string,
+  options: { requireExpiry?: boolean; ignoreExpiry?: boolean } = {},
+): Promise<number | null> {
   const [payload, signature] = token.split(".");
   if (!payload || !signature) return null;
   const expected = Buffer.from(await mac(payload));
@@ -51,9 +63,13 @@ export async function verifyToken(kind: string, token: string): Promise<number |
   if (expected.length !== given.length || !timingSafeEqual(expected, given)) {
     return null;
   }
-  const [k, id] = Buffer.from(payload, "base64url").toString().split(":");
+  const [k, id, expiry, ...rest] = Buffer.from(payload, "base64url").toString().split(":");
   const n = Number(id);
-  return k === kind && Number.isInteger(n) && n > 0 ? n : null;
+  if (k !== kind || !Number.isInteger(n) || n <= 0 || rest.length > 0) return null;
+  if (expiry === undefined) return options.requireExpiry ? null : n;
+  const until = Number(expiry);
+  if (!Number.isInteger(until)) return null;
+  return options.ignoreExpiry || Date.now() / 1000 <= until ? n : null;
 }
 
 export function publicUrl(path: string): string {

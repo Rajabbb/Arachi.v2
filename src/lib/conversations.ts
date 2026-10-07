@@ -2,6 +2,7 @@ import type {
   ChatError,
   ConversationData,
   ConversationListData,
+  ConfirmationResponse,
   ConversationMessage,
 } from "../../shared/protocol";
 import type { Message } from "../types";
@@ -17,6 +18,21 @@ export async function loadConversation(id: number): Promise<Message[]> {
   return data.messages.map(toMessage);
 }
 
+/** The user's "Bəli" (approve) or "Xeyr" for an action the agent prepared. */
+export async function answerConfirmation(id: string, approve: boolean): Promise<ConfirmationResponse> {
+  const res = await fetch(`/api/confirmations/${encodeURIComponent(id)}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ approve }),
+  });
+  if (res.status === 401) window.location.reload();
+  const body = (await res.json().catch(() => null)) as ConfirmationResponse | ChatError | null;
+  if (!res.ok || !body || "error" in body) {
+    throw new Error(body && "error" in body ? body.error : "Serverlə əlaqə qurulmadı.");
+  }
+  return body;
+}
+
 export async function deleteConversation(id: number): Promise<void> {
   const res = await fetch(`/api/conversations/${id}`, { method: "DELETE" });
   if (res.status === 401) window.location.reload();
@@ -26,13 +42,14 @@ export async function deleteConversation(id: number): Promise<void> {
   }
 }
 
-function toMessage(m: ConversationMessage): Message {
+export function toMessage(m: ConversationMessage): Message {
   return {
     id: `saved-${m.id}`,
     role: m.role,
     text: m.text,
     attachments: m.attachments.map((a, i) => ({ id: `saved-${m.id}-${i}`, ...a })),
     downloads: m.downloads,
+    confirmations: m.confirmations,
     createdAt: Date.parse(m.created_at),
   };
 }

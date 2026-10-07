@@ -10,6 +10,9 @@ export async function handleFile(res: ServerResponse, token: string) {
     "content-type": file.type,
     "content-length": file.data.byteLength,
     "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+    // The type comes from whoever uploaded it (a carrier, too): never let the browser run it as a page.
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'; sandbox",
   });
   res.end(Buffer.from(file.data));
 }

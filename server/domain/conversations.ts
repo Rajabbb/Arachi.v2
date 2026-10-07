@@ -7,6 +7,8 @@ import type {
 } from "../../shared/protocol";
 import { currentUserId } from "../auth/current";
 import { db, now, transaction } from "../db";
+import { refreshFileUrl } from "./files";
+import { confirmationsOf } from "./confirmations";
 
 /**
  * Saved conversations with the agent. Every query is limited to the
@@ -61,19 +63,20 @@ export async function createConversation(title: string): Promise<number> {
 export async function addMessage(
   conversationId: number,
   message: { role: "user" | "assistant"; text: string; attachments?: AttachmentInfo[]; downloads?: Download[] },
-): Promise<void> {
+): Promise<number> {
   const at = now();
   const { changes } = await db().run(
     "UPDATE conversations SET updated_at = ? WHERE id = ? AND user_id = ?",
     at, conversationId, currentUserId(),
   );
   if (changes === 0) throw new Error(`Conversation ${conversationId} not found.`);
-  await db().run(
+  const row = await db().get<{ id: number }>(
     `INSERT INTO conversation_messages (conversation_id, role, text, attachments, downloads, created_at)
-     VALUES (?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
     conversationId, message.role, message.text,
     JSON.stringify(message.attachments ?? []), JSON.stringify(message.downloads ?? []), at,
   );
+  return Number(row!.id);
 }
 
 export async function conversationMessages(conversationId: number): Promise<ConversationMessage[]> {
@@ -86,12 +89,19 @@ export async function conversationMessages(conversationId: number): Promise<Conv
      ORDER BY m.id`,
     conversationId, currentUserId(),
   );
-  return rows.map((r) => ({
-    ...r,
-    id: Number(r.id),
-    attachments: JSON.parse(r.attachments) as AttachmentInfo[],
-    downloads: JSON.parse(r.downloads) as Download[],
-  }));
+  const confirmations = await confirmationsOf(conversationId);
+  return Promise.all(
+    rows.map(async (r) => ({
+      ...r,
+      id: Number(r.id),
+      attachments: JSON.parse(r.attachments) as AttachmentInfo[],
+      // Saved download links expire; the chat gets fresh ones each time it is opened.
+      downloads: await Promise.all(
+        (JSON.parse(r.downloads) as Download[]).map(async (d) => ({ ...d, url: await refreshFileUrl(d.url) })),
+      ),
+      ...(confirmations.has(Number(r.id)) ? { confirmations: confirmations.get(Number(r.id)) } : {}),
+    })),
+  );
 }
 
 /** The model's transcript of the latest turns, one array of messages per turn. */
@@ -116,6 +126,7 @@ export async function deleteConversation(id: number): Promise<boolean> {
   const conversation = await findConversation(id);
   if (!conversation) return false;
   await transaction(async () => {
+    await db().run("DELETE FROM confirmations WHERE conversation_id = ?", id);
     await db().run("DELETE FROM conversation_messages WHERE conversation_id = ?", id);
     await db().run("DELETE FROM conversations WHERE id = ? AND user_id = ?", id, currentUserId());
   });

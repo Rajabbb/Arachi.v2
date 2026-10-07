@@ -1,4 +1,5 @@
-import type { AgentTool } from "./registry";
+import { emptyContext, type AgentTool } from "./registry";
+import { recipientLines } from "./send";
 import { db, now } from "../../db";
 import { currentUserId } from "../../auth/current";
 import { getCarrier } from "../../domain/carriers";
@@ -17,6 +18,23 @@ export const sendReminders: AgentTool = {
     max_reminders: { type: "integer", description: "Never send a carrier more reminders than this per RFQ.", default: 3 },
     include_viewed: { type: "boolean", description: "Also remind carriers that opened the link but did not offer.", default: true },
     dry_run: { type: "boolean", description: "Only list who would be reminded, send nothing.", default: false },
+  },
+  async confirm(p) {
+    if (p.dry_run) return null;
+    const preview = (await sendReminders.run({ ...p, dry_run: true }, emptyContext())) as {
+      results: { rfq_id: number; carrier: string; reminder: number }[];
+    };
+    if (preview.results.length === 0) return null;
+    return {
+      summary:
+        `${preview.results.length} daşıyıcıya xatırlatma göndəriləcək:\n` +
+        recipientLines(preview.results.map((r) => `RFQ #${r.rfq_id}: ${r.carrier} (${r.reminder}-ci xatırlatma)`)),
+      params: p,
+    };
+  },
+  done(result) {
+    const r = result as { reminded: number; note?: string };
+    return [`${r.reminded} daşıyıcıya xatırlatma göndərildi.`, r.note].filter(Boolean).join(" ");
   },
   async run(p) {
     const statuses = p.include_viewed ? ["sent", "delivered", "viewed"] : ["sent", "delivered"];
