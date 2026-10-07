@@ -6,6 +6,7 @@ import { HttpError, send } from "./http";
 import { db } from "./db";
 import { config } from "./config";
 import { handleQuote } from "./routes/quote";
+import { handleConfirmation } from "./routes/confirmations";
 import { handleFile } from "./routes/files";
 import { handleDashboard, handleMonthlyReport } from "./routes/dashboard";
 import { handleResendWebhook } from "./routes/resendWebhook";
@@ -93,6 +94,7 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
     const rfq = path.match(/^\/api\/rfqs\/(\w+)$/);
     const carrier = path.match(/^\/api\/carriers\/(\w+)$/);
     const conversation = path.match(/^\/api\/conversations\/(\w+)$/);
+    const confirmation = path.match(/^\/api\/confirmations\/([\w-]+)$/);
     if (auth) {
       await handleAuth(req, res, auth[1]);
     } else if (req.method === "POST" && path === "/api/chat") {
@@ -106,6 +108,9 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
       await asUser(user.id, () =>
         req.method === "DELETE" ? handleConversationDelete(res, conversation[1]) : handleConversation(res, conversation[1]),
       );
+    } else if (confirmation && req.method === "POST") {
+      const user = await requireUser(req);
+      await asUser(user.id, () => handleConfirmation(req, res, confirmation[1]));
     } else if (req.method === "POST" && path === "/api/webhooks/resend") {
       await handleResendWebhook(req, res);
     } else if (req.method === "GET" && (path === "/api/health" || path === "/healthz")) {

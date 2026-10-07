@@ -122,6 +122,19 @@ export const compareOffers: AgentTool = {
   },
 };
 
+/** The offer select_winner picks: the one given, else the best-ranked valid one. */
+async function pickWinner(rfq: Rfq, p: Record<string, unknown>): Promise<Offer> {
+  if (p.offer_id) {
+    const winner = await getOffer(p.offer_id as number);
+    if (winner.rfq_id !== rfq.id) throw new Error(`Təklif #${winner.id} RFQ #${rfq.id}-ə aid deyil.`);
+    return winner;
+  }
+  const ranked = await rankOffers(rfq, p.criterion as Criterion, p.price_weight as number, p.eur_usd_rate as number);
+  const best = ranked.find((o) => !o.expired && o.score < 1e9);
+  if (!best) throw new Error(`RFQ #${rfq.id} üzrə seçilə bilən etibarlı təklif yoxdur.`);
+  return best;
+}
+
 export const selectWinner: AgentTool = {
   name: "select_winner",
   description:
@@ -133,19 +146,31 @@ export const selectWinner: AgentTool = {
     notify_winner: { type: "boolean", description: "Send the winning carrier a confirmation.", default: true },
     notify_others: { type: "boolean", description: "Tell the other carriers that offered that they did not win.", default: false },
   },
+  async confirm(p) {
+    if (!p.notify_winner && !p.notify_others) return null;
+    const rfq = await getRfq(p.rfq_id as number);
+    if (rfq.status !== "open") return null;
+    const winner = await pickWinner(rfq, p);
+    const carrier = await getCarrier(winner.carrier_id);
+    const others = new Set((await latestOffers(rfq.id)).map((o) => o.carrier_id).filter((id) => id !== winner.carrier_id));
+    const lines = [
+      `RFQ #${rfq.id} (${rfq.origin} → ${rfq.destination}) üçün qalib: ${carrier.name}, ${winner.price} ${winner.currency}, ${winner.transit_days} gün. RFQ yeni təkliflər üçün bağlanacaq.`,
+      ...(p.notify_winner ? [`• ${carrier.name}: ${carrier.email || "ünvan yoxdur"} (təklifiniz qəbul edildi)`] : []),
+      ...(p.notify_others && others.size > 0 ? [`• digər ${others.size} daşıyıcıya "bu dəfə başqa təklif seçildi" məktubu`] : []),
+    ];
+    return { summary: lines.join("\n"), params: { ...p, offer_id: winner.id } };
+  },
+  done(result) {
+    const r = result as { winner: { carrier: string; price: number; currency: string }; notified: unknown[]; note?: string };
+    return [
+      `Qalib seçildi: ${r.winner.carrier} (${r.winner.price} ${r.winner.currency}). ${r.notified.length} daşıyıcıya məktub göndərildi.`,
+      r.note,
+    ].filter(Boolean).join(" ");
+  },
   async run(p) {
     const rfq = await getRfq(p.rfq_id as number);
     if (rfq.status !== "open") throw new Error(`RFQ #${rfq.id} üçün qalib artıq seçilib və ya sorğu bağlıdır.`);
-    let winner: Offer;
-    if (p.offer_id) {
-      winner = await getOffer(p.offer_id as number);
-      if (winner.rfq_id !== rfq.id) throw new Error(`Təklif #${winner.id} RFQ #${rfq.id}-ə aid deyil.`);
-    } else {
-      const ranked = await rankOffers(rfq, p.criterion as Criterion, p.price_weight as number, p.eur_usd_rate as number);
-      const best = ranked.find((o) => !o.expired && o.score < 1e9);
-      if (!best) throw new Error(`RFQ #${rfq.id} üzrə seçilə bilən etibarlı təklif yoxdur.`);
-      winner = best;
-    }
+    const winner = await pickWinner(rfq, p);
 
     // Only an open RFQ can be awarded, so two concurrent picks cannot both win.
     const { changes } = await db().run(

@@ -1,11 +1,11 @@
-import type { Download, ToolCallSummary, UploadedFile } from "../../shared/protocol";
+import type { Confirmation, Download, ToolCallSummary, UploadedFile } from "../../shared/protocol";
 import { config } from "../config";
 import { systemPrompt } from "./prompt";
 import { toAttachment } from "./files";
 import { provider as defaultProvider } from "./providers";
 import type { ModelProvider } from "./providers/types";
 import { tools } from "./tools";
-import { emptyContext } from "./tools/registry";
+import { emptyContext, type ToolContext } from "./tools/registry";
 
 export class AgentError extends Error {}
 
@@ -15,6 +15,8 @@ export interface TurnResult {
   transcript: unknown[];
   toolCalls: ToolCallSummary[];
   downloads: Download[];
+  /** Actions prepared for the user's "Bəli" / "Xeyr". */
+  confirmations: Confirmation[];
 }
 
 /**
@@ -33,6 +35,7 @@ export async function runTurn<M>(
   text: string,
   files: UploadedFile[],
   provider: ModelProvider<M> = defaultProvider() as ModelProvider<M>,
+  askUser?: ToolContext["askUser"],
 ): Promise<TurnResult> {
   const attachments = await Promise.all(files.map(toAttachment));
   if (attachments.length === 0 && !text.trim()) {
@@ -45,13 +48,14 @@ export async function runTurn<M>(
   const messages: M[] = [...transcript, provider.userMessage(text, attachments)];
   const toolCalls: ToolCallSummary[] = [];
   const definitions = tools.definitions();
-  const ctx = emptyContext(files, text);
+  const ctx = { ...emptyContext(files, text), askUser };
 
   const abort = (reply: string): TurnResult => ({
     reply,
     transcript,
     toolCalls,
     downloads: ctx.downloads,
+    confirmations: ctx.confirmations,
   });
 
   for (let i = 0; i < config.maxIterations; i++) {
@@ -65,6 +69,7 @@ export async function runTurn<M>(
           transcript: messages,
           toolCalls,
           downloads: ctx.downloads,
+          confirmations: ctx.confirmations,
         };
 
       case "continue":

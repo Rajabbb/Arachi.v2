@@ -39,7 +39,7 @@ export async function freshDb() {
     }
     await db().run(
       `TRUNCATE settings, outbox, rfqs, carriers, dispatches, offers, files, users, sessions, password_resets,
-       conversations, conversation_messages
+       conversations, conversation_messages, confirmations
        RESTART IDENTITY CASCADE`,
     );
   }

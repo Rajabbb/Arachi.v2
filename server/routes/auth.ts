@@ -83,7 +83,7 @@ export async function handleAuth(req: IncomingMessage, res: ServerResponse, acti
     case "register":
       return signIn(res, await register({ email: field(body, "email"), password: field(body, "password"), name: field(body, "name") }));
     case "login":
-      return signIn(res, await login(field(body, "email"), field(body, "password")));
+      return signIn(res, await login(field(body, "email"), field(body, "password"), clientIp(req)));
     case "forgot":
       await requestPasswordReset(field(body, "email"));
       return send(res, 200, { ok: true });

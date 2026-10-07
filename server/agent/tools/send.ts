@@ -9,11 +9,31 @@ import {
   shareLink,
   statusLabels,
 } from "../../domain/dispatches";
-import { getRfq } from "../../domain/rfqs";
+import { getRfq, type Rfq } from "../../domain/rfqs";
 import { channels, deliver, logOnlyNote, type Channel } from "../../notify";
 import { db } from "../../db";
 import { refreshEmailStatuses } from "../../notify/emailStatus";
 import { currentUserId } from "../../auth/current";
+
+/** The carriers an audience selects for an RFQ. */
+function chooseCarriers(rfq: Rfq, p: Record<string, unknown>) {
+  const audience = p.audience as string;
+  const subcategory = (p.subcategory as string) || undefined;
+  return audience === "specific"
+    ? findCarriers({ ids: p.carrier_ids as number[] })
+    : audience === "category"
+      ? findCarriers({ category: (p.category as string) || undefined, subcategory })
+      : audience === "matching"
+        ? findCarriers({ category: rfq.transport_type, subcategory, withOwnCategories: true })
+        : findCarriers({ subcategory });
+}
+
+/** A recipient list for a confirmation, the first 25 in full. */
+export function recipientLines(lines: string[]): string {
+  const shown = lines.slice(0, 25).map((l) => `• ${l}`);
+  if (lines.length > shown.length) shown.push(`• və daha ${lines.length - shown.length}`);
+  return shown.join("\n");
+}
 
 /** Process 3: send an RFQ to carriers, each with a personal signed link. */
 export const sendRfqToCarriers: AgentTool = {
@@ -40,24 +60,40 @@ export const sendRfqToCarriers: AgentTool = {
     },
     resend: { type: "boolean", description: "Send again to carriers that already got this RFQ.", default: false },
   },
+  async confirm(p) {
+    const rfq = await getRfq(p.rfq_id as number);
+    if (rfq.status !== "open") return null;
+    const carriers = await chooseCarriers(rfq, p);
+    const preferred = p.channels as Channel[];
+    const due = [];
+    for (const carrier of carriers) {
+      if (!p.resend && (await findDispatchFor(rfq.id, carrier.id))) continue;
+      const channel = preferred.find((c) => addressFor(carrier, c)) ?? preferred[0];
+      due.push({ carrier, channel, to: channel ? addressFor(carrier, channel) : "" });
+    }
+    if (due.length === 0 || preferred.length === 0) return null;
+    return {
+      summary:
+        `RFQ #${rfq.id} (${rfq.origin} → ${rfq.destination}) ${due.length} daşıyıcıya göndəriləcək:\n` +
+        recipientLines(due.map((d) => `${d.carrier.name}: ${d.to || "ünvan yoxdur"}${d.channel === "email" ? "" : ` (${d.channel})`}`)),
+      // Exactly the carriers shown, even if the base changes before "Bəli".
+      params: { ...p, audience: "specific", carrier_ids: due.map((d) => d.carrier.id), category: "", subcategory: "" },
+    };
+  },
+  done(result) {
+    const r = result as { rfq_id: number; sent: number; failed: number; note?: string };
+    return [
+      `RFQ #${r.rfq_id} ${r.sent} daşıyıcıya göndərildi${r.failed ? `, ${r.failed} göndəriş alınmadı` : ""}.`,
+      r.note,
+    ].filter(Boolean).join(" ");
+  },
   async run(p) {
     const rfq = await getRfq(p.rfq_id as number);
     if (rfq.status !== "open") throw new Error(`RFQ #${rfq.id} artıq açıq deyil (${rfq.status}).`);
-
-    const audience = p.audience as string;
-    const subcategory = (p.subcategory as string) || undefined;
-    const carriers = await (
-      audience === "specific"
-        ? findCarriers({ ids: p.carrier_ids as number[] })
-        : audience === "category"
-          ? findCarriers({ category: (p.category as string) || undefined, subcategory })
-          : audience === "matching"
-            ? findCarriers({ category: rfq.transport_type, subcategory, withOwnCategories: true })
-            : findCarriers({ subcategory }));
+    const carriers = await chooseCarriers(rfq, p);
     if (carriers.length === 0) {
       throw new Error("Seçimə uyğun aktiv daşıyıcı tapılmadı. Əvvəlcə daşıyıcı bazasına daşıyıcı əlavə edin.");
     }
-
     const preferred = p.channels as Channel[];
     if (preferred.length === 0) throw new Error("Ən azı bir kanal seçilməlidir.");
     const results = [];

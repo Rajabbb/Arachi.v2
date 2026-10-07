@@ -36,12 +36,36 @@ export interface Download {
   url: string;
 }
 
+/**
+ * An action the agent prepared that sends messages (an RFQ to carriers,
+ * reminders, the winner's notice). Nothing is sent until the user presses
+ * "Bəli" under the reply (POST /api/confirmations/:id).
+ */
+export interface Confirmation {
+  id: string;
+  /** What will happen, written by the server from the exact action (recipients included). */
+  text: string;
+  /** pending → running → done | failed after "Bəli", declined after "Xeyr", expired when left too long. */
+  status: "pending" | "running" | "done" | "failed" | "declined" | "expired";
+  /** What happened, once done or failed. */
+  result: string;
+}
+
 export interface ChatResponse {
   /** The conversation this message was saved in (new when none was given). */
   conversationId: number;
   reply: string;
   toolCalls: ToolCallSummary[];
   downloads: Download[];
+  /** Actions waiting for the user's "Bəli" / "Xeyr", shown under the reply. */
+  confirmations: Confirmation[];
+}
+
+/** POST /api/confirmations/:id { approve } — the user's answer to a confirmation. */
+export interface ConfirmationResponse {
+  confirmation: Confirmation;
+  /** The chat message reporting the outcome (after "Bəli"). */
+  message?: ConversationMessage;
 }
 
 export interface ChatError {
@@ -77,6 +101,8 @@ export interface ConversationMessage {
   text: string;
   attachments: AttachmentInfo[];
   downloads: Download[];
+  /** Actions this reply prepared, with their current status. */
+  confirmations?: Confirmation[];
   created_at: string;
 }
 

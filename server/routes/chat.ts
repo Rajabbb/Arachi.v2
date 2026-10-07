@@ -16,6 +16,7 @@ import {
   titleFor,
 } from "../domain/conversations";
 import { HttpError, readJson, send } from "../http";
+import { attachConfirmations, createConfirmation, takeOutcomes } from "../domain/confirmations";
 
 function parseChatRequest(body: unknown): ChatRequest {
   const b = body as Partial<ChatRequest> | null;
@@ -63,14 +64,23 @@ export async function handleChat(req: IncomingMessage, res: ServerResponse) {
     const model = provider();
     const turns = usableTurns(parseContext(existing?.context ?? "[]"), model);
     const previous = turns.flat();
-    const result = await runTurn(previous, message.text, message.files, model);
+    // The agent only saw "waiting for the user" for actions it prepared; tell it what the user decided.
+    const outcomes = await takeOutcomes(id);
+    const text = outcomes.length
+      ? `[System note, not written by the user: ${outcomes.join(" ")}]\n\n${message.text}`
+      : message.text;
+    const result = await runTurn(previous, text, message.files, model, (tool, params, summary) =>
+      createConfirmation(id, tool, params, summary),
+    );
     await saveContext(id, remember(turns, result.transcript.slice(previous.length), model));
-    await addMessage(id, { role: "assistant", text: result.reply, downloads: result.downloads });
+    const replyId = await addMessage(id, { role: "assistant", text: result.reply, downloads: result.downloads });
+    await attachConfirmations(result.confirmations.map((c) => c.id), replyId);
     const body: ChatResponse = {
       conversationId: id,
       reply: result.reply,
       toolCalls: result.toolCalls,
       downloads: result.downloads,
+      confirmations: result.confirmations,
     };
     send(res, 200, body);
   } catch (err) {

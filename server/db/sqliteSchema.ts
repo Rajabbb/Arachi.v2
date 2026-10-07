@@ -212,4 +212,23 @@ export const migrations: string[] = [
   );
   CREATE INDEX conversation_messages_conversation ON conversation_messages (conversation_id, id);
   `,
+
+  // 12: actions that send messages wait for the user's "Bəli" (see migrations/0006_confirmations.sql).
+  `
+  CREATE TABLE confirmations (
+    id TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    conversation_id INTEGER NOT NULL REFERENCES conversations (id) ON DELETE CASCADE,
+    message_id INTEGER REFERENCES conversation_messages (id) ON DELETE CASCADE,
+    tool TEXT NOT NULL,
+    params TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    result TEXT NOT NULL DEFAULT '',
+    noted INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    resolved_at TEXT
+  );
+  CREATE INDEX confirmations_conversation ON confirmations (conversation_id, status);
+  `,
 ];
