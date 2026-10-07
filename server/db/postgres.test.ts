@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { migrationFiles, toPositional } from "./postgres";
+import { connectionUrl, migrationFiles, toPositional } from "./postgres";
+import { config } from "../config";
 
 test("? placeholders become $n, quoted text is left alone", () => {
   assert.equal(
@@ -14,4 +15,17 @@ test("every table in the Postgres migrations has row level security enabled", ()
   const tables = [...sql.matchAll(/CREATE TABLE (\w+)/g)].map((m) => m[1]);
   assert.ok(tables.length > 0);
   for (const t of tables) assert.match(sql, new RegExp(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY`), t);
+});
+
+test("with a CA certificate, sslmode in the URL cannot switch its check off", () => {
+  const url = "postgresql://u:p@db.example.co:5432/postgres?sslmode=require&application_name=arachi";
+  const original = config.databaseSslCa;
+  try {
+    config.databaseSslCa = "";
+    assert.equal(connectionUrl(url), url);
+    config.databaseSslCa = "/app/certs/supabase-ca.crt";
+    assert.equal(connectionUrl(url), "postgresql://u:p@db.example.co:5432/postgres?application_name=arachi");
+  } finally {
+    config.databaseSslCa = original;
+  }
 });

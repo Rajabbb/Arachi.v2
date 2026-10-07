@@ -39,7 +39,7 @@ function toPg(params: Param[]): unknown[] {
 /** Postgres (Supabase) through a direct connection string. */
 export async function openPostgres(url: string): Promise<Driver> {
   const pool = new pg.Pool({
-    connectionString: url,
+    connectionString: connectionUrl(url),
     ssl: sslOptions(url),
     max: config.databasePoolSize,
     allowExitOnIdle: true,
@@ -104,7 +104,21 @@ export async function openPostgres(url: string): Promise<Driver> {
  * Project Settings → Database → SSL) enables full verification; without it
  * the connection is still encrypted. DATABASE_SSL=off for a local Postgres.
  */
-function sslOptions(url: string): pg.ConnectionConfig["ssl"] {
+/**
+ * The connection string pg should use. With DATABASE_SSL_CA, any sslmode
+ * (or other ssl*) parameter is dropped from it: pg lets those override the
+ * ssl option, which would discard the certificate.
+ */
+export function connectionUrl(url: string): string {
+  if (!config.databaseSslCa || config.databaseSsl === "off") return url;
+  const parsed = new URL(url);
+  for (const key of [...parsed.searchParams.keys()]) {
+    if (key.startsWith("ssl") || key === "uselibpqcompat") parsed.searchParams.delete(key);
+  }
+  return parsed.toString();
+}
+
+export function sslOptions(url: string): pg.ConnectionConfig["ssl"] {
   if (config.databaseSsl === "off") return false;
   if (config.databaseSslCa) return { ca: readFileSync(config.databaseSslCa, "utf8") };
   const host = new URL(url).hostname;

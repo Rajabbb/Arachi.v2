@@ -17,6 +17,10 @@ services:
     # Not published: only Caddy reaches it, over the compose network.
     expose:
       - "8787"
+    # The Supabase CA certificate (certs/supabase-ca.crt on the server, not in git),
+    # used when .env sets DATABASE_SSL_CA=/app/certs/supabase-ca.crt.
+    volumes:
+      - ./certs:/app/certs:ro
     logging:
       driver: json-file
       options: { max-size: "10m", max-file: "5" }
