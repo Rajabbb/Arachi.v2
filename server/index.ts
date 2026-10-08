@@ -2,8 +2,6 @@ import { createServer } from "node:http";
 import { app } from "./app";
 import { config } from "./config";
 import { closeDatabase, openDatabase } from "./db";
-import { sendsForReal } from "./notify";
-import { startEmailStatusPolling, statusCheckingEnabled } from "./notify/emailStatus";
 import { provider } from "./agent/providers";
 
 const server = createServer(app);
@@ -19,15 +17,6 @@ try {
   console.error("Could not open the database:", err instanceof Error ? err.message : err);
   process.exit(1);
 }
-console.log(sendsForReal("email") ? "Email: Resend" : "Email: log only (set RESEND_API_KEY and EMAIL_FROM to send)");
-if (statusCheckingEnabled()) {
-  startEmailStatusPolling();
-  console.log("Email delivery status: checked with Resend every minute (bounces show as Çatdırılmadı)");
-}
-if (config.resendWebhookSecret) {
-  console.log("Email delivery status: Resend webhook at /api/webhooks/resend, signed events applied right away");
-}
-
 server.listen(config.port, () => {
   const ai = provider();
   const fallback = ai.name === "gemini" && config.geminiFallbackModel ? `, fallback ${config.geminiFallbackModel}` : "";

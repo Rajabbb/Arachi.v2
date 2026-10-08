@@ -4,6 +4,7 @@ import { resetLinkSecret } from "../links";
 import { emptyContext, type ToolContext } from "../agent/tools/registry";
 import { tools } from "../agent/tools";
 import { asUser } from "../auth/current";
+import { fakeJwt, resetArachi } from "./fakeArachi";
 import { resetLoginLimits } from "../auth/accounts";
 import { resetRateLimits } from "../rateLimit";
 
@@ -23,9 +24,12 @@ let postgresOpen = false;
 
 /** The user tools run as in tests (see call()); created by freshDb(). */
 export let testUserId = 0;
+/** The arachi.co customer the test user acts for (see fakeArachi.ts). */
+export const testCustomerId = 1;
 
 /** Fresh empty database for one test, with one user (testUserId). */
 export async function freshDb() {
+  resetArachi();
   resetLinkSecret();
   resetLoginLimits();
   resetRateLimits();
@@ -61,8 +65,9 @@ export async function call(
   input: Record<string, unknown> = {},
   ctx: ToolContext = emptyContext(),
   userId = testUserId,
+  customerId = testCustomerId,
 ) {
-  const run = await asUser(userId, () => tools.execute(name, input, ctx));
+  const run = await asUser(userId, () => tools.execute(name, input, ctx), fakeJwt(customerId));
   if (!run.ok) throw new Error(run.content);
   return { ...run, result: JSON.parse(run.content) };
 }
@@ -73,5 +78,5 @@ export function textFile(name: string, text: string, type = "text/plain"): Uploa
 
 /** Runs fn as the test user, the way the server runs a signed-in request. */
 export function asTestUser<T>(fn: () => Promise<T>): Promise<T> {
-  return asUser(testUserId, fn);
+  return asUser(testUserId, fn, fakeJwt(testCustomerId));
 }

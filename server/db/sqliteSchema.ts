@@ -231,4 +231,12 @@ export const migrations: string[] = [
   );
   CREATE INDEX confirmations_conversation ON confirmations (conversation_id, status);
   `,
+
+  // 13: accounts come from arachi.co (SSO); sessions keep the sealed arachi.co token (see migrations/0007_arachi_link.sql).
+  `
+  ALTER TABLE users ADD COLUMN arachi_customer_id INTEGER;
+  CREATE UNIQUE INDEX users_arachi_customer ON users (arachi_customer_id) WHERE arachi_customer_id IS NOT NULL;
+  ALTER TABLE sessions ADD COLUMN arachi_token TEXT;
+  ALTER TABLE sessions ADD COLUMN arachi_expires_at TEXT;
+  `,
 ];

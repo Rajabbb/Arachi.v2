@@ -1,52 +1,38 @@
 import { ToolRegistry } from "./registry";
 import { currentDateTime } from "./datetime";
-import { createRfq, listRfqs } from "./rfq";
-import { autofillRfq } from "./autofill";
-import { listOutbox, sendRfqToCarriers } from "./send";
-import { getQuoteLink } from "./quoteLink";
-import { listOffers, recordOffer } from "./offers";
-import { compareOffers, selectWinner } from "./compare";
-import { sendReminders } from "./reminders";
-import { offerHistory } from "./history";
-import { createCustomerQuote, exportRfqs } from "./customerQuote";
-import { getDashboard } from "./dashboard";
-import { addCarriers, importCarriers, listCarriers, removeCarriers, subcategoryToCategoryTool, updateCarriers } from "./carriers";
+import {
+  addCarriers,
+  compareOffers,
+  createRfq,
+  getDashboard,
+  getQuoteLink,
+  listCarriers,
+  listOffers,
+  listRfqs,
+  selectWinner,
+  sendReminders,
+  sendRfqToCarriers,
+} from "./arachiTools";
 
 /**
- * Every tool the agent can use. To add a process, write an AgentTool
- * (see datetime.ts) and register it here; nothing else needs to change.
+ * Every tool the agent can use. They all work on the user's data on arachi.co
+ * (see arachiTools.ts). To add a process, write an AgentTool and register it here.
  */
 export const tools = new ToolRegistry()
   .register(currentDateTime)
-  // 1. RFQ
+  // RFQs
   .register(createRfq)
   .register(listRfqs)
-  // 2. AI auto-fill from documents
-  .register(autofillRfq)
-  // 3. Send to carriers
-  .register(sendRfqToCarriers)
-  .register(listOutbox)
-  // 4. Carrier base
-  .register(addCarriers)
-  .register(importCarriers)
-  .register(updateCarriers)
-  .register(subcategoryToCategoryTool)
+  // Carrier base
   .register(listCarriers)
-  .register(removeCarriers)
-  // 5. Carrier quote page
+  .register(addCarriers)
+  // Sending (needs the user's "Bəli")
+  .register(sendRfqToCarriers)
   .register(getQuoteLink)
-  // 6. Incoming offers and statuses
+  // Offers
   .register(listOffers)
-  .register(recordOffer)
-  // 7. Compare and pick the winner
   .register(compareOffers)
   .register(selectWinner)
-  // 8. Reminders
   .register(sendReminders)
-  // 9. Offer version history
-  .register(offerHistory)
-  // 10. Customer quote PDF and Excel/PDF export
-  .register(createCustomerQuote)
-  .register(exportRfqs)
-  // 11. Analytics panel
+  // Numbers
   .register(getDashboard);

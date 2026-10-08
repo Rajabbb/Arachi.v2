@@ -2,6 +2,9 @@ import type { AuthResponse, ChatError } from "../../shared/protocol";
 
 export type User = AuthResponse["user"];
 
+/** arachi.co-nun ünvanı (giriş və "geri qayıt" linkləri). Başqa ünvan üçün quraşdırma zamanı VITE_ARACHI_SITE_URL verin. */
+export const arachiSiteUrl: string = (import.meta.env.VITE_ARACHI_SITE_URL || "https://arachi.co").replace(/\/+$/, "");
+
 async function request<T>(path: string, body?: unknown): Promise<T> {
   const res = await fetch(path, {
     method: body === undefined ? "GET" : "POST",
@@ -27,23 +30,8 @@ export async function currentUser(): Promise<User | null> {
   }
 }
 
-export async function login(email: string, password: string): Promise<User> {
-  return (await request<AuthResponse>("/api/auth/login", { email, password })).user;
-}
-
-export async function register(name: string, email: string, password: string): Promise<User> {
-  return (await request<AuthResponse>("/api/auth/register", { name, email, password })).user;
-}
-
-export async function forgotPassword(email: string): Promise<void> {
-  await request("/api/auth/forgot", { email });
-}
-
-export async function resetPassword(token: string, password: string): Promise<User> {
-  return (await request<AuthResponse>("/api/auth/reset", { token, password })).user;
-}
-
+/** Ends the session here and returns to the customer panel on arachi.co. */
 export async function logout(): Promise<void> {
   await request("/api/auth/logout", {});
-  window.location.href = "/";
+  window.location.href = `${arachiSiteUrl}/customer`;
 }
