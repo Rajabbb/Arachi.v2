@@ -40,7 +40,7 @@ export default function ResetPage({ token }: { token: string }) {
             Yeni şifrə (təkrar)
             <input type="password" required value={repeat} onChange={(e) => setRepeat(e.target.value)} autoComplete="new-password" />
           </label>
-          {error && <p className="error">{error}</p>}
+          {error && <p className="error" role="alert">{error}</p>}
           <button className="send-button" type="submit" disabled={busy}>
             {busy ? "Gözləyin…" : "Şifrəni yadda saxla"}
           </button>

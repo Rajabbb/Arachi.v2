@@ -81,7 +81,7 @@ export default function PanelPage({ user }: { user: User }) {
     : [];
 
   return (
-    <div className="page">
+    <div className="page page-wide">
       <header className="header">
         <a className="logo" href="/">Arachi</a>
         <span className="badge">V2</span>
@@ -102,8 +102,8 @@ export default function PanelPage({ user }: { user: User }) {
             ))}
           </div>
         </div>
-        {error && <p className="error">Xəta: {error}</p>}
-        {!data && !error && <p className="muted">Yüklənir...</p>}
+        {error && <p className="error" role="alert">Xəta: {error}</p>}
+        {!data && !error && <p className="loading" role="status">Yüklənir...</p>}
         {data && (
           <>
             <div className="tiles">
@@ -134,7 +134,7 @@ export default function PanelPage({ user }: { user: User }) {
               <p className="muted">Hər mərhələ sonrakıları da sayır: təklif göndərən daşıyıcı həm də baxıb, çatdırılıb və göndərilib.</p>
               <ul className="meters">
                 {data.statuses.map((s) => (
-                  <li key={s.status}>
+                  <li key={s.status} className={`meter-${s.status}`}>
                     <span className="meter-label">{s.label}</span>
                     <span className="meter-track" aria-hidden="true">
                       <span className="meter-fill" style={{ width: `${(s.count / maxStatus) * 100}%` }} />
@@ -178,7 +178,7 @@ export default function PanelPage({ user }: { user: User }) {
             <section className="card">
               <h3>Son təkliflər</h3>
               {data.recentOffers.length === 0 ? (
-                <p className="muted">Hələ təklif yoxdur.</p>
+                <p className="empty">Hələ təklif yoxdur.</p>
               ) : (
                 <div className="table-wrap">
                   <table className="table">

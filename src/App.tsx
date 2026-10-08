@@ -7,6 +7,7 @@ import MessageList from "./components/MessageList";
 import Composer from "./components/Composer";
 import ConversationList from "./components/ConversationList";
 import UserMenu from "./components/UserMenu";
+import Icon from "./components/Icon";
 import type { User } from "./lib/auth";
 
 const welcome: Message = {
@@ -156,7 +157,7 @@ export default function App({ user }: { user: User }) {
             aria-label="Söhbət tarixçəsi"
             onClick={() => setDrawerOpen(true)}
           >
-            ☰
+            <Icon name="menu" size={20} />
           </button>
           <span className="logo">Arachi</span>
           <span className="badge">V2</span>

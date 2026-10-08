@@ -17,7 +17,7 @@ export default function MonthlyCharts({ months }: { months: MonthlyPoint[] }) {
     <section className="card">
       <h3>Son 12 ay</h3>
       {empty ? (
-        <p className="muted">Son 12 ayda hələ sorğu və təklif yoxdur.</p>
+        <p className="empty">Son 12 ayda hələ sorğu və təklif yoxdur.</p>
       ) : (
         <div className="charts">
           <figure className="chart-figure">

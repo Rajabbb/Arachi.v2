@@ -71,7 +71,7 @@ export default function PriceHistory({ rfqs }: { rfqs: CarrierDetailData["rfqs"]
     return (
       <section className="card">
         <h3>Qiymət tarixçəsi</h3>
-        <p className="muted">Bu daşıyıcı hələ qiymət verməyib.</p>
+        <p className="empty">Bu daşıyıcı hələ qiymət verməyib.</p>
       </section>
     );
   }

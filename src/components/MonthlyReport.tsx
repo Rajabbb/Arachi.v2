@@ -69,8 +69,8 @@ export default function MonthlyReport({ refresh }: { refresh: number }) {
           </button>
         </div>
       </div>
-      {error && <p className="error">Xəta: {error}</p>}
-      {!data && !error && <p className="muted">Yüklənir...</p>}
+      {error && <p className="error" role="alert">Xəta: {error}</p>}
+      {!data && !error && <p className="loading" role="status">Yüklənir...</p>}
       {data && data.month === month && (
         <>
           <div className="tiles report-tiles">
@@ -85,7 +85,7 @@ export default function MonthlyReport({ refresh }: { refresh: number }) {
 
           <h4>Bu ay yaradılan sorğular</h4>
           {data.rfqs.length === 0 ? (
-            <p className="muted">{longMonth(month)} ayında sorğu yaradılmayıb.</p>
+            <p className="empty">{longMonth(month)} ayında sorğu yaradılmayıb.</p>
           ) : (
             <div className="table-wrap">
               <table className="table">
@@ -131,7 +131,7 @@ export default function MonthlyReport({ refresh }: { refresh: number }) {
 
           <h4>Daşıyıcılar bu ay</h4>
           {data.carriers.length === 0 ? (
-            <p className="muted">Bu ay heç bir daşıyıcıya sorğu göndərilməyib.</p>
+            <p className="empty">Bu ay heç bir daşıyıcıya sorğu göndərilməyib.</p>
           ) : (
             <div className="table-wrap">
               <table className="table">

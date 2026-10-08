@@ -76,7 +76,7 @@ export default function AuthPage({ onSignedIn }: { onSignedIn: (user: User) => v
               {mode === "register" && <span className="hint">Ən azı 8 simvol.</span>}
             </label>
           )}
-          {error && <p className="error">{error}</p>}
+          {error && <p className="error" role="alert">{error}</p>}
           {sent ? (
             <p className="success">
               Bu email ilə hesab varsa, şifrəni bərpa etmək üçün link göndərdik. Poçtunuzu yoxlayın (spam qovluğunu da).

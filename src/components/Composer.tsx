@@ -1,5 +1,6 @@
 import { useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { formatSize } from "../lib/agent";
+import Icon from "./Icon";
 
 interface Props {
   disabled: boolean;
@@ -73,7 +74,7 @@ export default function Composer({ disabled, onSend }: Props) {
           title="Fayl əlavə et"
           onClick={() => fileInput.current?.click()}
         >
-          📎
+          <Icon name="paperclip" size={20} />
         </button>
         <input
           ref={fileInput}

@@ -1,5 +1,6 @@
 import type { ConversationSummary } from "../../shared/protocol";
 import { when } from "../lib/conversations";
+import Icon from "./Icon";
 
 interface Props {
   conversations: ConversationSummary[];
@@ -22,7 +23,7 @@ export default function ConversationList({
       {open && <div className="drawer-backdrop" onClick={onClose} />}
       <aside className={`conversations${open ? " open" : ""}`} aria-label="Söhbət tarixçəsi">
         <button type="button" className="new-chat" onClick={onNew} disabled={disabled}>
-          + Yeni söhbət
+          <Icon name="plus" /> Yeni söhbət
         </button>
         {conversations.length === 0 ? (
           <p className="conversations-empty">Hələ söhbət yoxdur. İlk mesajınız burada saxlanacaq.</p>
@@ -48,7 +49,7 @@ export default function ConversationList({
                   onClick={() => onDelete(c.id)}
                   disabled={disabled}
                 >
-                  🗑
+                  <Icon name="trash" size={16} />
                 </button>
               </li>
             ))}

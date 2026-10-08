@@ -49,6 +49,7 @@ const t = {
     days: "gün",
     kg: "kq",
     error: "Xəta",
+    formTitle: "Təklifiniz",
   },
   en: {
     title: "Price offer",
@@ -91,6 +92,7 @@ const t = {
     days: "days",
     kg: "kg",
     error: "Error",
+    formTitle: "Your offer",
   },
 };
 
@@ -207,7 +209,7 @@ export default function QuotePage({ token }: { token: string }) {
     : [];
 
   return (
-    <div className="page">
+    <div className="page quote-page">
       <header className="header">
         <span className="logo">Arachi</span>
         <span className="header-title">{rfq ? `${s.title} · RFQ #${rfq.id}` : s.title}</span>
@@ -221,8 +223,8 @@ export default function QuotePage({ token }: { token: string }) {
       </header>
 
       <main className="page-body">
-        {!data && !error && <p className="muted">{s.loading}</p>}
-        {error && <p className="error">{s.error}: {error}</p>}
+        {!data && !error && <p className="loading" role="status">{s.loading}</p>}
+        {error && <p className="error" role="alert">{s.error}: {error}</p>}
 
         {rfq && (
           <>
@@ -236,10 +238,11 @@ export default function QuotePage({ token }: { token: string }) {
               ))}
             </dl>
 
-            {done && <p className="success">{done}</p>}
+            {done && <p className="success" role="status">{done}</p>}
 
             {rfq.open ? (
               <form className="card form" onSubmit={submit} ref={formRef}>
+                <h3>{s.formTitle}</h3>
                 {data!.offers.length > 0 && (
                   <label>
                     {s.mode}
@@ -295,12 +298,12 @@ export default function QuotePage({ token }: { token: string }) {
                     ))}
                   </ul>
                 )}
-                <button type="submit" className="send-button" disabled={busy}>
+                <button type="submit" className="send-button quote-submit" disabled={busy}>
                   {busy ? s.sending : submitLabel}
                 </button>
               </form>
             ) : (
-              <p className="muted">{s.closed}</p>
+              <p className="empty">{s.closed}</p>
             )}
 
             {data!.offers.length > 0 && (
