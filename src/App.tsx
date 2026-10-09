@@ -8,7 +8,7 @@ import Composer from "./components/Composer";
 import ConversationList from "./components/ConversationList";
 import UserMenu from "./components/UserMenu";
 import Icon from "./components/Icon";
-import type { User } from "./lib/auth";
+import { arachiSiteUrl, type User } from "./lib/auth";
 
 const welcome: Message = {
   id: "welcome",
@@ -163,7 +163,7 @@ export default function App({ user }: { user: User }) {
           <span className="badge">V2</span>
           <nav className="nav">
             <a href="/" aria-current="page">Söhbət</a>
-            <a href="/panel">Panel</a>
+            {window.self === window.top && <a href={`${arachiSiteUrl}/customer`}>arachi.co paneli</a>}
           </nav>
           <UserMenu user={user} />
         </header>

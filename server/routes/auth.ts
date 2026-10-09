@@ -9,9 +9,10 @@ import {
   resetPassword,
   SESSION_DAYS,
   userForSession,
+  type SessionUser,
   type User,
 } from "../auth/accounts";
-import { config } from "../config";
+import { arachiMode, config } from "../config";
 import { HttpError, readJson, send, SMALL_BODY_BYTES } from "../http";
 import { clientIp, limit } from "../rateLimit";
 
@@ -34,13 +35,13 @@ function sessionToken(req: IncomingMessage): string | undefined {
 }
 
 /** httpOnly: page scripts cannot read it; SameSite=Lax: other sites cannot post with it. */
-function sessionCookie(token: string, maxAgeSeconds: number): string {
+export function sessionCookie(token: string, maxAgeSeconds: number): string {
   const secure = config.publicBaseUrl.startsWith("https://") ? "; Secure" : "";
   return `${COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}${secure}`;
 }
 
 /** The signed-in user, or a 401 asking to log in. */
-export async function requireUser(req: IncomingMessage): Promise<User> {
+export async function requireUser(req: IncomingMessage): Promise<SessionUser> {
   const token = sessionToken(req);
   const user = token ? await userForSession(token) : undefined;
   if (!user) throw new HttpError(401, "Davam etmək üçün hesabınıza daxil olun.");
@@ -76,6 +77,10 @@ export async function handleAuth(req: IncomingMessage, res: ServerResponse, acti
     return send(res, 200, { ok: true });
   }
 
+  // On top of arachi.co the only way in is the "Aİ istifadə et" button there (see routes/sso.ts).
+  if (arachiMode()) {
+    throw new HttpError(410, `Giriş yalnız ${config.arachiSiteUrl} vasitəsilə mümkündür: orada daxil olun və 'Aİ istifadə et' düyməsini basın.`);
+  }
   const rule = limits[action];
   if (rule) limit(`${action}:${clientIp(req)}`, ...rule);
   const body = await readJson(req, SMALL_BODY_BYTES);

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { beforeEach, test } from "node:test";
+import { after, before, beforeEach, test } from "node:test";
+import { installFakeArachi } from "../test/fakeArachi";
 import { asTestUser, freshDb } from "../test/helpers";
 import { AgentError, runTurn as runTurnUnscoped } from "./loop";
 
@@ -8,6 +9,11 @@ const runTurn = ((...args: Parameters<typeof runTurnUnscoped>) =>
   asTestUser(() => runTurnUnscoped(...args))) as typeof runTurnUnscoped;
 import type { ModelProvider, ModelStep, ToolCallResult } from "./providers/types";
 
+let restore: () => void;
+before(() => {
+  restore = installFakeArachi();
+});
+after(() => restore());
 beforeEach(freshDb);
 
 type Msg = { fake: string; results?: ToolCallResult[] };
@@ -37,7 +43,7 @@ test("runs parallel tool calls, then answers", async () => {
       kind: "tool_calls",
       message: { fake: "calls" },
       calls: [
-        { id: "1", name: "create_rfq", input: { origin: "Bakı", destination: "Milan", cargo_type: "Xalça", weight_kg: 500, currency: "EUR" } },
+        { id: "1", name: "create_rfq", input: { origin: "Bakı", destination: "Milan", cargo_type: "Xalça", weight_kg: 500 } },
         { id: "2", name: "list_rfqs", input: {} },
       ],
     },
@@ -50,7 +56,7 @@ test("runs parallel tool calls, then answers", async () => {
   assert.equal(res.reply, "Hazırdır: RFQ #1");
   assert.deepEqual(res.transcript.map((m) => (m as Msg).fake), ["user:RFQ yarat:0", "calls", "results", "paused", "answer"]);
   const create = res.toolCalls.find((c) => c.name === "create_rfq")!;
-  assert.deepEqual(create.overrides, ["origin", "destination", "cargo_type", "weight_kg", "currency"]);
+  assert.deepEqual(create.overrides, ["origin", "destination", "cargo_type", "weight_kg"]);
   const results = (res.transcript[2] as Msg).results!;
   assert.deepEqual(results.map((r) => [r.call.id, r.ok]), [["1", true], ["2", true]]);
 });

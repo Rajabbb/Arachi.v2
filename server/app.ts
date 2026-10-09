@@ -5,16 +5,12 @@ import { provider } from "./agent/providers";
 import { HttpError, send } from "./http";
 import { db } from "./db";
 import { config } from "./config";
-import { handleQuote } from "./routes/quote";
 import { handleConfirmation } from "./routes/confirmations";
-import { handleFile } from "./routes/files";
-import { handleDashboard, handleMonthlyReport } from "./routes/dashboard";
-import { handleResendWebhook } from "./routes/resendWebhook";
 import { serveStatic } from "./static";
 import { handleAuth, requireUser } from "./routes/auth";
+import { handleSso } from "./routes/sso";
+import { ArachiError } from "./arachi/client";
 import { asUser } from "./auth/current";
-import { handleRfqDetail, handleRfqList } from "./routes/rfqs";
-import { handleCarrierDetail, handleCarrierList } from "./routes/carriers";
 import {
   ChatTurnError,
   handleChat,
@@ -30,6 +26,10 @@ function toError(err: unknown): { status: number; body: ChatError } {
   }
   if (err instanceof HttpError) {
     return { status: err.status, body: { error: err.message } };
+  }
+  if (err instanceof ArachiError) {
+    // 401 = the arachi.co session ended: the page then asks the user to come back through arachi.co.
+    return { status: err.status === 401 ? 401 : err.status >= 500 ? 502 : 400, body: { error: err.message } };
   }
   if (err instanceof AgentError) {
     return { status: 400, body: { error: err.message } };
@@ -83,60 +83,36 @@ function checkOrigin(req: IncomingMessage) {
   if (host !== req.headers.host) throw new HttpError(403, "Bu sorğu başqa saytdan gəlib və qəbul edilmir.");
 }
 
+/** Runs a request as its signed-in user, with that user's arachi.co token available to the tools. */
+async function asSession<T>(req: IncomingMessage, fn: () => Promise<T>): Promise<T> {
+  const user = await requireUser(req);
+  return asUser(user.id, fn, user.arachiToken);
+}
+
 /** Routes one HTTP request; index.ts serves it, tests call it directly. */
 export async function app(req: IncomingMessage, res: ServerResponse) {
   try {
     const path = new URL(req.url ?? "/", "http://localhost").pathname;
     if (path.startsWith("/api/")) checkOrigin(req);
-    const quote = path.match(/^\/api\/quote\/([\w.-]+)$/);
-    const file = path.match(/^\/api\/files\/([\w.-]+)$/);
     const auth = path.match(/^\/api\/auth\/(\w+)$/);
-    const rfq = path.match(/^\/api\/rfqs\/(\w+)$/);
-    const carrier = path.match(/^\/api\/carriers\/(\w+)$/);
     const conversation = path.match(/^\/api\/conversations\/(\w+)$/);
     const confirmation = path.match(/^\/api\/confirmations\/([\w-]+)$/);
-    if (auth) {
+    if (req.method === "GET" && path === "/sso") {
+      await handleSso(req, res);
+    } else if (auth) {
       await handleAuth(req, res, auth[1]);
     } else if (req.method === "POST" && path === "/api/chat") {
-      const user = await requireUser(req);
-      await asUser(user.id, () => handleChat(req, res));
+      await asSession(req, () => handleChat(req, res));
     } else if (req.method === "GET" && path === "/api/conversations") {
-      const user = await requireUser(req);
-      await asUser(user.id, () => handleConversationList(res));
+      await asSession(req, () => handleConversationList(res));
     } else if (conversation && (req.method === "GET" || req.method === "DELETE")) {
-      const user = await requireUser(req);
-      await asUser(user.id, () =>
+      await asSession(req, () =>
         req.method === "DELETE" ? handleConversationDelete(res, conversation[1]) : handleConversation(res, conversation[1]),
       );
     } else if (confirmation && req.method === "POST") {
-      const user = await requireUser(req);
-      await asUser(user.id, () => handleConfirmation(req, res, confirmation[1]));
-    } else if (req.method === "POST" && path === "/api/webhooks/resend") {
-      await handleResendWebhook(req, res);
+      await asSession(req, () => handleConfirmation(req, res, confirmation[1]));
     } else if (req.method === "GET" && (path === "/api/health" || path === "/healthz")) {
       await handleHealth(res);
-    } else if (quote) {
-      await handleQuote(req, res, quote[1]);
-    } else if (req.method === "GET" && path === "/api/dashboard") {
-      const user = await requireUser(req);
-      await asUser(user.id, () => handleDashboard(req, res));
-    } else if (req.method === "GET" && path === "/api/report") {
-      const user = await requireUser(req);
-      await asUser(user.id, () => handleMonthlyReport(req, res));
-    } else if (req.method === "GET" && path === "/api/rfqs") {
-      const user = await requireUser(req);
-      await asUser(user.id, () => handleRfqList(res));
-    } else if (req.method === "GET" && rfq) {
-      const user = await requireUser(req);
-      await asUser(user.id, () => handleRfqDetail(res, rfq[1]));
-    } else if (req.method === "GET" && path === "/api/carriers") {
-      const user = await requireUser(req);
-      await asUser(user.id, () => handleCarrierList(res));
-    } else if (req.method === "GET" && carrier) {
-      const user = await requireUser(req);
-      await asUser(user.id, () => handleCarrierDetail(res, carrier[1]));
-    } else if (file && req.method === "GET") {
-      await handleFile(res, file[1]);
     } else if (path.startsWith("/api/") || !(await serveStatic(req, res, path))) {
       send(res, 404, { error: "Tapılmadı." });
     }

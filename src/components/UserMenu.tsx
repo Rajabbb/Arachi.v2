@@ -4,7 +4,7 @@ import { logout, type User } from "../lib/auth";
 export default function UserMenu({ user }: { user: User }) {
   return (
     <div className="user-menu">
-      <span className="user-name" title={user.email}>{user.name || user.email}</span>
+      <span className="user-name" title={user.name}>{user.name || "Müştəri"}</span>
       <button type="button" onClick={() => void logout()}>Çıxış</button>
     </div>
   );

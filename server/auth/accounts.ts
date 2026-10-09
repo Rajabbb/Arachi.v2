@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
-import { config } from "../config";
+import { arachiMode, config } from "../config";
+import { openToken, sealToken } from "../arachi/vault";
 import { db, now, transaction } from "../db";
 import { HttpError } from "../http";
 import { publicUrl } from "../links";
@@ -15,6 +16,9 @@ export interface User {
   name: string;
   created_at: string;
 }
+
+/** A signed-in user; arachiToken is set for sessions that came through arachi.co. */
+export type SessionUser = User & { arachiToken?: string };
 
 export const SESSION_DAYS = 30;
 const RESET_MINUTES = 60;
@@ -149,22 +153,62 @@ export async function login(emailInput: string, password: string, clientAddress 
   return rest;
 }
 
-export async function createSession(userId: number): Promise<{ token: string; expiresAt: string }> {
+/**
+ * Starts a session. A session from arachi.co (SSO) lasts as long as the arachi.co
+ * token it holds (sealed in the database), so it never outlives the user's access there.
+ */
+export async function createSession(
+  userId: number,
+  arachi?: { token: string; expiresInSeconds: number },
+): Promise<{ token: string; expiresAt: string }> {
   const token = newToken();
-  const expiresAt = later(SESSION_DAYS * 24 * 60);
+  const expiresAt = arachi ? later(arachi.expiresInSeconds / 60) : later(SESSION_DAYS * 24 * 60);
   await db().run("DELETE FROM sessions WHERE user_id = ? AND expires_at <= ?", userId, now());
   await db().run(
-    "INSERT INTO sessions (id, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
-    tokenHash(token), userId, now(), expiresAt,
+    "INSERT INTO sessions (id, user_id, created_at, expires_at, arachi_token, arachi_expires_at) VALUES (?, ?, ?, ?, ?, ?)",
+    tokenHash(token), userId, now(), expiresAt, arachi ? sealToken(arachi.token) : null, arachi ? expiresAt : null,
   );
   return { token, expiresAt };
 }
 
-export function userForSession(token: string): Promise<User | undefined> {
-  return db().get<User>(
-    `SELECT ${USER_COLUMNS} FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.expires_at > ?`,
+export async function userForSession(token: string): Promise<SessionUser | undefined> {
+  const row = await db().get<User & { arachi_token: string | null }>(
+    `SELECT ${USER_COLUMNS}, s.arachi_token FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND s.expires_at > ?`,
     tokenHash(token), now(),
   );
+  if (!row) return undefined;
+  const { arachi_token: sealed, ...user } = row;
+  if (!arachiMode()) return user;
+  // Working on top of arachi.co: only sessions that hold an arachi.co token count (older own-login sessions end here).
+  const arachiToken = sealed ? openToken(sealed) : undefined;
+  return arachiToken ? { ...user, arachiToken } : undefined;
+}
+
+/** Marks the placeholder password of accounts created through arachi.co: it never matches a typed password. */
+const SSO_PASSWORD = "!arachi-sso";
+
+/**
+ * The v2 account of an arachi.co customer, created on first sign-in. It is keyed by the
+ * customer's id, not by email, so changing an email on arachi.co can never hand one
+ * customer another's chats. The email column only holds a placeholder (the real email
+ * lives in arachi.co); the display name is the customer's company name.
+ */
+export async function upsertArachiUser(input: { customerId: number; name: string }): Promise<User> {
+  const name = input.name.trim().slice(0, 100);
+  return transaction(async () => {
+    const existing = await db().get<User>(`SELECT ${USER_COLUMNS} FROM users u WHERE u.arachi_customer_id = ?`, input.customerId);
+    if (existing) {
+      if (existing.name !== name) {
+        await db().run("UPDATE users SET name = ? WHERE id = ?", name, existing.id);
+        return { ...existing, name };
+      }
+      return existing;
+    }
+    return (await db().get<User>(
+      "INSERT INTO users (email, name, password_hash, created_at, arachi_customer_id) VALUES (?, ?, ?, ?, ?) RETURNING id, email, name, created_at",
+      `arachi-${input.customerId}@sso.invalid`, name, SSO_PASSWORD, now(), input.customerId,
+    ))!;
+  });
 }
 
 export async function deleteSession(token: string) {

@@ -4,11 +4,9 @@ import type { AddressInfo } from "node:net";
 import { after, before, beforeEach, test } from "node:test";
 import { app } from "../app";
 import { db } from "../db";
-import { asUser } from "../auth/current";
-import { insertRfq } from "../domain/rfqs";
 import { login, register } from "../auth/accounts";
 import { hashPassword, verifyPassword } from "../auth/password";
-import { addUser, call, freshDb } from "../test/helpers";
+import { freshDb } from "../test/helpers";
 import { config } from "../config";
 import { clientIp } from "../rateLimit";
 
@@ -81,15 +79,11 @@ test("registration checks email, password length and duplicates", async () => {
   assert.equal((await browser()("/api/auth/register", { email: "A@b.az", password: "parol5678" })).status, 409);
 });
 
-test("chat and panel need a login; the quote page does not", async () => {
+test("chat and conversations need a login", async () => {
   const b = browser();
   assert.equal((await b("/api/chat", { message: { text: "salam", files: [] } })).status, 401);
-  assert.equal((await b("/api/dashboard?days=30")).status, 401);
-  await b("/api/auth/register", { email: "a@b.az", password: "parol1234" });
-  const panel = await b("/api/dashboard?days=30");
-  assert.equal(panel.status, 200);
-  assert.equal(panel.body.activeRfqs, 0);
-  assert.equal((await fetch(`${base}/api/quote/yanlis.token`)).status, 404);
+  assert.equal((await b("/api/conversations")).status, 401);
+  assert.equal((await b("/api/confirmations/abc", { approve: true })).status, 401);
 });
 
 test("a forged or expired session cookie is rejected", async () => {
@@ -146,32 +140,6 @@ test("password reset by email link", async () => {
   assert.equal((await old("/api/auth/me")).status, 401);
   assert.equal((await browser()("/api/auth/login", { email: "a@b.az", password: "parol1234" })).status, 401);
   assert.equal((await browser()("/api/auth/login", { email: "a@b.az", password: "yeni-parol1" })).status, 200);
-});
-
-test("the first account takes over data from before accounts; later ones start empty", async () => {
-  // A carrier and an RFQ saved before accounts existed have no owner.
-  const legacy = await addUser("legacy@x.az");
-  await call("add_carriers", { carriers: [{ name: "Köhnə", email: "old@road.az" }] }, undefined, legacy);
-  await asUser(legacy, () =>
-    insertRfq({
-      origin: "Bakı", destination: "Gəncə", cargo_type: "Un", weight_kg: 1000, volume_m3: 0, pallets: 0,
-      transport_type: "Quru", loading_date: "", delivery_date: "", currency: "USD", offer_deadline: "", notes: "", source: "chat",
-    }),
-  );
-  await db().run("UPDATE rfqs SET user_id = NULL");
-  await db().run("UPDATE carriers SET user_id = NULL");
-  await db().run("DELETE FROM users");
-
-  const first = browser();
-  const { body } = await first("/api/auth/register", { email: "first@b.az", password: "parol1234" });
-  const second = browser();
-  const other = await second("/api/auth/register", { email: "second@b.az", password: "parol1234" });
-
-  assert.equal((await first("/api/dashboard?days=30")).body.activeRfqs, 1);
-  assert.equal((await first("/api/dashboard?days=30")).body.carriers, 1);
-  assert.equal((await second("/api/dashboard?days=30")).body.activeRfqs, 0);
-  assert.equal((await call("list_rfqs", {}, undefined, body.user.id)).result.length, 1);
-  assert.equal((await call("list_rfqs", {}, undefined, other.body.user.id)).result.length, 0);
 });
 
 test("one address can ask for only a few reset emails and accounts per hour", async () => {

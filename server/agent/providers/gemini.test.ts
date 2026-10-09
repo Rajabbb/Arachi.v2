@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { beforeEach, test } from "node:test";
+import { after, before, beforeEach, test } from "node:test";
+import { installFakeArachi } from "../../test/fakeArachi";
 import type { Content, GenerateContentParameters, GenerateContentResponse } from "@google/genai";
 import { ApiError } from "@google/genai";
 import { asTestUser, freshDb } from "../../test/helpers";
@@ -10,6 +11,11 @@ const runTurn = ((...args: Parameters<typeof runTurnUnscoped>) =>
   asTestUser(() => runTurnUnscoped(...args))) as typeof runTurnUnscoped;
 import { GeminiProvider } from "./gemini";
 
+let restore: () => void;
+before(() => {
+  restore = installFakeArachi();
+});
+after(() => restore());
 beforeEach(freshDb);
 
 /** A Gemini that replays scripted responses and records every request. */
@@ -60,12 +66,12 @@ test("runs registry tools through Gemini function calling", async () => {
   const res = await runTurn([], "Bakıdan Tbilisiyə 1200 kq xalça", [], provider);
 
   assert.equal(res.reply, "RFQ yaradıldı.");
-  assert.deepEqual(res.toolCalls.map((c) => [c.name, c.ok, c.params.currency]), [["create_rfq", true, "USD"]]);
+  assert.deepEqual(res.toolCalls.map((c) => [c.name, c.ok, c.params.truck_type]), [["create_rfq", true, ""]]);
 
   // Tools are declared from the shared registry as JSON Schema.
   const declarations = requests[0].config!.tools![0] as { functionDeclarations: { name: string; parametersJsonSchema: { required: string[] } }[] };
   const createRfq = declarations.functionDeclarations.find((d) => d.name === "create_rfq")!;
-  assert.deepEqual(createRfq.parametersJsonSchema.required, ["origin", "destination", "cargo_type", "weight_kg"]);
+  assert.deepEqual(createRfq.parametersJsonSchema.required, ["origin", "destination"]);
   assert.match(String(requests[0].config!.systemInstruction), /Arachi AI agent/);
 
   // Second call: the model turn comes back unchanged (with its thought

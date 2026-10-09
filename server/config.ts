@@ -81,4 +81,28 @@ export const config = {
   allowSignup: process.env.ALLOW_SIGNUP?.trim().toLowerCase() !== "false",
   /** Behind a reverse proxy (Caddy on the VPS): read the client address from X-Forwarded-For. */
   trustProxy: ["1", "true"].includes(process.env.TRUST_PROXY?.trim().toLowerCase() ?? ""),
+  /**
+   * arachi.co ilə birləşmə. ARACHI_API_URL və V2_SSO_SECRET təyin olunanda: giriş yalnız arachi.co-dan SSO ilə olur,
+   * AI isə müştərinin RFQ, daşıyıcı və təkliflərini arachi.co-nun API-si vasitəsilə idarə edir (data arachi.co-dadır).
+   */
+  arachiApiUrl: (process.env.ARACHI_API_URL ?? "").trim().replace(/\/+$/, ""),
+  /** arachi.co-nun ictimai ünvanı: giriş və "geri qayıt" linkləri üçün. */
+  arachiSiteUrl: (process.env.ARACHI_SITE_URL?.trim() || "https://arachi.co").replace(/\/+$/, ""),
+  /** arachi.co və v2 arasında ortaq gizli açar (arachi.co-dakı V2_SSO_SECRET ilə eyni olmalıdır). */
+  ssoSecret: (process.env.V2_SSO_SECRET ?? "").trim(),
 };
+
+/** Whether this server works on top of arachi.co (SSO login, arachi.co data) instead of its own accounts and data. */
+export function arachiMode(): boolean {
+  return Boolean(config.arachiApiUrl && config.ssoSecret);
+}
+
+/** Who may show this app in a frame: only arachi.co (the AI opens inside its panel), nobody otherwise. */
+export function frameAncestors(): string {
+  if (!arachiMode()) return "'none'";
+  try {
+    return new URL(config.arachiSiteUrl).origin;
+  } catch {
+    return "'none'";
+  }
+}
