@@ -101,7 +101,10 @@ export function arachiMode(): boolean {
 export function frameAncestors(): string {
   if (!arachiMode()) return "'none'";
   try {
-    return new URL(config.arachiSiteUrl).origin;
+    const url = new URL(config.arachiSiteUrl);
+    // The site answers on both arachi.co and www.arachi.co (browsers hide the "www." in the address bar).
+    const twin = url.hostname.startsWith("www.") ? url.hostname.slice(4) : `www.${url.hostname}`;
+    return [url.origin, `${url.protocol}//${twin}${url.port ? `:${url.port}` : ""}`].join(" ");
   } catch {
     return "'none'";
   }

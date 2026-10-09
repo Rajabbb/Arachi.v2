@@ -145,7 +145,7 @@ test("text from arachi.co is escaped on the error page", async () => {
   const r = await sso("evil");
   assert.ok(!r.html.includes("<script>alert(1)</script>"));
   assert.match(r.html, /&lt;script&gt;/);
-  assert.match(r.csp ?? "", /frame-ancestors https:\/\/arachi\.co(;|$)/, "only arachi.co may frame it");
+  assert.match(r.csp ?? "", /frame-ancestors https:\/\/arachi\.co https:\/\/www\.arachi\.co(;|$)/, "only arachi.co (with or without www) may frame it");
 });
 
 test("missing or oversized tickets are refused before arachi.co is called", async () => {

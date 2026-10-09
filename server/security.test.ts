@@ -64,7 +64,7 @@ test("working on top of arachi.co, only arachi.co may frame the page", async () 
   config.ssoSecret = "shared-secret-for-tests-0123456789";
   try {
     const csp = (await fetch(`${base}/panel`)).headers.get("content-security-policy")!;
-    assert.match(csp, /frame-ancestors https:\/\/arachi\.co(;|$)/);
+    assert.match(csp, /frame-ancestors https:\/\/arachi\.co https:\/\/www\.arachi\.co(;|$)/);
     assert.ok(!csp.includes("frame-ancestors *"));
   } finally {
     config.arachiApiUrl = saved.api;
