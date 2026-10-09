@@ -1,5 +1,8 @@
 import { ToolRegistry } from "./registry";
 import { currentDateTime } from "./datetime";
+import { cancelWinner, offerHistory } from "./arachiTools";
+import { importCarriers, listCategories, removeCarriers, setCarrierCategory } from "./carrierTools";
+import { createCustomerQuote, exportRfqs } from "./documentTools";
 import {
   addCarriers,
   compareOffers,
@@ -26,6 +29,10 @@ export const tools = new ToolRegistry()
   // Carrier base
   .register(listCarriers)
   .register(addCarriers)
+  .register(importCarriers)
+  .register(listCategories)
+  .register(setCarrierCategory)
+  .register(removeCarriers)
   // Sending (needs the user's "Bəli")
   .register(sendRfqToCarriers)
   .register(getQuoteLink)
@@ -33,6 +40,11 @@ export const tools = new ToolRegistry()
   .register(listOffers)
   .register(compareOffers)
   .register(selectWinner)
+  .register(cancelWinner)
+  .register(offerHistory)
   .register(sendReminders)
+  // Customer quote and reports (files for the user)
+  .register(createCustomerQuote)
+  .register(exportRfqs)
   // Numbers
   .register(getDashboard);

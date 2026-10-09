@@ -88,7 +88,7 @@ export async function listCarriers(): Promise<ArachiCarrier[]> {
 }
 
 export async function addCarriers(carriers: { name: string; email: string }[]): Promise<{ message: string }> {
-  return arachi("POST", "/carriers/manual", { json: { customer_id: currentCustomerId(), carriers } });
+  return arachi("POST", "/carriers/manual", { json: { customer_id: currentCustomerId(), carriers, skip_duplicates: true } });
 }
 
 export interface SendResult {
@@ -124,4 +124,79 @@ export async function remind(quoteIds: number[]): Promise<{ message: string }> {
 
 export async function stats(): Promise<Record<string, number>> {
   return arachi("GET", `/customer/stats/${currentCustomerId()}`);
+}
+
+export interface ArachiCategory {
+  id: number;
+  name: string;
+}
+
+export async function listCategories(): Promise<ArachiCategory[]> {
+  return (await arachi<{ categories?: ArachiCategory[] }>("GET", `/categories/customer/${currentCustomerId()}`)).categories ?? [];
+}
+
+export async function createCategory(name: string): Promise<ArachiCategory> {
+  return (await arachi<{ category: ArachiCategory }>("POST", "/categories/create", { json: { customer_id: currentCustomerId(), name } })).category;
+}
+
+export async function listSubCategories(categoryId: number): Promise<ArachiCategory[]> {
+  return (await arachi<{ data?: ArachiCategory[] }>("GET", `/carrier-sub-categories/${categoryId}`)).data ?? [];
+}
+
+export async function createSubCategory(categoryId: number, name: string): Promise<ArachiCategory> {
+  return (await arachi<{ data: ArachiCategory }>("POST", "/carrier-sub-categories", { json: { category_id: categoryId, name } })).data;
+}
+
+/** category 0 / subcategory 0 clear the carriers' category. */
+export async function setCategory(carrierIds: number[], categoryId: number, subCategoryId: number): Promise<void> {
+  await arachi("POST", "/carriers/bulk-set-category", {
+    json: { customer_id: currentCustomerId(), carrier_ids: carrierIds, category_id: categoryId, sub_category_id: subCategoryId },
+  });
+}
+
+export async function deleteCarriers(carrierIds: number[]): Promise<void> {
+  await arachi("POST", "/carriers/bulk-delete", { json: { customer_id: currentCustomerId(), carrier_ids: carrierIds } });
+}
+
+export async function importCarriersFile(name: string, data: Uint8Array, type: string): Promise<{ message: string }> {
+  const form = new FormData();
+  form.set("customer_id", String(currentCustomerId()));
+  form.set("skip_duplicates", "1");
+  form.set("file", new Blob([data as unknown as ArrayBuffer], { type: type || "application/octet-stream" }), name);
+  return arachi("POST", "/carriers/upload-excel", { form });
+}
+
+export async function cancelWinner(quoteId: number): Promise<void> {
+  await arachi("POST", `/quotes/cancel-winner/${quoteId}`);
+}
+
+export interface ReportQuery {
+  report_type: "all" | "today" | "date_range" | "selected";
+  report_category: "rfq" | "quotes";
+  start_date?: string;
+  end_date?: string;
+  rfq_ids?: number[];
+}
+
+export async function report(query: ReportQuery): Promise<Record<string, string | number | null>[]> {
+  const data = await arachi<{ data?: Record<string, string | number | null>[] }>("POST", "/reports/generate", {
+    json: { customer_id: currentCustomerId(), ...query },
+  });
+  return data.data ?? [];
+}
+
+export interface CustomerQuoteRecord {
+  request_id: number;
+  quote_id: number;
+  base_price: number;
+  margin_type: "percent";
+  margin_value: number;
+  final_price: number;
+  currency: string;
+  valid_until?: string;
+  terms_conditions?: string;
+}
+
+export async function saveCustomerQuote(record: CustomerQuoteRecord): Promise<void> {
+  await arachi("POST", "/customer-quotes/create", { json: { customer_id: currentCustomerId(), ...record } });
 }

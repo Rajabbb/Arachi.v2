@@ -6,6 +6,7 @@ import { HttpError, send } from "./http";
 import { db } from "./db";
 import { config } from "./config";
 import { handleConfirmation } from "./routes/confirmations";
+import { handleFile } from "./routes/files";
 import { serveStatic } from "./static";
 import { handleAuth, requireUser } from "./routes/auth";
 import { handleSso } from "./routes/sso";
@@ -96,6 +97,7 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
     if (path.startsWith("/api/")) checkOrigin(req);
     const auth = path.match(/^\/api\/auth\/(\w+)$/);
     const conversation = path.match(/^\/api\/conversations\/(\w+)$/);
+    const file = path.match(/^\/api\/files\/([\w.-]+)$/);
     const confirmation = path.match(/^\/api\/confirmations\/([\w-]+)$/);
     if (req.method === "GET" && path === "/sso") {
       await handleSso(req, res);
@@ -111,6 +113,8 @@ export async function app(req: IncomingMessage, res: ServerResponse) {
       );
     } else if (confirmation && req.method === "POST") {
       await asSession(req, () => handleConfirmation(req, res, confirmation[1]));
+    } else if (file && req.method === "GET") {
+      await handleFile(res, file[1]);
     } else if (req.method === "GET" && (path === "/api/health" || path === "/healthz")) {
       await handleHealth(res);
     } else if (path.startsWith("/api/") || !(await serveStatic(req, res, path))) {

@@ -1,6 +1,9 @@
 import type { AgentTool } from "./registry";
 import * as api from "../../arachi/api";
 import { config } from "../../config";
+import { categoryOrThrow, isMine, recipientLines, rfqOrThrow, subCategoryOrThrow } from "./lookup";
+
+export { recipientLines };
 
 /**
  * The agent's tools. All data lives on arachi.co: every tool calls its API as the
@@ -8,22 +11,6 @@ import { config } from "../../config";
  */
 
 const siteUrl = () => config.arachiSiteUrl.replace(/\/+$/, "");
-
-/** A recipient list for a confirmation, the first 25 in full. */
-export function recipientLines(lines: string[]): string {
-  const shown = lines.slice(0, 25).map((l) => `• ${l}`);
-  if (lines.length > shown.length) shown.push(`• və daha ${lines.length - shown.length}`);
-  return shown.join("\n");
-}
-
-const isMine = (c: api.ArachiCarrier) => !(c.email ?? "").startsWith("public_link_");
-
-/** The RFQ the user means by "RFQ #n": n is the number the panel on arachi.co shows, not the database id. */
-async function rfqOrThrow(number: number): Promise<api.ArachiRfq> {
-  const rfq = (await api.listRfqs()).find((r) => r.display_id === number);
-  if (!rfq) throw new Error(`RFQ #${number} tapılmadı.`);
-  return rfq;
-}
 
 /** An RFQ as the agent sees it: by its panel number, without the database id. */
 function rfqView(r: api.ArachiRfq | Omit<api.ArachiRfq, "display_id">) {
@@ -102,16 +89,33 @@ export const listRfqs: AgentTool = {
 
 export const listCarriers: AgentTool = {
   name: "list_carriers",
-  description: "Lists the carriers in the user's carrier base on arachi.co.",
+  description: "Lists the carriers in the user's carrier base on arachi.co, with their category and subcategory. Use the ids it returns for the other carrier tools.",
   params: {
     search: { type: "string", description: "Only carriers whose name or email contains this text.", default: "" },
+    category: { type: "string", description: "Only carriers of this category (by name); empty = any.", default: "" },
     limit: { type: "integer", description: "Maximum number of carriers to return.", default: 50 },
   },
-  async run({ search, limit }) {
+  async run({ search, category, limit }) {
     const q = (search as string).toLowerCase();
-    const all = (await api.listCarriers()).filter(isMine);
-    const rows = all.filter((c) => !q || `${c.company_name} ${c.email}`.toLowerCase().includes(q));
-    return { total: rows.length, carriers: rows.slice(0, limit as number).map((c) => ({ id: c.id, name: c.company_name, email: c.email })) };
+    const [carriers, categories] = await Promise.all([api.listCarriers(), api.listCategories()]);
+    const subNames = new Map<number, string>();
+    for (const cat of categories) for (const sub of await api.listSubCategories(cat.id)) subNames.set(sub.id, sub.name);
+    const catName = (id?: number | null) => categories.find((c) => c.id === id)?.name;
+    const wanted = (category as string).trim().toLowerCase();
+    const rows = carriers
+      .filter(isMine)
+      .filter((c) => !q || `${c.company_name} ${c.email}`.toLowerCase().includes(q))
+      .filter((c) => !wanted || (catName(c.category_id) ?? "").toLowerCase() === wanted);
+    return {
+      total: rows.length,
+      carriers: rows.slice(0, limit as number).map((c) => ({
+        id: c.id,
+        name: c.company_name,
+        email: c.email,
+        category: catName(c.category_id),
+        subcategory: c.sub_category_id ? subNames.get(c.sub_category_id) : undefined,
+      })),
+    };
   },
 };
 
@@ -139,7 +143,15 @@ export const addCarriers: AgentTool = {
 /** The carriers a send would reach: those chosen (or all) that have not been sent this RFQ yet. */
 async function dueCarriers(rfq: api.ArachiRfq, p: Record<string, unknown>) {
   const wanted = (p.carrier_ids as number[]) ?? [];
-  const carriers = (await api.listCarriers()).filter(isMine);
+  let carriers = (await api.listCarriers()).filter(isMine);
+  if (p.audience === "category") {
+    const category = await categoryOrThrow(p.category as string);
+    carriers = carriers.filter((c) => c.category_id === category.id);
+    if ((p.subcategory as string).trim()) {
+      const sub = await subCategoryOrThrow(category, p.subcategory as string);
+      carriers = carriers.filter((c) => c.sub_category_id === sub.id);
+    }
+  }
   const chosen = p.audience === "specific" ? carriers.filter((c) => wanted.includes(c.id)) : carriers;
   const already = new Set((await api.recipients(rfq.id)).map((r) => r.carrier_id));
   return chosen.filter((c) => !already.has(c.id) && c.email);
@@ -151,7 +163,14 @@ export const sendRfqToCarriers: AgentTool = {
     "Emails an RFQ to carriers from the user's carrier base. Each carrier gets a personal link to the quote page where they enter their offer without logging in. Carriers that already received this RFQ are skipped.",
   params: {
     rfq_id: { type: "integer", description: "RFQ number as shown in the panel on arachi.co (RFQ #n)." },
-    audience: { type: "string", description: "all = every carrier in the base; specific = the carrier_ids given.", enum: ["all", "specific"], default: "all" },
+    audience: {
+      type: "string",
+      description: "all = every carrier in the base; category = the carriers of the category (and subcategory) given; specific = the carrier_ids given.",
+      enum: ["all", "category", "specific"],
+      default: "all",
+    },
+    category: { type: "string", description: "Category name for audience=category.", default: "" },
+    subcategory: { type: "string", description: "Optional subcategory name for audience=category.", default: "" },
     carrier_ids: { type: "array", description: "Carrier ids for audience=specific.", items: { type: "integer" }, default: [] },
   },
   async confirm(p) {
@@ -164,7 +183,7 @@ export const sendRfqToCarriers: AgentTool = {
         `RFQ #${rfq.display_id} (${rfq.origin} → ${rfq.destination}) ${due.length} daşıyıcıya email ilə göndəriləcək:\n` +
         recipientLines(due.map((c) => `${c.company_name}: ${c.email}`)),
       // Exactly the carriers shown, even if the base changes before "Bəli".
-      params: { rfq_id: rfq.display_id, audience: "specific", carrier_ids: due.map((c) => c.id) },
+      params: { rfq_id: rfq.display_id, audience: "specific", carrier_ids: due.map((c) => c.id), category: "", subcategory: "" },
     };
   },
   done(result) {
@@ -315,5 +334,55 @@ export const getDashboard: AgentTool = {
   params: {},
   async run() {
     return api.stats();
+  },
+};
+
+export const cancelWinner: AgentTool = {
+  name: "cancel_winner",
+  description: "Takes the winner mark back: the RFQ becomes open again and another offer can be chosen. Does not message anyone.",
+  params: { rfq_id: { type: "integer", description: "RFQ number as shown in the panel on arachi.co (RFQ #n)." } },
+  async run(p) {
+    const rfq = await rfqOrThrow(p.rfq_id as number);
+    const winner = (await api.offers(rfq.id)).find((o) => o.is_winner);
+    if (!winner) throw new Error(`RFQ #${rfq.display_id} üzrə seçilmiş qalib yoxdur.`);
+    await api.cancelWinner(winner.id);
+    return { rfq_id: rfq.display_id, was_winner: winner.carrier_company, status: "open" };
+  },
+};
+
+interface Version {
+  version?: number;
+  price?: number | null;
+  currency?: string;
+  transit_time_days?: number | null;
+  date?: string;
+}
+
+export const offerHistory: AgentTool = {
+  name: "offer_history",
+  description:
+    "Shows how each carrier's offer on an RFQ changed: every earlier version (price, currency, transit time, date) and the current one. Use it for 'did X lower the price?' questions.",
+  params: {
+    rfq_id: { type: "integer", description: "RFQ number as shown in the panel on arachi.co (RFQ #n)." },
+    carrier: { type: "string", description: "Only this carrier (part of the name); empty = all.", default: "" },
+  },
+  async run(p) {
+    const rfq = await rfqOrThrow(p.rfq_id as number);
+    const wanted = (p.carrier as string).trim().toLowerCase();
+    const rows = (await api.offers(rfq.id)).filter((o) => !wanted || o.carrier_company.toLowerCase().includes(wanted));
+    return {
+      rfq_id: rfq.display_id,
+      carriers: rows.map((o) => ({
+        carrier: o.carrier_company,
+        current: { price: o.price, currency: o.currency, transit_days: o.transit_time_days },
+        earlier_versions: ((Array.isArray(o.quote_history) ? o.quote_history : []) as Version[]).map((v) => ({
+          version: v.version,
+          price: v.price,
+          currency: v.currency,
+          transit_days: v.transit_time_days,
+          date: v.date,
+        })),
+      })),
+    };
   },
 };

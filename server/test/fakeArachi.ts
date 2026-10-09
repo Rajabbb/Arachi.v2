@@ -7,7 +7,8 @@ import { upsertArachiUser, createSession } from "../auth/accounts";
  * their own data, taken from the token). Installed as global fetch for http://arachi.test.
  */
 
-interface Carrier { id: number; customer_id: number; company_name: string; email: string }
+interface Carrier { id: number; customer_id: number; company_name: string; email: string; category_id?: number | null; sub_category_id?: number | null }
+interface Category { id: number; customer_id?: number; category_id?: number; name: string }
 interface Rfq { id: number; customer_id: number; status: string; [k: string]: unknown }
 interface Quote {
   id: number; request_id: number; carrier_id: number; token: string; mail_status: string; is_viewed: boolean;
@@ -19,6 +20,9 @@ export const arachiData = {
   carriers: [] as Carrier[],
   rfqs: [] as Rfq[],
   quotes: [] as Quote[],
+  categories: [] as Category[],
+  subCategories: [] as Category[],
+  customerQuotes: [] as Record<string, unknown>[],
   mails: [] as { to: string; quoteId: number; reminder: boolean }[],
   calls: [] as string[],
   next: 1,
@@ -31,6 +35,9 @@ export function resetArachi() {
   arachiData.rfqs = [];
   arachiData.quotes = [];
   arachiData.mails = [];
+  arachiData.categories = [];
+  arachiData.subCategories = [];
+  arachiData.customerQuotes = [];
   arachiData.calls = [];
   arachiData.next = 1;
   arachiData.failWith = 0;
@@ -45,7 +52,7 @@ export function fakeJwt(customerId: number): string {
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-function handle(method: string, path: string, body: any, customerId: number): Response {
+function handle(method: string, path: string, body: any, customerId: number, form?: FormData): Response | Promise<Response> {
   arachiData.calls.push(`${method} ${path}`);
   const own = (rid: number) => arachiData.rfqs.find((r) => r.id === rid && r.customer_id === customerId);
   let m: RegExpMatchArray | null;
@@ -147,6 +154,87 @@ function handle(method: string, path: string, body: any, customerId: number): Re
       carriers_count: arachiData.carriers.filter((c) => c.customer_id === customerId).length,
     });
   }
+  if (method === "GET" && (m = path.match(/^\/categories\/customer\/(\d+)$/))) {
+    if (Number(m[1]) !== customerId) return json(403, { detail: "İcazə rədd edildi." });
+    return json(200, { status: "success", categories: arachiData.categories.filter((c) => c.customer_id === customerId) });
+  }
+  if (method === "POST" && path === "/categories/create") {
+    if (body.customer_id !== customerId) return json(403, { detail: "İcazə rədd edildi." });
+    const category = { id: arachiData.next++, customer_id: customerId, name: body.name };
+    arachiData.categories.push(category);
+    return json(200, { status: "success", category });
+  }
+  const ownCat = (id: number) => arachiData.categories.some((c) => c.id === id && c.customer_id === customerId);
+  if (method === "GET" && (m = path.match(/^\/carrier-sub-categories\/(\d+)$/))) {
+    if (!ownCat(Number(m[1]))) return json(403, { detail: "İcazə rədd edildi." });
+    return json(200, { status: "success", data: arachiData.subCategories.filter((c) => c.category_id === Number(m![1])) });
+  }
+  if (method === "POST" && path === "/carrier-sub-categories") {
+    if (!ownCat(body.category_id)) return json(403, { detail: "İcazə rədd edildi." });
+    const sub = { id: arachiData.next++, category_id: body.category_id, name: body.name };
+    arachiData.subCategories.push(sub);
+    return json(200, { status: "success", data: sub });
+  }
+  if (method === "POST" && path === "/carriers/bulk-set-category") {
+    if (body.customer_id !== customerId) return json(403, { detail: "İcazə rədd edildi." });
+    if (body.category_id > 0 && !ownCat(body.category_id)) return json(403, { detail: "İcazə rədd edildi." });
+    for (const c of arachiData.carriers.filter((x) => x.customer_id === customerId && body.carrier_ids.includes(x.id))) {
+      c.category_id = body.category_id > 0 ? body.category_id : null;
+      c.sub_category_id = body.sub_category_id > 0 ? body.sub_category_id : null;
+    }
+    return json(200, { status: "success" });
+  }
+  if (method === "POST" && path === "/carriers/bulk-delete") {
+    if (body.customer_id !== customerId) return json(403, { detail: "İcazə rədd edildi." });
+    arachiData.carriers = arachiData.carriers.filter((c) => !(c.customer_id === customerId && body.carrier_ids.includes(c.id)));
+    return json(200, { status: "success", message: "silindi" });
+  }
+  if (method === "POST" && path === "/carriers/upload-excel") {
+    // The fake reads the file as CSV text: "name,email" lines.
+    const file = form?.get("file") as File | null;
+    if (!file || Number(form?.get("customer_id")) !== customerId) return json(400, { detail: "Fayl oxunarkən xəta" });
+    return file.text().then((csv) => {
+      let added = 0;
+      for (const line of csv.split("\n").slice(1)) {
+        const [name, email] = line.split(",").map((x) => x.trim());
+        if (!email || arachiData.carriers.some((c) => c.customer_id === customerId && c.email === email)) continue;
+        arachiData.carriers.push({ id: arachiData.next++, customer_id: customerId, company_name: name || "Daşıyıcı", email });
+        added++;
+      }
+      return json(200, { status: "success", message: `${added} yeni daşıyıcı uğurla əlavə edildi!` });
+    });
+  }
+  if (method === "POST" && (m = path.match(/^\/quotes\/cancel-winner\/(\d+)$/))) {
+    const q = arachiData.quotes.find((x) => x.id === Number(m![1]));
+    if (!q || !own(q.request_id)) return json(403, { detail: "İcazə rədd edildi." });
+    for (const x of arachiData.quotes.filter((x) => x.request_id === q.request_id)) x.is_winner = false;
+    own(q.request_id)!.status = "open";
+    return json(200, { status: "success" });
+  }
+  if (method === "POST" && path === "/reports/generate") {
+    if (body.customer_id !== customerId) return json(403, { detail: "İcazə rədd edildi." });
+    const mine = arachiData.rfqs.filter((r) => r.customer_id === customerId).sort((a, b) => b.id - a.id);
+    const disp = (id: number) => mine.length - mine.findIndex((r) => r.id === id);
+    const picked = mine.filter((r) => body.report_type !== "selected" || (body.rfq_ids as number[]).includes(r.id));
+    const data =
+      body.report_category === "rfq"
+        ? picked.map((r) => ({ "Sorğu ID": `RFQ #${disp(r.id)}`, "Marşrut": `${r.origin} -> ${r.destination}`, "Yük Növü": (r.cargo_type as string) || "Qeyd edilməyib", "Status": r.status.toUpperCase() }))
+        : picked.flatMap((r) =>
+            arachiData.quotes.filter((q) => q.request_id === r.id && q.price !== null).map((q) => ({
+              "Sorğu ID": `RFQ #${disp(r.id)}`,
+              "Marşrut": `${r.origin} -> ${r.destination}`,
+              "Daşıyıcı Şirkət": arachiData.carriers.find((c) => c.id === q.carrier_id)!.company_name,
+              "Qiymət": q.price,
+              "Valyuta": q.currency,
+            })),
+          );
+    return json(200, { status: "success", data, category: body.report_category });
+  }
+  if (method === "POST" && path === "/customer-quotes/create") {
+    if (body.customer_id !== customerId || !own(body.request_id)) return json(403, { detail: "İcazə rədd edildi." });
+    arachiData.customerQuotes.push(body);
+    return json(200, { status: "success" });
+  }
   return json(404, { detail: `fake arachi: ${method} ${path}` });
 }
 
@@ -166,8 +254,9 @@ export function installFakeArachi(): () => void {
     } catch {
       return json(401, { detail: "Token etibarsızdır." });
     }
-    const body = init?.body ? JSON.parse(String(init.body)) : undefined;
-    return handle(init?.method ?? "GET", url.pathname, body, customerId);
+    const form = init?.body instanceof FormData ? init.body : undefined;
+    const body = init?.body && !form ? JSON.parse(String(init.body)) : undefined;
+    return handle(init?.method ?? "GET", url.pathname, body, customerId, form);
   }) as typeof fetch;
   return () => {
     globalThis.fetch = realFetch;
