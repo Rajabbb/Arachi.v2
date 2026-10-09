@@ -17,6 +17,9 @@ beforeEach(freshDb);
 const rfqInput = { origin: "Bakı", destination: "Tbilisi", cargo_type: "Un", weight_kg: 500 };
 
 /** An offer arriving on arachi.co (a carrier filled in the quote page). */
+/** The database id behind a panel number (the fake keeps them apart on purpose). */
+const rfqDb = (rfq: { number: number }) => arachiData.rfqs.slice().sort((a, b) => b.id - a.id)[arachiData.rfqs.length - rfq.number].id;
+
 function offerFrom(carrierId: number, rfqId: number, price: number, days: number, currency = "USD") {
   const q = arachiData.quotes.find((x) => x.carrier_id === carrierId && x.request_id === rfqId)!;
   Object.assign(q, { price, transit_time_days: days, currency });
@@ -34,12 +37,14 @@ test("create_rfq creates the RFQ on arachi.co and sends nothing", async () => {
   const { result } = await call("create_rfq", { ...rfqInput, notes: "10 palet" });
   assert.equal(result.origin, "Bakı");
   assert.equal(result.status, "open");
+  assert.equal(result.number, 1);
+  assert.equal(result.id, undefined, "the database id is not shown to the agent");
   assert.equal(arachiData.rfqs.length, 1);
   assert.equal(arachiData.rfqs[0].send_option, "none");
   assert.equal(arachiData.rfqs[0].additional_notes, "10 palet");
   assert.equal(arachiData.mails.length, 0);
-  assert.equal(((await call("list_rfqs")).result as unknown[]).length, 1);
-  assert.equal(((await call("list_rfqs", { status: "closed" })).result as unknown[]).length, 0);
+  assert.equal((await call("list_rfqs")).result.total, 1);
+  assert.equal((await call("list_rfqs", { status: "closed" })).result.total, 0);
 });
 
 test("carriers are added once per email and listed", async () => {
@@ -60,58 +65,58 @@ test("send_rfq_to_carriers asks first, then reaches exactly the shown carriers, 
     asked.push(summary);
     return { id: "c1", text: summary, status: "pending", result: "" };
   };
-  const plan = await call("send_rfq_to_carriers", { rfq_id: rfq.id }, ctx);
+  const plan = await call("send_rfq_to_carriers", { rfq_id: rfq.number }, ctx);
   assert.equal(JSON.parse(plan.content).status, "waiting_for_user");
   assert.match(asked[0], /2 daşıyıcıya/);
   assert.match(asked[0], /a@road\.az/);
   assert.equal(arachiData.mails.length, 0, "nothing sent before Bəli");
 
-  const sent = await call("send_rfq_to_carriers", { rfq_id: rfq.id });
+  const sent = await call("send_rfq_to_carriers", { rfq_id: rfq.number });
   assert.equal(sent.result.sent, 2);
   assert.equal(arachiData.mails.length, 2);
   // Everyone has it already: nothing to confirm and nothing to send.
-  await assert.rejects(call("send_rfq_to_carriers", { rfq_id: rfq.id }), /yeni daşıyıcı yoxdur/);
+  await assert.rejects(call("send_rfq_to_carriers", { rfq_id: rfq.number }), /yeni daşıyıcı yoxdur/);
 });
 
 test("sending to specific carriers only reaches those", async () => {
   const { rfq, carriers } = await setup();
-  await call("send_rfq_to_carriers", { rfq_id: rfq.id, audience: "specific", carrier_ids: [carriers[1].id] });
+  await call("send_rfq_to_carriers", { rfq_id: rfq.number, audience: "specific", carrier_ids: [carriers[1].id] });
   assert.deepEqual(arachiData.mails.map((m) => m.to), ["b@road.az"]);
 });
 
 test("a closed RFQ cannot be sent, an unknown one is not found", async () => {
   const { rfq, carriers } = await setup();
-  await call("send_rfq_to_carriers", { rfq_id: rfq.id, audience: "specific", carrier_ids: [carriers[0].id] });
-  offerFrom(carriers[0].id, rfq.id, 100, 3);
+  await call("send_rfq_to_carriers", { rfq_id: rfq.number, audience: "specific", carrier_ids: [carriers[0].id] });
+  offerFrom(carriers[0].id, rfqDb(rfq), 100, 3);
   const q = arachiData.quotes[0];
-  await call("select_winner", { rfq_id: rfq.id, offer_id: q.id });
-  await assert.rejects(call("send_rfq_to_carriers", { rfq_id: rfq.id }), /artıq açıq deyil/);
+  await call("select_winner", { rfq_id: rfq.number, offer_id: q.id });
+  await assert.rejects(call("send_rfq_to_carriers", { rfq_id: rfq.number }), /artıq açıq deyil/);
   await assert.rejects(call("list_offers", { rfq_id: 999 }), /tapılmadı/);
 });
 
 test("list_offers shows offers and each carrier's status; compare ranks them", async () => {
   const { rfq, carriers } = await setup();
-  await call("send_rfq_to_carriers", { rfq_id: rfq.id });
-  offerFrom(carriers[0].id, rfq.id, 900, 5);
-  const { result } = await call("list_offers", { rfq_id: rfq.id });
+  await call("send_rfq_to_carriers", { rfq_id: rfq.number });
+  offerFrom(carriers[0].id, rfqDb(rfq), 900, 5);
+  const { result } = await call("list_offers", { rfq_id: rfq.number });
   assert.equal(result.offers.length, 1);
   assert.equal(result.offers[0].carrier, "Road A");
   const statuses = Object.fromEntries(result.carriers.map((c: { carrier: string; status: string }) => [c.carrier, c.status]));
   assert.deepEqual(statuses, { "Road A": "Təklif alındı", "Road B": "Göndərilir" });
 
-  offerFrom(carriers[1].id, rfq.id, 700, 8);
-  const byPrice = (await call("compare_offers", { rfq_id: rfq.id })).result.rankings[0];
+  offerFrom(carriers[1].id, rfqDb(rfq), 700, 8);
+  const byPrice = (await call("compare_offers", { rfq_id: rfq.number })).result.rankings[0];
   assert.deepEqual(byPrice.offers.map((o: { carrier: string }) => o.carrier), ["Road B", "Road A"]);
-  const byDays = (await call("compare_offers", { rfq_id: rfq.id, criterion: "transit" })).result.rankings[0];
+  const byDays = (await call("compare_offers", { rfq_id: rfq.number, criterion: "transit" })).result.rankings[0];
   assert.deepEqual(byDays.offers.map((o: { carrier: string }) => o.carrier), ["Road A", "Road B"]);
 });
 
 test("offers in different currencies are ranked per currency, never mixed", async () => {
   const { rfq, carriers } = await setup();
-  await call("send_rfq_to_carriers", { rfq_id: rfq.id });
-  offerFrom(carriers[0].id, rfq.id, 900, 5, "EUR");
-  offerFrom(carriers[1].id, rfq.id, 800, 5, "USD");
-  const { rankings } = (await call("compare_offers", { rfq_id: rfq.id })).result;
+  await call("send_rfq_to_carriers", { rfq_id: rfq.number });
+  offerFrom(carriers[0].id, rfqDb(rfq), 900, 5, "EUR");
+  offerFrom(carriers[1].id, rfqDb(rfq), 800, 5, "USD");
+  const { rankings } = (await call("compare_offers", { rfq_id: rfq.number })).result;
   assert.equal(rankings.length, 2);
   assert.deepEqual(rankings.map((r: { currency: string }) => r.currency).sort(), ["EUR", "USD"]);
   assert.equal((await call("compare_offers", { rfq_id: 1 })).result.rankings.length, 2);
@@ -119,11 +124,11 @@ test("offers in different currencies are ranked per currency, never mixed", asyn
 
 test("select_winner closes the RFQ on arachi.co and rejects an offer of another RFQ", async () => {
   const { rfq, carriers } = await setup();
-  await call("send_rfq_to_carriers", { rfq_id: rfq.id });
-  offerFrom(carriers[0].id, rfq.id, 900, 5);
-  await assert.rejects(call("select_winner", { rfq_id: rfq.id, offer_id: 424242 }), /tapılmadı/);
+  await call("send_rfq_to_carriers", { rfq_id: rfq.number });
+  offerFrom(carriers[0].id, rfqDb(rfq), 900, 5);
+  await assert.rejects(call("select_winner", { rfq_id: rfq.number, offer_id: 424242 }), /tapılmadı/);
   const q = arachiData.quotes.find((x) => x.carrier_id === carriers[0].id)!;
-  const { result } = await call("select_winner", { rfq_id: rfq.id, offer_id: q.id });
+  const { result } = await call("select_winner", { rfq_id: rfq.number, offer_id: q.id });
   assert.equal(result.winner.is_winner, false, "the view is of the offer before the change");
   assert.equal(arachiData.rfqs[0].status, "closed");
   assert.equal(q.is_winner, true);
@@ -131,13 +136,13 @@ test("select_winner closes the RFQ on arachi.co and rejects an offer of another 
 
 test("send_reminders only reminds carriers who did not answer, and only on the user's own RFQ", async () => {
   const { rfq, carriers } = await setup();
-  await call("send_rfq_to_carriers", { rfq_id: rfq.id });
-  offerFrom(carriers[0].id, rfq.id, 900, 5);
+  await call("send_rfq_to_carriers", { rfq_id: rfq.number });
+  offerFrom(carriers[0].id, rfqDb(rfq), 900, 5);
   arachiData.mails.length = 0;
   const ctx = emptyContext();
   const shown: string[] = [];
   ctx.askUser = async (_t, _p, summary) => (shown.push(summary), { id: "c", text: summary, status: "pending", result: "" });
-  await call("send_reminders", { rfq_id: rfq.id }, ctx);
+  await call("send_reminders", { rfq_id: rfq.number }, ctx);
   assert.match(shown[0], /1 daşıyıcıya/);
   assert.match(shown[0], /b@road\.az/);
   assert.doesNotMatch(shown[0], /a@road\.az/);
@@ -146,13 +151,13 @@ test("send_reminders only reminds carriers who did not answer, and only on the u
   // Even if quote ids of other carriers are passed, the answered one is never reminded.
   const answered = arachiData.quotes.find((q) => q.carrier_id === carriers[0].id)!;
   const pending = arachiData.quotes.find((q) => q.carrier_id === carriers[1].id)!;
-  await call("send_reminders", { rfq_id: rfq.id, quote_ids: [answered.id, pending.id] });
+  await call("send_reminders", { rfq_id: rfq.number, quote_ids: [answered.id, pending.id] });
   assert.deepEqual(arachiData.mails.map((m) => [m.to, m.reminder]), [["b@road.az", true]]);
 });
 
 test("quote link and dashboard numbers come from arachi.co", async () => {
   const { rfq } = await setup();
-  const link = (await call("get_quote_link", { rfq_id: rfq.id })).result.link as string;
+  const link = (await call("get_quote_link", { rfq_id: rfq.number })).result.link as string;
   assert.match(link, /carrier_quote\/quote\?token=.*public=1/);
   const stats = (await call("get_dashboard")).result;
   assert.equal(stats.active_rfqs, 1);
@@ -163,11 +168,11 @@ test("one customer never reaches another customer's data, even by RFQ number", a
   const { rfq } = await setup();
   const asOther = <T>(fn: () => Promise<T>) => asUser(99, fn, fakeJwt(2));
   const run = async (name: string, input: Record<string, unknown>) => (await asOther(() => tools.execute(name, input))).content;
-  assert.match(await run("list_offers", { rfq_id: rfq.id }), /tapılmadı/);
-  assert.match(await run("send_rfq_to_carriers", { rfq_id: rfq.id }), /tapılmadı/);
-  assert.match(await run("get_quote_link", { rfq_id: rfq.id }), /tapılmadı/);
-  assert.match(await run("send_reminders", { rfq_id: rfq.id }), /tapılmadı/);
-  assert.equal(JSON.parse(await run("list_rfqs", {})).length, 0);
+  assert.match(await run("list_offers", { rfq_id: rfq.number }), /tapılmadı/);
+  assert.match(await run("send_rfq_to_carriers", { rfq_id: rfq.number }), /tapılmadı/);
+  assert.match(await run("get_quote_link", { rfq_id: rfq.number }), /tapılmadı/);
+  assert.match(await run("send_reminders", { rfq_id: rfq.number }), /tapılmadı/);
+  assert.equal(JSON.parse(await run("list_rfqs", {})).total, 0);
   assert.equal(JSON.parse(await run("list_carriers", {})).total, 0);
 });
 
@@ -176,4 +181,39 @@ test("an ended arachi.co session is explained, not shown as a crash", async () =
   await assert.rejects(call("list_rfqs"), /yenidən 'Aİ istifadə et'/);
   arachiData.failWith = 500;
   await assert.rejects(call("list_rfqs"), /arachi\.co/);
+});
+
+test("RFQs are named by the panel number, not the database id", async () => {
+  // Carriers and quotes share the id counter in the fake, so database ids and panel numbers differ.
+  const numbers: number[] = [];
+  for (const dest of ["Berlin", "Milan", "Paris"]) {
+    numbers.push((await call("create_rfq", { origin: "Bakı", destination: dest })).result.number);
+    await call("add_carriers", { carriers: [{ name: dest, email: `${dest}@x.az` }] });
+  }
+  assert.deepEqual(numbers, [1, 2, 3]);
+  assert.notDeepEqual(arachiData.rfqs.map((r) => r.id), [1, 2, 3], "database ids differ from panel numbers");
+  const list = (await call("list_rfqs")).result;
+  assert.deepEqual(list.rfqs.map((r: { number: number; destination: string }) => [r.number, r.destination]), [[3, "Paris"], [2, "Milan"], [1, "Berlin"]]);
+  assert.equal(JSON.stringify(list).includes("customer_id"), false);
+
+  // "RFQ #2" is Milan, whatever its database id is.
+  const link = (await call("get_quote_link", { rfq_id: 2 })).result;
+  assert.equal(link.rfq_id, 2);
+  assert.match(link.link, new RegExp(`pub-${arachiData.rfqs[1].id}&`));
+  const offers = (await call("list_offers", { rfq_id: 2 })).result;
+  assert.equal(offers.rfq.route, "Bakı → Milan");
+  assert.equal(offers.rfq.number, 2);
+  // The database id (e.g. 402) is not a panel number.
+  await assert.rejects(call("list_offers", { rfq_id: arachiData.rfqs[2].id }), /tapılmadı/);
+});
+
+test("list_rfqs counts everything, searches, and caps what it returns", async () => {
+  for (let i = 0; i < 30; i++) await call("create_rfq", { origin: "Bakı", destination: i % 2 ? "Berlin" : "Milan" });
+  const all = (await call("list_rfqs")).result;
+  assert.equal(all.total, 30);
+  assert.equal(all.shown, 20);
+  assert.equal(all.rfqs[0].number, 30);
+  const berlin = (await call("list_rfqs", { search: "berlin", limit: 100 })).result;
+  assert.equal(berlin.total, 15);
+  assert.equal(berlin.shown, 15);
 });

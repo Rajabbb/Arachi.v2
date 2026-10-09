@@ -4,7 +4,10 @@ import { currentCustomerId } from "../auth/current";
 /** The few arachi.co endpoints the AI agent uses. Every call runs as the signed-in customer. */
 
 export interface ArachiRfq {
+  /** arachi.co's database id (used in API paths). */
   id: number;
+  /** The number the panel on arachi.co shows ("RFQ #267"): newest = how many RFQs there are. This is what the user means. */
+  display_id: number;
   origin: string;
   destination: string;
   cargo_type?: string | null;
@@ -53,8 +56,10 @@ export interface ArachiRecipient {
 }
 
 export async function listRfqs(): Promise<ArachiRfq[]> {
-  const data = await arachi<{ requests?: ArachiRfq[] }>("GET", `/requests/customer/${currentCustomerId()}`);
-  return data.requests ?? [];
+  const data = await arachi<{ requests?: Omit<ArachiRfq, "display_id">[] }>("GET", `/requests/customer/${currentCustomerId()}`);
+  const rows = [...(data.requests ?? [])].sort((a, b) => b.id - a.id);
+  // The panel numbers RFQs the same way (customer.html): total - position, newest first.
+  return rows.map((r, i) => ({ ...r, display_id: rows.length - i }));
 }
 
 export interface NewRfq {
