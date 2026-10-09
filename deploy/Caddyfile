@@ -6,8 +6,8 @@
 		# Browsers only use https for this site from now on.
 		Strict-Transport-Security "max-age=31536000"
 		X-Content-Type-Options nosniff
-		# Other sites cannot show the app inside a frame (clickjacking).
-		X-Frame-Options DENY
+		# Framing is controlled by the app's Content-Security-Policy (frame-ancestors): only arachi.co may show it.
+		# Do not add X-Frame-Options here: it would block arachi.co's own panel too.
 		# Links to other sites do not carry the page address (quote and reset links have tokens).
 		Referrer-Policy strict-origin-when-cross-origin
 		-Server
