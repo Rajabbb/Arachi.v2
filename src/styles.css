@@ -930,3 +930,26 @@ p.error:not(.small) {
 @media (prefers-reduced-motion: reduce) {
   .mascot-float, .mascot-eyes, .mascot-scan, .mascot-beam, .mascot-ring { animation: none; }
 }
+
+/* Result cards: what the agent did, under its reply */
+.result-cards { display: grid; gap: 10px; margin-top: 10px; }
+.result-card {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--r);
+  background: var(--surface-2);
+  padding: 10px 12px;
+  font-size: 0.9rem;
+}
+.result-card.tone-success { border-left-color: var(--success); }
+.result-card.tone-warning { border-left-color: #d97706; }
+.result-title { margin: 0 0 6px; font-size: 0.95rem; font-weight: 700; color: var(--text); }
+.result-rows { margin: 0; display: grid; gap: 4px; }
+.result-row { display: grid; grid-template-columns: minmax(110px, 38%) 1fr; gap: 10px; }
+.result-row dt { color: var(--muted); }
+.result-row dd { margin: 0; color: var(--text); font-weight: 500; overflow-wrap: anywhere; }
+.result-items { margin: 4px 0 0; padding-left: 18px; display: grid; gap: 2px; }
+.result-items li { overflow-wrap: anywhere; }
+.result-rows + .result-items { margin-top: 8px; }
+.result-note { margin: 8px 0 0; color: var(--muted); font-size: 0.85rem; }
+@media (max-width: 520px) { .result-row { grid-template-columns: 1fr; gap: 0; } }

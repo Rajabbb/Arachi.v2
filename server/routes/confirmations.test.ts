@@ -160,3 +160,33 @@ test("asking for the same send twice in one turn shows one card", async () => {
   assert.equal(chat.body.confirmations.length, 1);
   assert.equal(Number((await db().get<{ n: number }>("SELECT count(*) AS n FROM confirmations"))!.n), 1);
 });
+
+test("result cards show what was done: with the reply, saved with it, and for what Bəli ran", async () => {
+  // An RFQ created in chat comes with a card of its fields to check.
+  toolCallingProvider("create_rfq", {
+    ...RFQ_DEFAULTS, origin: "Bakı", destination: "Milan", volume_unit: "CBM", volume_amount: 3, incoterm: "FOB", adr: "Klass 3",
+  });
+  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "sorğu yarat", files: [] } });
+  assert.equal(chat.body.cards.length, 1);
+  const card = chat.body.cards[0];
+  assert.match(card.title, /RFQ #2 yaradıldı/);
+  const rows = Object.fromEntries((card.rows ?? []).map((r) => [r.label, r.value]));
+  assert.equal(rows["Yükləmə yeri"], "Bakı");
+  assert.equal(rows["Həcm / Palet"], "3 CBM");
+  assert.equal(rows["Incoterm"], "FOB");
+  assert.equal(rows["Təhlükəli yük (ADR)"], "Klass 3");
+  assert.match(card.note ?? "", /göndərilməyib/);
+
+  // The card is part of the saved conversation.
+  const saved = await request<ConversationData>("GET", `/api/conversations/${chat.body.conversationId}`);
+  assert.equal(saved.body.messages[1].cards?.[0].title, card.title);
+
+  // A send waits for Bəli; its card appears with the outcome and lists exactly who got it.
+  toolCallingProvider("send_rfq_to_carriers", { rfq_id: 1 });
+  const send = await request<ChatResponse>("POST", "/api/chat", { message: { text: "göndər", files: [] } });
+  assert.equal(send.body.cards.length, 0, "nothing was done yet, so no result card");
+  const yes = await request<ConfirmationResponse>("POST", `/api/confirmations/${send.body.confirmations[0].id}`, { approve: true });
+  const sentCard = yes.body.message!.cards![0];
+  assert.match(sentCard.title, /RFQ #1 2 daşıyıcıya göndərildi/);
+  assert.deepEqual(sentCard.items?.sort(), ["Evil · x@evil.example", "Road A · a@road.az"]);
+});

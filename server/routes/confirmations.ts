@@ -39,12 +39,13 @@ export async function handleConfirmation(req: IncomingMessage, res: ServerRespon
   }
 
   const tool = tools.get(stored.tool);
-  const run = await tools.execute(stored.tool, JSON.parse(stored.params), emptyContext());
+  const ctx = emptyContext();
+  const run = await tools.execute(stored.tool, JSON.parse(stored.params), ctx);
   const outcome = run.ok
     ? (tool?.done?.(JSON.parse(run.content)) ?? "Hazırdır.")
     : `Alınmadı: ${run.content.replace(/^Error: /, "")}`;
   await finishConfirmation(id, run.ok ? "done" : "failed", outcome);
-  const messageId = await addMessage(Number(stored.conversation_id), { role: "assistant", text: `${run.ok ? "✓" : "⚠"} ${outcome}` });
+  const messageId = await addMessage(Number(stored.conversation_id), { role: "assistant", text: `${run.ok ? "✓" : "⚠"} ${outcome}`, cards: ctx.cards });
   const messages = await conversationMessages(Number(stored.conversation_id));
   const result: ConfirmationResponse = {
     confirmation: toConfirmation((await findConfirmation(id))!),

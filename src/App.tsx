@@ -101,6 +101,7 @@ export default function App({ user }: { user: User }) {
           text: res.reply,
           attachments: [],
           downloads: res.downloads,
+          cards: res.cards,
           confirmations: res.confirmations,
           createdAt: Date.now(),
         },

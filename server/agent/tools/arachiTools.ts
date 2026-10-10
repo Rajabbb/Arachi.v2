@@ -199,7 +199,18 @@ export const addCarriers: AgentTool = {
   async run(p) {
     const list = ((p.carriers as { name?: string; email?: string }[]) ?? []).filter((c) => c?.email);
     if (list.length === 0) throw new Error("Əlavə ediləcək daşıyıcının email ünvanı yoxdur.");
-    return api.addCarriers(list.map((c) => ({ name: String(c.name ?? "").trim() || "Daşıyıcı", email: String(c.email).trim() })));
+    const wanted = list.map((c) => ({ name: String(c.name ?? "").trim() || "Daşıyıcı", email: String(c.email).trim() }));
+    const before = new Set((await api.listCarriers()).map((c) => c.id));
+    const res = await api.addCarriers(wanted);
+    const after = (await api.listCarriers()).filter(isMine);
+    const added = after.filter((c) => !before.has(c.id));
+    const addedEmails = new Set(added.map((c) => c.email.toLowerCase()));
+    const skipped = wanted.filter((w) => !addedEmails.has(w.email.toLowerCase()));
+    return {
+      message: res.message,
+      added: added.map((c) => ({ name: c.company_name, email: c.email })),
+      skipped,
+    };
   },
 };
 
@@ -259,7 +270,12 @@ export const sendRfqToCarriers: AgentTool = {
     const due = await dueCarriers(rfq, p);
     if (due.length === 0) throw new Error("Göndəriləcək yeni daşıyıcı yoxdur: ya baza boşdur, ya da hamısına artıq göndərilib.");
     const res = await api.sendRfq(rfq.id, { carrier_ids: due.map((c) => c.id) });
-    return { rfq_id: rfq.display_id, sent: res.sent.length, carriers: res.sent.map((s) => s.company_name) };
+    return {
+      rfq_id: rfq.display_id,
+      sent: res.sent.length,
+      carriers: res.sent.map((s) => s.company_name),
+      recipients: res.sent.map((s) => ({ name: s.company_name, email: s.email })),
+    };
   },
 };
 
@@ -384,10 +400,10 @@ export const sendReminders: AgentTool = {
   async run(p) {
     // Only carriers of this RFQ that are still waiting, whatever ids were asked for.
     const chosen = (p.quote_ids as number[]) ?? [];
-    const ids = (await waitingFor(p.rfq_id as number)).map((r) => r.quote_id).filter((id) => chosen.length === 0 || chosen.includes(id));
-    if (ids.length === 0) throw new Error("Cavab verməyən daşıyıcı yoxdur.");
-    await api.remind(ids);
-    return { rfq_id: p.rfq_id, reminded: ids.length };
+    const due = (await waitingFor(p.rfq_id as number)).filter((r) => chosen.length === 0 || chosen.includes(r.quote_id));
+    if (due.length === 0) throw new Error("Cavab verməyən daşıyıcı yoxdur.");
+    await api.remind(due.map((r) => r.quote_id));
+    return { rfq_id: p.rfq_id, reminded: due.length, recipients: due.map((r) => ({ name: r.company_name, email: r.email })) };
   },
 };
 

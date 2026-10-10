@@ -239,4 +239,9 @@ export const migrations: string[] = [
   ALTER TABLE sessions ADD COLUMN arachi_token TEXT;
   ALTER TABLE sessions ADD COLUMN arachi_expires_at TEXT;
   `,
+
+  // 14: result cards saved with each reply (see migrations/0008_message_cards.sql).
+  `
+  ALTER TABLE conversation_messages ADD COLUMN cards TEXT NOT NULL DEFAULT '[]';
+  `,
 ];

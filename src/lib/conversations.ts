@@ -49,6 +49,7 @@ export function toMessage(m: ConversationMessage): Message {
     text: m.text,
     attachments: m.attachments.map((a, i) => ({ id: `saved-${m.id}-${i}`, ...a })),
     downloads: m.downloads,
+    cards: m.cards,
     confirmations: m.confirmations,
     createdAt: Date.parse(m.created_at),
   };

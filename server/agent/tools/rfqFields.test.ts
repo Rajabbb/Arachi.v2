@@ -135,3 +135,31 @@ test("customerPrice: fixed fee in cents, percent unchanged", () => {
   assert.deepEqual(customerPrice(100, "USD", "USD", 10, 0, 0), { cost: 100, fee: 10, total: 110 });
   assert.deepEqual(customerPrice(100, "USD", "USD", 10, 0, 7.5), { cost: 100, fee: 7.5, total: 107.5 });
 });
+
+test("cards list exactly who was added and who was skipped", async () => {
+  const { emptyContext } = await import("./registry");
+  await call("add_carriers", { carriers: [{ name: "Road A", email: "a@road.az" }] });
+  const ctx = emptyContext();
+  await call("add_carriers", { carriers: [{ name: "Again", email: "a@road.az" }, { name: "Road B", email: "b@road.az" }, { name: "Road C", email: "c@road.az" }] }, ctx);
+  const card = ctx.cards[0];
+  assert.equal(card.title, "2 daşıyıcı əlavə edildi");
+  assert.deepEqual(card.items, ["Road B · b@road.az", "Road C · c@road.az"]);
+  assert.match(card.note ?? "", /atlandı \(1\).*a@road\.az/);
+
+  const none = emptyContext();
+  await call("add_carriers", { carriers: [{ name: "Road B", email: "b@road.az" }] }, none);
+  assert.equal(none.cards[0].title, "Yeni daşıyıcı əlavə olunmadı");
+  assert.equal(none.cards[0].tone, "warning");
+});
+
+test("a card is made for every tool that reports, and read tools show what they found", async () => {
+  const { emptyContext } = await import("./registry");
+  const { cardFor } = await import("./toolCards");
+  for (const name of Object.keys(cardFor)) assert.ok(tools.get(name), `${name} is a registered tool`);
+  const ctx = emptyContext();
+  await call("create_rfq", { ...RFQ_DEFAULTS, origin: "Bakı", destination: "Berlin" }, ctx);
+  await call("list_rfqs", {}, ctx);
+  await call("get_dashboard", {}, ctx);
+  assert.deepEqual(ctx.cards.map((c) => c.title.split(":")[0].replace(/ \d+.*/, "")), ["RFQ #1 yaradıldı", "RFQ siyahısı", "Ümumi göstəricilər"].map((t) => t.split(":")[0].replace(/ \d+.*/, "")));
+  assert.match(ctx.cards[1].items![0], /#1 · Bakı → Berlin/);
+});

@@ -4,6 +4,7 @@ import { formatSize } from "../lib/agent";
 import MarkdownText from "./MarkdownText";
 import ConfirmCard from "./ConfirmCard";
 import AiMascot from "./AiMascot";
+import ResultCards from "./ResultCards";
 
 interface Props {
   messages: Message[];
@@ -45,6 +46,7 @@ export default function MessageList({ messages, busy, onConfirm, empty }: Props)
                 ))}
               </ul>
             )}
+            {m.cards && m.cards.length > 0 && <ResultCards cards={m.cards} />}
             {m.downloads && m.downloads.length > 0 && (
               <ul className="attachments">
                 {m.downloads.map((d) => (

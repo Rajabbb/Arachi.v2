@@ -3,6 +3,7 @@ import type {
   ConversationMessage,
   ConversationSummary,
   Download,
+  ResultCard,
   UploadedFile,
 } from "../../shared/protocol";
 import { currentUserId } from "../auth/current";
@@ -62,7 +63,7 @@ export async function createConversation(title: string): Promise<number> {
 /** Appends a message to one of the user's conversations and marks it as the latest. */
 export async function addMessage(
   conversationId: number,
-  message: { role: "user" | "assistant"; text: string; attachments?: AttachmentInfo[]; downloads?: Download[] },
+  message: { role: "user" | "assistant"; text: string; attachments?: AttachmentInfo[]; downloads?: Download[]; cards?: ResultCard[] },
 ): Promise<number> {
   const at = now();
   const { changes } = await db().run(
@@ -71,19 +72,19 @@ export async function addMessage(
   );
   if (changes === 0) throw new Error(`Conversation ${conversationId} not found.`);
   const row = await db().get<{ id: number }>(
-    `INSERT INTO conversation_messages (conversation_id, role, text, attachments, downloads, created_at)
-     VALUES (?, ?, ?, ?, ?, ?) RETURNING id`,
+    `INSERT INTO conversation_messages (conversation_id, role, text, attachments, downloads, cards, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`,
     conversationId, message.role, message.text,
-    JSON.stringify(message.attachments ?? []), JSON.stringify(message.downloads ?? []), at,
+    JSON.stringify(message.attachments ?? []), JSON.stringify(message.downloads ?? []), JSON.stringify(message.cards ?? []), at,
   );
   return Number(row!.id);
 }
 
 export async function conversationMessages(conversationId: number): Promise<ConversationMessage[]> {
   const rows = await db().all<{
-    id: number; role: "user" | "assistant"; text: string; attachments: string; downloads: string; created_at: string;
+    id: number; role: "user" | "assistant"; text: string; attachments: string; downloads: string; cards: string; created_at: string;
   }>(
-    `SELECT m.id, m.role, m.text, m.attachments, m.downloads, m.created_at
+    `SELECT m.id, m.role, m.text, m.attachments, m.downloads, m.cards, m.created_at
      FROM conversation_messages m JOIN conversations c ON c.id = m.conversation_id
      WHERE m.conversation_id = ? AND c.user_id = ?
      ORDER BY m.id`,
@@ -91,9 +92,10 @@ export async function conversationMessages(conversationId: number): Promise<Conv
   );
   const confirmations = await confirmationsOf(conversationId);
   return Promise.all(
-    rows.map(async (r) => ({
+    rows.map(async ({ cards, ...r }) => ({
       ...r,
       id: Number(r.id),
+      cards: parseCards(cards),
       attachments: JSON.parse(r.attachments) as AttachmentInfo[],
       // Saved download links expire; the chat gets fresh ones each time it is opened.
       downloads: await Promise.all(
@@ -102,6 +104,15 @@ export async function conversationMessages(conversationId: number): Promise<Conv
       ...(confirmations.has(Number(r.id)) ? { confirmations: confirmations.get(Number(r.id)) } : {}),
     })),
   );
+}
+
+function parseCards(text: string): ResultCard[] {
+  try {
+    const cards: unknown = JSON.parse(text);
+    return Array.isArray(cards) ? (cards as ResultCard[]) : [];
+  } catch {
+    return [];
+  }
 }
 
 /** The model's transcript of the latest turns, one array of messages per turn. */

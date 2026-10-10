@@ -37,6 +37,20 @@ export interface Download {
 }
 
 /**
+ * What a tool did, shown under the reply so the user can check it without
+ * trusting the model's wording: a created RFQ's fields, the carriers that
+ * were added, who a message went to. Written by the server from real data.
+ */
+export interface ResultCard {
+  title: string;
+  /** success = something was changed; info = something was read or listed. */
+  tone?: "success" | "info" | "warning";
+  rows?: { label: string; value: string }[];
+  items?: string[];
+  note?: string;
+}
+
+/**
  * An action the agent prepared that sends messages (an RFQ to carriers,
  * reminders, the winner's notice). Nothing is sent until the user presses
  * "Bəli" under the reply (POST /api/confirmations/:id).
@@ -59,6 +73,8 @@ export interface ChatResponse {
   downloads: Download[];
   /** Actions waiting for the user's "Bəli" / "Xeyr", shown under the reply. */
   confirmations: Confirmation[];
+  /** What the tools did in this turn. */
+  cards: ResultCard[];
 }
 
 /** POST /api/confirmations/:id { approve } — the user's answer to a confirmation. */
@@ -101,6 +117,8 @@ export interface ConversationMessage {
   text: string;
   attachments: AttachmentInfo[];
   downloads: Download[];
+  /** What the tools did for this reply. */
+  cards?: ResultCard[];
   /** Actions this reply prepared, with their current status. */
   confirmations?: Confirmation[];
   created_at: string;

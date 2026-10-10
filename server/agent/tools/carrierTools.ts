@@ -85,7 +85,13 @@ export const importCarriers: AgentTool = {
       await api.setCategory(added.map((c) => c.id), target.id, 0);
       category = target.name;
     }
-    return { file: file.name, added: added.length, category, message: res.message };
+    return {
+      file: file.name,
+      added: added.length,
+      addedCarriers: added.map((c) => ({ name: c.company_name, email: c.email })),
+      category,
+      message: res.message,
+    };
   },
 };
 
@@ -110,6 +116,10 @@ export const removeCarriers: AgentTool = {
     if (ids.length === 0) throw new Error("Silinəcək daşıyıcı seçilməyib.");
     const carriers = await ownCarriers(ids);
     await api.deleteCarriers(carriers.map((c) => c.id));
-    return { removed: carriers.length, carriers: carriers.map((c) => c.company_name) };
+    return {
+      removed: carriers.length,
+      carriers: carriers.map((c) => c.company_name),
+      details: carriers.map((c) => ({ name: c.company_name, email: c.email })),
+    };
   },
 };

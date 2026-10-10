@@ -1,4 +1,4 @@
-import type { Confirmation, Download, UploadedFile } from "../../../shared/protocol";
+import type { Confirmation, Download, ResultCard, UploadedFile } from "../../../shared/protocol";
 import type { ToolDefinition } from "../providers/types";
 
 /**
@@ -32,6 +32,8 @@ export interface ToolContext {
   askUser?: (tool: string, params: Record<string, unknown>, summary: string) => Promise<Confirmation>;
   /** Actions prepared in this turn, shown under the reply. */
   confirmations: Confirmation[];
+  /** What tools did in this turn (see AgentTool.card), shown under the reply. */
+  cards: ResultCard[];
 }
 
 /** What the user will be asked to confirm, and the exact parameters that will then run. */
@@ -52,6 +54,11 @@ export interface AgentTool {
   confirm?(params: Record<string, unknown>): Promise<ConfirmPlan | null>;
   /** One line for the chat after the user confirmed and the tool ran. */
   done?(result: unknown): string;
+  /**
+   * What the user should see of this call's outcome (null = nothing). Built
+   * from the real result, so it is shown whatever the model writes.
+   */
+  card?(result: unknown, params: Record<string, unknown>): ResultCard | null;
 }
 
 export interface ToolExecution {
@@ -63,7 +70,7 @@ export interface ToolExecution {
 }
 
 export function emptyContext(files: UploadedFile[] = [], text = ""): ToolContext {
-  return { files, text, downloads: [], confirmations: [] };
+  return { files, text, downloads: [], confirmations: [], cards: [] };
 }
 
 export class ToolRegistry {
@@ -124,6 +131,12 @@ export class ToolRegistry {
         }
       }
       const result = await tool.run(resolved.params, ctx);
+      try {
+        const card = tool.card?.(result, resolved.params);
+        if (card) ctx.cards.push(card);
+      } catch {
+        // A card is a convenience; the tool's result still goes back to the model.
+      }
       return {
         ...resolved,
         ok: true,

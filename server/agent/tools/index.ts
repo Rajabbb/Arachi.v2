@@ -1,4 +1,5 @@
 import { ToolRegistry } from "./registry";
+import { cardFor } from "./toolCards";
 import { currentDateTime } from "./datetime";
 import { cancelWinner, offerHistory } from "./arachiTools";
 import { importCarriers, listCategories, removeCarriers, setCarrierCategory } from "./carrierTools";
@@ -48,3 +49,10 @@ export const tools = new ToolRegistry()
   .register(exportRfqs)
   // Numbers
   .register(getDashboard);
+
+// Every tool shows what it did as a card under the reply (see toolCards.ts).
+for (const [name, card] of Object.entries(cardFor)) {
+  const tool = tools.get(name);
+  if (!tool) throw new Error(`toolCards.ts has a card for an unknown tool: ${name}`);
+  tool.card = card;
+}

@@ -1,4 +1,4 @@
-import type { Confirmation, Download, ToolCallSummary, UploadedFile } from "../../shared/protocol";
+import type { Confirmation, Download, ResultCard, ToolCallSummary, UploadedFile } from "../../shared/protocol";
 import { config } from "../config";
 import { systemPrompt } from "./prompt";
 import { toAttachment } from "./files";
@@ -17,6 +17,8 @@ export interface TurnResult {
   downloads: Download[];
   /** Actions prepared for the user's "Bəli" / "Xeyr". */
   confirmations: Confirmation[];
+  /** What the tools did, shown under the reply. */
+  cards: ResultCard[];
 }
 
 /**
@@ -56,6 +58,7 @@ export async function runTurn<M>(
     toolCalls,
     downloads: ctx.downloads,
     confirmations: ctx.confirmations,
+    cards: ctx.cards,
   });
 
   for (let i = 0; i < config.maxIterations; i++) {
@@ -70,6 +73,7 @@ export async function runTurn<M>(
           toolCalls,
           downloads: ctx.downloads,
           confirmations: ctx.confirmations,
+          cards: ctx.cards,
         };
 
       case "continue":

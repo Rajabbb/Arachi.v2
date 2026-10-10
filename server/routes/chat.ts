@@ -73,7 +73,7 @@ export async function handleChat(req: IncomingMessage, res: ServerResponse) {
       createConfirmation(id, tool, params, summary),
     );
     await saveContext(id, remember(turns, result.transcript.slice(previous.length), model));
-    const replyId = await addMessage(id, { role: "assistant", text: result.reply, downloads: result.downloads });
+    const replyId = await addMessage(id, { role: "assistant", text: result.reply, downloads: result.downloads, cards: result.cards });
     await attachConfirmations(result.confirmations.map((c) => c.id), replyId);
     const body: ChatResponse = {
       conversationId: id,
@@ -81,6 +81,7 @@ export async function handleChat(req: IncomingMessage, res: ServerResponse) {
       toolCalls: result.toolCalls,
       downloads: result.downloads,
       confirmations: result.confirmations,
+      cards: result.cards,
     };
     send(res, 200, body);
   } catch (err) {
