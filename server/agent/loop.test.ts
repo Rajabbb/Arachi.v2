@@ -43,7 +43,7 @@ test("runs parallel tool calls, then answers", async () => {
       kind: "tool_calls",
       message: { fake: "calls" },
       calls: [
-        { id: "1", name: "create_rfq", input: { origin: "Bakı", destination: "Milan", cargo_type: "Xalça", weight_kg: 500 } },
+        { id: "1", name: "create_rfq", input: { origin: "Bakı", destination: "Milan", cargo_type: "Xalça", weight_kg: 500, volume_amount: 10, volume_unit: "Palet", transport_mode: "Quru" } },
         { id: "2", name: "list_rfqs", input: {} },
       ],
     },
@@ -56,7 +56,7 @@ test("runs parallel tool calls, then answers", async () => {
   assert.equal(res.reply, "Hazırdır: RFQ #1");
   assert.deepEqual(res.transcript.map((m) => (m as Msg).fake), ["user:RFQ yarat:0", "calls", "results", "paused", "answer"]);
   const create = res.toolCalls.find((c) => c.name === "create_rfq")!;
-  assert.deepEqual(create.overrides, ["origin", "destination", "cargo_type", "weight_kg"]);
+  assert.deepEqual(create.overrides, ["origin", "destination", "cargo_type", "weight_kg", "volume_amount", "volume_unit", "transport_mode"]);
   const results = (res.transcript[2] as Msg).results!;
   assert.deepEqual(results.map((r) => [r.call.id, r.ok]), [["1", true], ["2", true]]);
 });

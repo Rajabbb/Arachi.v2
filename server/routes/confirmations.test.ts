@@ -6,7 +6,7 @@ import { app } from "../app";
 import { db } from "../db";
 import { setProvider } from "../agent/providers";
 import type { ModelProvider, ModelStep } from "../agent/providers/types";
-import { call, freshDb } from "../test/helpers";
+import { call, freshDb, RFQ_DEFAULTS } from "../test/helpers";
 import { arachiData, installFakeArachi, signIn } from "../test/fakeArachi";
 import type { ChatResponse, ConfirmationResponse, ConversationData } from "../../shared/protocol";
 
@@ -67,7 +67,7 @@ beforeEach(async () => {
   await freshDb();
   await db().run("DELETE FROM users");
   ({ cookie, userId } = await signIn(1));
-  await call("create_rfq", { origin: "Bakı", destination: "Tbilisi", cargo_type: "Un", weight_kg: 500 }, undefined, userId);
+  await call("create_rfq", { ...RFQ_DEFAULTS, origin: "Bakı", destination: "Tbilisi", cargo_type: "Un", weight_kg: 500 }, undefined, userId);
   await call("add_carriers", { carriers: [{ name: "Road A", email: "a@road.az" }, { name: "Evil", email: "x@evil.example" }] }, undefined, userId);
 });
 

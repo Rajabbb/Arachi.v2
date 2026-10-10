@@ -23,40 +23,103 @@ function rfqView(r: api.ArachiRfq | Omit<api.ArachiRfq, "display_id">) {
     deadline: r.deadline || undefined,
     truck_type: r.truck_type || undefined,
     shipment_type: r.shipment_type || undefined,
+    stackable: r.stackable === null || r.stackable === undefined ? undefined : r.stackable ? "Stackable" : "Non-stackable",
+    details: Array.isArray(r.required_fields) && r.required_fields.length > 0 ? r.required_fields : undefined,
     notes: r.additional_notes || undefined,
     status: r.status,
     created_at: r.created_at,
   };
 }
 
+const TRANSPORT_MODES: Record<string, string> = {
+  Quru: "Quru (Road)",
+  Hava: "Hava (Air)",
+  "Dəniz": "Su/Dəniz (Sea)",
+  "Dəmiryolu": "Dəmiryolu (Rail)",
+};
+
+const INCOTERMS = ["", "EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP"] as const;
+
+/** A date the way the panel writes it into the RFQ: "2026-10-12" or "2026-10-12 10:30 AM". */
+export function panelDate(label: string, value: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?$/.exec(value.trim());
+  if (!m || Number.isNaN(Date.parse(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`))) {
+    throw new Error(`${label} YYYY-MM-DD və ya YYYY-MM-DDTHH:MM formatında olmalıdır (məsələn 2026-10-12).`);
+  }
+  if (!m[4]) return `${m[1]}-${m[2]}-${m[3]}`;
+  let h = Number(m[4]);
+  const suffix = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return `${m[1]}-${m[2]}-${m[3]} ${String(h).padStart(2, "0")}:${m[5]} ${suffix}`;
+}
+
 export const createRfq: AgentTool = {
   name: "create_rfq",
   description:
-    "Creates a new freight RFQ (request for quotation) on arachi.co and returns it with its number. It does not send it to carriers: use send_rfq_to_carriers for that. Use it when the user wants prices for moving cargo.",
+    "Creates a new freight RFQ on arachi.co with exactly the fields of the panel's RFQ form and returns it with its number. It does not send it to carriers: use send_rfq_to_carriers for that. The mandatory fields are origin, destination, cargo_type, weight_kg, volume (amount + unit) and transport_mode; if the user did not give one of them, ask for it before calling. The optional fields are only set when the user mentioned them.",
   params: {
-    origin: { type: "string", description: "Loading place (city, country or full address)." },
-    destination: { type: "string", description: "Unloading place (city, country or full address)." },
-    cargo_type: { type: "string", description: "What the cargo is, e.g. textile, furniture, food.", default: "" },
-    weight_kg: { type: "number", description: "Gross weight in kilograms (convert tonnes to kg); 0 means not specified.", default: 0 },
-    volume_m3: { type: "number", description: "Volume in cubic metres; 0 means not specified.", default: 0 },
-    deadline: { type: "string", description: "Delivery deadline, YYYY-MM-DD; empty means flexible.", default: "" },
-    truck_type: { type: "string", description: "Vehicle type, e.g. Tent, Reefer.", default: "" },
-    hs_code: { type: "string", description: "HS code if known.", default: "" },
-    shipment_type: { type: "string", description: "Shipment type, e.g. FTL, LTL.", default: "" },
-    notes: { type: "string", description: "Extra requirements for carriers (pallets, ADR, temperature, loading date ...).", default: "" },
+    origin: { type: "string", description: "Loading place (city, country or full address), e.g. \"Bakı, Azərbaycan\"." },
+    destination: { type: "string", description: "Unloading place (city, country or full address), e.g. \"İstanbul, Türkiyə\"." },
+    cargo_type: { type: "string", description: "What the cargo is, e.g. textile, furniture, food." },
+    weight_kg: { type: "number", description: "Gross weight in kilograms (convert tonnes to kg)." },
+    volume_amount: { type: "number", description: "The quantity: number of pallets, or volume in cubic metres, depending on volume_unit." },
+    volume_unit: {
+      type: "string",
+      description: "What volume_amount counts: Palet (pallets) or CBM (cubic metres).",
+      enum: ["Palet", "CBM"],
+    },
+    transport_mode: {
+      type: "string",
+      description: "Transport mode: Quru (road), Dəniz (sea), Hava (air), Dəmiryolu (rail).",
+      enum: Object.keys(TRANSPORT_MODES),
+    },
+    loading_date: { type: "string", description: "Loading date, YYYY-MM-DD or YYYY-MM-DDTHH:MM; empty = not specified.", default: "" },
+    delivery_deadline: { type: "string", description: "Delivery deadline, YYYY-MM-DD or YYYY-MM-DDTHH:MM; empty = not specified.", default: "" },
+    truck_type: { type: "string", description: "Vehicle type, e.g. Tentli, Refrijerator.", default: "" },
+    hs_code: { type: "string", description: "HS code, e.g. 1234.56.", default: "" },
+    stackable: { type: "string", description: "Whether the cargo can be stacked; empty = not specified.", enum: ["", "Stackable", "Non-stackable"], default: "" },
+    shipment_type: { type: "string", description: "Shipment type; empty = not specified.", enum: ["", "FTL", "LTL", "FCL", "LCL"], default: "" },
+    incoterm: { type: "string", description: "Incoterm; empty = not specified.", enum: [...INCOTERMS], default: "" },
+    adr: { type: "string", description: "Dangerous goods (ADR) details, e.g. \"Klass 3\"; empty = not dangerous / not specified.", default: "" },
+    temperature: { type: "string", description: "Temperature requirement (reefer), e.g. \"+2 to +8 °C\"; empty = none.", default: "" },
+    notes: { type: "string", description: "Additional information and special instructions for carriers.", default: "" },
   },
   async run(p) {
+    const unit = p.volume_unit as string;
+    const amount = p.volume_amount as number;
+    if (!(amount > 0)) throw new Error("Həcm / palet miqdarı 0-dan böyük olmalıdır.");
+    if (!(p.weight_kg as number > 0)) throw new Error("Çəki 0-dan böyük olmalıdır.");
+    // The panel stores these as text lines, in this order; carriers see them on the quote page.
+    const fields: string[] = [];
+    const loading = (p.loading_date as string).trim();
+    const delivery = (p.delivery_deadline as string).trim();
+    if (loading) fields.push(`Loading Date: ${panelDate("loading_date", loading)}`);
+    if ((p.truck_type as string).trim()) fields.push(`Truck Type: ${(p.truck_type as string).trim()}`);
+    if ((p.hs_code as string).trim()) fields.push(`HS Code: ${(p.hs_code as string).trim()}`);
+    if (p.stackable) fields.push(`Stackable / Non-stackable: ${p.stackable}`);
+    if (p.shipment_type) fields.push(`Shipment Type: ${p.shipment_type}`);
+    if (p.incoterm) fields.push(`Incoterm: ${p.incoterm}`);
+    if ((p.adr as string).trim()) fields.push(`Dangerous Goods (ADR): ${(p.adr as string).trim()}`);
+    if ((p.temperature as string).trim()) fields.push(`Temperature Requirement: ${(p.temperature as string).trim()}`);
+    if (delivery) fields.push(`Delivery Deadline: ${panelDate("delivery_deadline", delivery)}`);
+    const notes = (p.notes as string).trim();
+    if (notes) fields.push(`Additional Information: ${notes}`);
+    fields.push(`Həcm / Palet: ${amount} ${unit}`);
+
     const rfq = await api.createRfq({
-      origin: p.origin as string,
-      destination: p.destination as string,
-      cargo_type: p.cargo_type as string,
+      origin: (p.origin as string).trim(),
+      destination: (p.destination as string).trim(),
+      cargo_type: (p.cargo_type as string).trim(),
       weight_kg: p.weight_kg as number,
-      volume_m3: p.volume_m3 as number,
-      deadline: p.deadline as string,
-      truck_type: p.truck_type as string,
-      hs_code: p.hs_code as string,
+      volume_m3: amount,
+      deadline: loading,
+      truck_type: (p.truck_type as string).trim(),
+      hs_code: (p.hs_code as string).trim(),
       shipment_type: p.shipment_type as string,
-      additional_notes: p.notes as string,
+      stackable: p.stackable as string,
+      transportation_mode: TRANSPORT_MODES[p.transport_mode as string],
+      required_fields: fields,
+      additional_notes: notes,
     });
     const number = (await api.listRfqs()).find((r) => r.id === rfq.id)?.display_id;
     return { number, ...rfqView(rfq), page_url: `${siteUrl()}/customer` };

@@ -80,3 +80,12 @@ export function textFile(name: string, text: string, type = "text/plain"): Uploa
 export function asTestUser<T>(fn: () => Promise<T>): Promise<T> {
   return asUser(testUserId, fn, fakeJwt(testCustomerId));
 }
+
+/** The mandatory create_rfq fields (the panel's required inputs), so tests only spell out what they check. */
+export const RFQ_DEFAULTS = {
+  cargo_type: "Un",
+  weight_kg: 500,
+  volume_amount: 10,
+  volume_unit: "Palet",
+  transport_mode: "Quru",
+};

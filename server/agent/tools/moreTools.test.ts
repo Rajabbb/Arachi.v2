@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
-import { call, freshDb, textFile } from "../../test/helpers";
+import { call, freshDb, textFile, RFQ_DEFAULTS } from "../../test/helpers";
 import { arachiData, fakeJwt, installFakeArachi } from "../../test/fakeArachi";
 import { tools } from ".";
 import { emptyContext } from "./registry";
@@ -17,7 +17,7 @@ beforeEach(freshDb);
 
 /** Three carriers and one open RFQ (panel number 1), all sent. */
 async function setup() {
-  const { result: rfq } = await call("create_rfq", { origin: "Bakı", destination: "Berlin", cargo_type: "Xalça", weight_kg: 1200 });
+  const { result: rfq } = await call("create_rfq", { ...RFQ_DEFAULTS, origin: "Bakı", destination: "Berlin", cargo_type: "Xalça", weight_kg: 1200 });
   await call("add_carriers", {
     carriers: [
       { name: "Road A", email: "a@road.az" },
@@ -145,7 +145,7 @@ test("cancel_winner reopens the RFQ; offer_history shows earlier versions", asyn
 
 test("export_rfqs makes an Excel or PDF file from arachi.co's report, by panel number, and rejects bad input", async () => {
   const { rfq, carriers } = await setup();
-  await call("create_rfq", { origin: "Bakı", destination: "Milan" });
+  await call("create_rfq", { ...RFQ_DEFAULTS, origin: "Bakı", destination: "Milan" });
   await call("send_rfq_to_carriers", { rfq_id: rfq.number });
   Object.assign(arachiData.quotes.find((q) => q.carrier_id === carriers[0].id)!, { price: 700, currency: "EUR", transit_time_days: 4 });
 
@@ -208,7 +208,7 @@ test("customer quote: fee on top, saved on arachi.co, PDF made, winner preferred
   await assert.rejects(call("create_customer_quote", { rfq_id: rfq.number, offer_id: 424242 }), /tapılmadı/);
 
   // An RFQ with no priced offer cannot be quoted.
-  const { result: empty } = await call("create_rfq", { origin: "A", destination: "B" });
+  const { result: empty } = await call("create_rfq", { ...RFQ_DEFAULTS, origin: "A", destination: "B" });
   await assert.rejects(call("create_customer_quote", { rfq_id: empty.number }), /hələ qiymətli təklif yoxdur/);
 });
 

@@ -17,6 +17,8 @@ export interface ArachiRfq {
   truck_type?: string | null;
   hs_code?: string | null;
   shipment_type?: string | null;
+  stackable?: boolean | null;
+  required_fields?: string[] | null;
   additional_notes?: string | null;
   status: string;
   created_at?: string;
@@ -72,6 +74,12 @@ export interface NewRfq {
   truck_type: string;
   hs_code: string;
   shipment_type: string;
+  /** "Stackable", "Non-stackable" or "" (not specified). */
+  stackable: string;
+  /** Panel wording: "Quru (Road)", "Hava (Air)", "Su/Dəniz (Sea)", "Dəmiryolu (Rail)". */
+  transportation_mode: string;
+  /** The "ixtiyari parametrlər" and volume lines exactly as the panel writes them ("Incoterm: FOB" ...). */
+  required_fields: string[];
   additional_notes: string;
 }
 
@@ -189,7 +197,7 @@ export interface CustomerQuoteRecord {
   request_id: number;
   quote_id: number;
   base_price: number;
-  margin_type: "percent";
+  margin_type: "percent" | "fixed";
   margin_value: number;
   final_price: number;
   currency: string;

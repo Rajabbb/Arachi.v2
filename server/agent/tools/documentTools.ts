@@ -160,6 +160,27 @@ const text = {
   },
 };
 
+/** The four standard terms of the panel's quote window (the same texts), in both document languages. */
+const TERMS = {
+  customs: {
+    az: "Gömrük rüsumları və xərcləri qiymətə daxil deyil.",
+    en: "Customs duties and charges are not included in the price.",
+  },
+  insurance: {
+    az: "Yükün sığortalanması qiymətə daxil deyil (müştərinin məsuliyyətindədir).",
+    en: "Cargo insurance is not included in the price (the customer's responsibility).",
+  },
+  loading: {
+    az: "Yükləmə və boşaltma əməliyyatları qiymətə daxil deyil.",
+    en: "Loading and unloading operations are not included in the price.",
+  },
+  dimensions: {
+    az: "Təklif verilən qiymət yalnız yuxarıdakı həcm və çəkiyə əsasən hesablanmışdır. Parametrlər dəyişərsə qiymət yenidən hesablanacaq.",
+    en: "The quoted price is calculated only for the volume and weight stated above. If the parameters change, the price will be recalculated.",
+  },
+} as const;
+const termKeys = Object.keys(TERMS);
+
 /** How long a customer quote stays valid when the user gave no date (arachi.co offers carry no validity date). */
 export const DEFAULT_QUOTE_VALIDITY_DAYS = 7;
 
@@ -167,15 +188,17 @@ function plusDays(days: number, from: Date): string {
   return new Date(from.getTime() + days * 86_400_000).toISOString().slice(0, 10);
 }
 
-export function customerPrice(price: number, from: string, to: string, feePercent: number, rate: number) {
+export function customerPrice(price: number, from: string, to: string, feePercent: number, rate: number, fixedFee = 0) {
   if (!(feePercent >= 0)) throw new Error("Xidmət haqqı faizi mənfi ola bilməz.");
+  if (!(fixedFee >= 0)) throw new Error("Xidmət haqqı məbləği mənfi ola bilməz.");
   let cost = price;
   if (from !== to) {
     if (!(rate > 0)) throw new Error(`${from} → ${to} çevirmək üçün eur_usd_rate (1 EUR neçə USD) lazımdır.`);
     if (!["EUR", "USD"].includes(from) || !["EUR", "USD"].includes(to)) throw new Error("Yalnız EUR ↔ USD çevirmək mümkündür.");
     cost = from === "EUR" ? price * rate : price / rate;
   }
-  const fee = Math.round(cost * feePercent) / 100;
+  // A fixed fee replaces the percentage (the panel's "%" / "+" switch); it is in the quote's currency.
+  const fee = fixedFee > 0 ? Math.round(fixedFee * 100) / 100 : Math.round(cost * feePercent) / 100;
   cost = Math.round(cost * 100) / 100;
   return { cost, fee, total: Math.round((cost + fee) * 100) / 100 };
 }
@@ -202,7 +225,19 @@ export const createCustomerQuote: AgentTool = {
   params: {
     rfq_id: { type: "integer", description: "RFQ number as shown in the panel on arachi.co (RFQ #n)." },
     offer_id: { type: "integer", description: "offer_id to base the quote on; 0 = the winner, else the cheapest.", default: 0 },
-    service_fee_percent: { type: "number", description: "Markup added to the carrier price, in percent.", default: 10 },
+    service_fee_percent: { type: "number", description: "Markup added to the carrier price, in percent (used when service_fee_amount is 0).", default: 10 },
+    service_fee_amount: {
+      type: "number",
+      description: "A fixed markup amount in the quote's currency instead of a percentage (the panel's \"+\" option); 0 = use the percentage.",
+      default: 0,
+    },
+    terms: {
+      type: "array",
+      description:
+        "Standard terms to print: customs = customs duties not included; insurance = insurance not included; loading = loading/unloading not included; dimensions = price is for the stated volume and weight only. Empty = none selected.",
+      items: { type: "string", enum: termKeys },
+      default: [],
+    },
     currency: { type: "string", description: "Quote currency; empty = the offer's currency.", enum: ["", ...CURRENCIES], default: "" },
     eur_usd_rate: { type: "number", description: "USD per 1 EUR, needed only when converting EUR ↔ USD.", default: 0 },
     customer_name: { type: "string", description: "Customer shown on the quote; empty = not shown.", default: "" },
@@ -215,7 +250,10 @@ export const createCustomerQuote: AgentTool = {
     const rfq = await rfqOrThrow(p.rfq_id as number);
     const offer = await baseOffer(rfq.id, p.offer_id as number);
     const currency = (p.currency as string) || offer.currency;
-    const price = customerPrice(offer.price as number, offer.currency, currency, p.service_fee_percent as number, p.eur_usd_rate as number);
+    const fixedFee = p.service_fee_amount as number;
+    const price = customerPrice(offer.price as number, offer.currency, currency, p.service_fee_percent as number, p.eur_usd_rate as number, fixedFee);
+    const chosenTerms = [...new Set((p.terms as string[]).filter((k) => termKeys.includes(k)))] as (keyof typeof TERMS)[];
+    const lang = p.language as "az" | "en";
     const s = text[p.language as "az" | "en"];
     const issued = now().slice(0, 10);
     checkDay("valid_until", p.valid_until as string);
@@ -246,6 +284,11 @@ export const createCustomerQuote: AgentTool = {
       doc.moveDown();
       // The fee is built into the customer's price; it is not shown as a separate line.
       table(doc, [s.service, s.total], [[`${s.freight}: ${rfq.origin} → ${rfq.destination}`, money(price.total, currency)]], [3, 1]);
+      if (chosenTerms.length > 0) {
+        doc.moveDown().font("bold").fontSize(10).fillColor("black").text(lang === "en" ? "Terms and conditions" : "Şərtlər və qaydalar");
+        doc.font("regular").fontSize(9).fillColor("#333333");
+        chosenTerms.forEach((k) => doc.text(`• ${TERMS[k][lang]}`));
+      }
       doc.moveDown().fontSize(9).fillColor("#555555").text(s.footer);
       if (standard) doc.text(s.defaultValidity(DEFAULT_QUOTE_VALIDITY_DAYS));
       doc.fillColor("black");
@@ -255,8 +298,9 @@ export const createCustomerQuote: AgentTool = {
       request_id: rfq.id,
       quote_id: offer.id,
       base_price: price.cost,
-      margin_type: "percent",
-      margin_value: p.service_fee_percent as number,
+      margin_type: fixedFee > 0 ? "fixed" : "percent",
+      margin_value: fixedFee > 0 ? fixedFee : (p.service_fee_percent as number),
+      terms_conditions: chosenTerms.map((k) => TERMS[k].az).join(" | "),
       final_price: price.total,
       currency,
       valid_until: validUntil,
@@ -267,8 +311,8 @@ export const createCustomerQuote: AgentTool = {
       rfq_id: rfq.display_id,
       offer_id: offer.id,
       carrier_price: money(offer.price as number, offer.currency),
-      service_fee_percent: p.service_fee_percent,
-      service_fee: money(price.fee, currency),
+      service_fee: fixedFee > 0 ? `${money(fixedFee, currency)} (sabit)` : `${p.service_fee_percent}% = ${money(price.fee, currency)}`,
+      terms: chosenTerms,
       customer_total: money(price.total, currency),
       valid_until: validUntil,
       ...(standard ? { validity_note: `Müddət yazılmadığı üçün standart ${DEFAULT_QUOTE_VALIDITY_DAYS} gün götürüldü.` } : {}),

@@ -1,0 +1,137 @@
+import assert from "node:assert/strict";
+import { after, before, beforeEach, test } from "node:test";
+import { call, freshDb, RFQ_DEFAULTS } from "../../test/helpers";
+import { arachiData, installFakeArachi } from "../../test/fakeArachi";
+import { tools } from ".";
+import { resolveParams } from "./registry";
+import { customerPrice } from "./documentTools";
+import { panelDate } from "./arachiTools";
+
+let restore: () => void;
+before(() => {
+  restore = installFakeArachi();
+});
+after(() => restore());
+beforeEach(freshDb);
+
+const stored = () => arachiData.rfqs[arachiData.rfqs.length - 1] as Record<string, unknown>;
+
+test("the panel's mandatory fields are mandatory for the agent too", () => {
+  const tool = tools.get("create_rfq")!;
+  const missing = resolveParams(tool, { origin: "Bakı", destination: "Tbilisi" });
+  assert.ok("error" in missing && /cargo_type|weight_kg|volume/.test(missing.error));
+  const noUnit = resolveParams(tool, { ...RFQ_DEFAULTS, origin: "A", destination: "B", volume_unit: undefined });
+  assert.ok("error" in noUnit && /volume_unit/.test(noUnit.error));
+  const badUnit = resolveParams(tool, { ...RFQ_DEFAULTS, origin: "A", destination: "B", volume_unit: "m3" });
+  assert.ok("error" in badUnit);
+  const badMode = resolveParams(tool, { ...RFQ_DEFAULTS, origin: "A", destination: "B", transport_mode: "Qatar" });
+  assert.ok("error" in badMode);
+  assert.ok(!("error" in resolveParams(tool, { ...RFQ_DEFAULTS, origin: "A", destination: "B" })));
+});
+
+test("a full RFQ is written exactly like the panel writes it", async () => {
+  const { result } = await call("create_rfq", {
+    origin: "Bakı, Azərbaycan",
+    destination: "İstanbul, Türkiyə",
+    cargo_type: "Tekstil",
+    weight_kg: 1200,
+    volume_amount: 15,
+    volume_unit: "Palet",
+    transport_mode: "Dəniz",
+    loading_date: "2026-10-12T10:30",
+    delivery_deadline: "2026-10-20",
+    truck_type: "Tentli",
+    hs_code: "6109.10",
+    stackable: "Non-stackable",
+    shipment_type: "LTL",
+    incoterm: "FOB",
+    adr: "Klass 3",
+    temperature: "+2 to +8 °C",
+    notes: "Çox ehtiyatla",
+  });
+  assert.equal(result.number, 1);
+  const row = stored();
+  assert.equal(row.volume_m3, 15, "the amount goes to the volume field, the unit to the text line (as in the panel)");
+  assert.equal(row.transportation_mode, "Su/Dəniz (Sea)");
+  assert.equal(row.stackable, "Non-stackable");
+  assert.equal(row.shipment_type, "LTL");
+  assert.equal(row.deadline, "2026-10-12T10:30");
+  assert.equal(row.send_option, "none");
+  assert.deepEqual(row.required_fields, [
+    "Loading Date: 2026-10-12 10:30 AM",
+    "Truck Type: Tentli",
+    "HS Code: 6109.10",
+    "Stackable / Non-stackable: Non-stackable",
+    "Shipment Type: LTL",
+    "Incoterm: FOB",
+    "Dangerous Goods (ADR): Klass 3",
+    "Temperature Requirement: +2 to +8 °C",
+    "Delivery Deadline: 2026-10-20",
+    "Additional Information: Çox ehtiyatla",
+    "Həcm / Palet: 15 Palet",
+  ]);
+});
+
+test("a minimal RFQ only carries what was given, and the unit line is always there", async () => {
+  await call("create_rfq", { ...RFQ_DEFAULTS, origin: "A", destination: "B", volume_unit: "CBM", volume_amount: 2.5, transport_mode: "Hava" });
+  const row = stored();
+  assert.deepEqual(row.required_fields, ["Həcm / Palet: 2.5 CBM"]);
+  assert.equal(row.transportation_mode, "Hava (Air)");
+  assert.equal(row.stackable, "");
+  assert.equal(row.truck_type, "");
+});
+
+test("bad numbers and dates are refused before anything is created", async () => {
+  const base = { ...RFQ_DEFAULTS, origin: "A", destination: "B" };
+  await assert.rejects(call("create_rfq", { ...base, volume_amount: 0 }), /miqdarı/);
+  await assert.rejects(call("create_rfq", { ...base, weight_kg: 0 }), /Çəki/);
+  await assert.rejects(call("create_rfq", { ...base, loading_date: "12.10.2026" }), /YYYY-MM-DD/);
+  await assert.rejects(call("create_rfq", { ...base, delivery_deadline: "2026-13-45" }), /YYYY-MM-DD/);
+  assert.equal(arachiData.rfqs.length, 0);
+});
+
+test("the agent can read every field of an RFQ back", async () => {
+  await call("create_rfq", { ...RFQ_DEFAULTS, origin: "A", destination: "B", incoterm: "DAP", stackable: "Stackable" });
+  const { result } = await call("list_rfqs");
+  const first = result.rfqs[0];
+  assert.equal(first.stackable, "Stackable");
+  assert.ok((first.details as string[]).includes("Incoterm: DAP"));
+  assert.ok((first.details as string[]).includes("Həcm / Palet: 10 Palet"));
+});
+
+test("panelDate writes dates the way the panel does", () => {
+  assert.equal(panelDate("x", "2026-10-12"), "2026-10-12");
+  assert.equal(panelDate("x", "2026-10-12T00:05"), "2026-10-12 12:05 AM");
+  assert.equal(panelDate("x", "2026-10-12T12:00"), "2026-10-12 12:00 PM");
+  assert.equal(panelDate("x", "2026-10-12 18:45"), "2026-10-12 06:45 PM");
+  assert.throws(() => panelDate("x", "tomorrow"), /YYYY-MM-DD/);
+});
+
+test("customer quote: a fixed fee replaces the percentage, and chosen terms are saved", async () => {
+  const { result: rfq } = await call("create_rfq", { ...RFQ_DEFAULTS, origin: "A", destination: "B" });
+  await call("add_carriers", { carriers: [{ name: "Road A", email: "a@road.az" }] });
+  await call("send_rfq_to_carriers", { rfq_id: rfq.number });
+  Object.assign(arachiData.quotes[0], { price: 1000, currency: "USD", transit_time_days: 5 });
+
+  const fixed = (await call("create_customer_quote", { rfq_id: rfq.number, service_fee_amount: 150, terms: ["customs", "dimensions"] })).result;
+  assert.equal(fixed.customer_total, "1,150.00 USD");
+  assert.match(fixed.service_fee, /150\.00 USD \(sabit\)/);
+  assert.deepEqual(fixed.terms, ["customs", "dimensions"]);
+  const saved = arachiData.customerQuotes.at(-1)!;
+  assert.equal(saved.margin_type, "fixed");
+  assert.equal(saved.margin_value, 150);
+  assert.equal(saved.final_price, 1150);
+  assert.match(String(saved.terms_conditions), /Gömrük rüsumları.*\|.*Təklif verilən qiymət/s);
+
+  const pct = (await call("create_customer_quote", { rfq_id: rfq.number, service_fee_percent: 12 })).result;
+  assert.equal(pct.customer_total, "1,120.00 USD");
+  assert.equal(arachiData.customerQuotes.at(-1)!.margin_type, "percent");
+  assert.deepEqual(pct.terms, []);
+
+  await assert.rejects(call("create_customer_quote", { rfq_id: rfq.number, service_fee_amount: -5 }), /mənfi/);
+});
+
+test("customerPrice: fixed fee in cents, percent unchanged", () => {
+  assert.deepEqual(customerPrice(100, "USD", "USD", 10, 0, 0), { cost: 100, fee: 10, total: 110 });
+  assert.deepEqual(customerPrice(100, "USD", "USD", 10, 0, 7.5), { cost: 100, fee: 7.5, total: 107.5 });
+});

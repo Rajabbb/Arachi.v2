@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { after, before, beforeEach, test } from "node:test";
-import { call, freshDb } from "../../test/helpers";
+import { call, freshDb, RFQ_DEFAULTS } from "../../test/helpers";
 import { arachiData, installFakeArachi } from "../../test/fakeArachi";
 import { tools } from ".";
 import { emptyContext } from "./registry";
@@ -14,7 +14,7 @@ before(() => {
 after(() => restore());
 beforeEach(freshDb);
 
-const rfqInput = { origin: "Bakı", destination: "Tbilisi", cargo_type: "Un", weight_kg: 500 };
+const rfqInput = { ...RFQ_DEFAULTS, origin: "Bakı", destination: "Tbilisi" };
 
 /** An offer arriving on arachi.co (a carrier filled in the quote page). */
 /** The database id behind a panel number (the fake keeps them apart on purpose). */
@@ -34,7 +34,7 @@ async function setup() {
 }
 
 test("create_rfq creates the RFQ on arachi.co and sends nothing", async () => {
-  const { result } = await call("create_rfq", { ...rfqInput, notes: "10 palet" });
+  const { result } = await call("create_rfq", { ...RFQ_DEFAULTS, ...rfqInput, notes: "10 palet" });
   assert.equal(result.origin, "Bakı");
   assert.equal(result.status, "open");
   assert.equal(result.number, 1);
@@ -187,7 +187,7 @@ test("RFQs are named by the panel number, not the database id", async () => {
   // Carriers and quotes share the id counter in the fake, so database ids and panel numbers differ.
   const numbers: number[] = [];
   for (const dest of ["Berlin", "Milan", "Paris"]) {
-    numbers.push((await call("create_rfq", { origin: "Bakı", destination: dest })).result.number);
+    numbers.push((await call("create_rfq", { ...RFQ_DEFAULTS, origin: "Bakı", destination: dest })).result.number);
     await call("add_carriers", { carriers: [{ name: dest, email: `${dest}@x.az` }] });
   }
   assert.deepEqual(numbers, [1, 2, 3]);
@@ -208,7 +208,7 @@ test("RFQs are named by the panel number, not the database id", async () => {
 });
 
 test("list_rfqs counts everything, searches, and caps what it returns", async () => {
-  for (let i = 0; i < 30; i++) await call("create_rfq", { origin: "Bakı", destination: i % 2 ? "Berlin" : "Milan" });
+  for (let i = 0; i < 30; i++) await call("create_rfq", { ...RFQ_DEFAULTS, origin: "Bakı", destination: i % 2 ? "Berlin" : "Milan" });
   const all = (await call("list_rfqs")).result;
   assert.equal(all.total, 30);
   assert.equal(all.shown, 20);
