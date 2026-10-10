@@ -1,26 +1,38 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import type { Message } from "../types";
 import { formatSize } from "../lib/agent";
 import MarkdownText from "./MarkdownText";
 import ConfirmCard from "./ConfirmCard";
+import AiMascot from "./AiMascot";
 
 interface Props {
   messages: Message[];
   busy: boolean;
   onConfirm?: (confirmationId: string, approve: boolean) => Promise<void>;
+  /** Shown instead of the list while there are no messages (the greeting). */
+  empty?: ReactNode;
 }
 
-export default function MessageList({ messages, busy, onConfirm }: Props) {
+export default function MessageList({ messages, busy, onConfirm, empty }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, busy]);
 
+  if (empty && messages.length === 0 && !busy) {
+    return <main className="messages empty-state">{empty}</main>;
+  }
+
   return (
     <main className="messages" aria-live="polite">
       {messages.map((m) => (
         <div key={m.id} className={`message ${m.role}`}>
+          {m.role === "assistant" && (
+            <span className="avatar" aria-hidden="true">
+              <AiMascot size={32} mini />
+            </span>
+          )}
           <div className="bubble">
             {m.text &&
               (m.role === "assistant" ? <MarkdownText text={m.text} /> : <p>{m.text}</p>)}
@@ -53,6 +65,9 @@ export default function MessageList({ messages, busy, onConfirm }: Props) {
       ))}
       {busy && (
         <div className="message assistant">
+          <span className="avatar" aria-hidden="true">
+            <AiMascot size={32} mini />
+          </span>
           <div className="bubble typing" aria-label="AI yazır">
             <span />
             <span />

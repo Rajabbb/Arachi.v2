@@ -7,16 +7,9 @@ import MessageList from "./components/MessageList";
 import Composer from "./components/Composer";
 import ConversationList from "./components/ConversationList";
 import UserMenu from "./components/UserMenu";
+import Welcome from "./components/Welcome";
 import Icon from "./components/Icon";
 import { arachiSiteUrl, type User } from "./lib/auth";
-
-const welcome: Message = {
-  id: "welcome",
-  role: "assistant",
-  text: "Salam! Mən Arachi AI agentiyəm. Nə etmək istədiyinizi yazın və ya fayl əlavə edin, qalanını mən edim.",
-  attachments: [],
-  createdAt: Date.now(),
-};
 
 function notice(text: string): Message {
   return { id: crypto.randomUUID(), role: "assistant", text, attachments: [], createdAt: Date.now() };
@@ -160,7 +153,7 @@ export default function App({ user }: { user: User }) {
             <Icon name="menu" size={20} />
           </button>
           <span className="logo">Arachi</span>
-          <span className="badge">V2</span>
+          <span className="badge">AI</span>
           <nav className="nav">
             <a href="/" aria-current="page">Söhbət</a>
             {window.self === window.top && <a href={`${arachiSiteUrl}/customer`}>arachi.co paneli</a>}
@@ -168,7 +161,12 @@ export default function App({ user }: { user: User }) {
           <UserMenu user={user} />
         </header>
         <div className="chat-title" title={title}>{title}</div>
-        <MessageList messages={loading ? [] : [welcome, ...messages]} busy={busy || loading} onConfirm={handleConfirm} />
+        <MessageList
+          messages={loading ? [] : messages}
+          busy={busy || loading}
+          onConfirm={handleConfirm}
+          empty={<Welcome name={user.name} disabled={busy || loading} onPick={(text) => void handleSend(text, [])} />}
+        />
         <Composer disabled={busy || loading} onSend={handleSend} />
       </div>
     </div>

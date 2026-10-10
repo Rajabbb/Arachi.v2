@@ -158,16 +158,13 @@ button { -webkit-tap-highlight-color: transparent; }
   white-space: nowrap;
 }
 .logo::before {
-  content: "A";
-  display: inline-grid;
-  place-items: center;
-  width: 28px;
-  height: 28px;
+  content: "";
+  display: inline-block;
+  width: 30px;
+  height: 30px;
   border-radius: 8px;
-  background: linear-gradient(135deg, #6366f1, #4338ca);
-  color: #fff;
-  font-size: 0.95rem;
-  font-weight: 800;
+  background: #fff url("/arachi-logo.png") center / cover no-repeat;
+  box-shadow: 0 0 0 1px var(--border);
 }
 a.logo { text-decoration: none; }
 
@@ -881,4 +878,55 @@ p.error:not(.small) {
   .quote-page .form-row label { min-width: 0; }
   .quote-page .form-row + .form-row { flex-direction: column; }
   .quote-page .header-title { font-size: 0.82rem; }
+}
+
+/* Message avatar: the AI's face next to its replies */
+.message.assistant { gap: 10px; align-items: flex-end; }
+.avatar { flex: 0 0 auto; display: inline-flex; width: 32px; height: 32px; }
+.message.assistant .bubble { min-width: 0; }
+
+/* Greeting shown in an empty chat */
+.messages.empty-state { justify-content: center; align-items: center; }
+.welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--s3);
+  max-width: 560px;
+  padding: var(--s4) 0;
+}
+.welcome-title { margin: 0; font-size: clamp(1.5rem, 4vw, 2rem); letter-spacing: -0.02em; color: var(--text); }
+.welcome-sub { margin: 0; color: var(--muted); line-height: 1.6; font-size: 0.98rem; }
+.welcome-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: var(--s2); }
+.welcome-chip {
+  border: 1px solid var(--border-strong);
+  background: var(--surface);
+  color: var(--text-2);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font: inherit;
+  font-size: 0.88rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+.welcome-chip:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); transform: translateY(-1px); }
+.welcome-chip:disabled { opacity: 0.55; cursor: default; }
+
+/* The AI's hologram face (see AiMascot.tsx) */
+.mascot { display: block; overflow: visible; }
+.mascot-float { animation: mascot-float 4.2s ease-in-out infinite; transform-box: fill-box; transform-origin: center; }
+.mascot-eyes { transform-box: fill-box; transform-origin: center; animation: mascot-blink 5s infinite; }
+.mascot-scan { animation: mascot-scan 3.6s linear infinite; }
+.mascot-beam { animation: mascot-beam 3.2s ease-in-out infinite; }
+.mascot-ring { transform-box: fill-box; transform-origin: center; }
+.mascot-ring.r1 { animation: mascot-ring 3.2s ease-in-out infinite; }
+.mascot-ring.r2 { animation: mascot-ring 3.2s ease-in-out infinite 0.5s; }
+@keyframes mascot-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@keyframes mascot-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+@keyframes mascot-scan { 0% { transform: translateY(0); opacity: 0; } 15% { opacity: 0.28; } 85% { opacity: 0.28; } 100% { transform: translateY(120px); opacity: 0; } }
+@keyframes mascot-beam { 0%, 100% { opacity: 0.55; } 50% { opacity: 1; } }
+@keyframes mascot-ring { 0%, 100% { opacity: 0.35; transform: scale(0.96); } 50% { opacity: 0.9; transform: scale(1.04); } }
+@media (prefers-reduced-motion: reduce) {
+  .mascot-float, .mascot-eyes, .mascot-scan, .mascot-beam, .mascot-ring { animation: none; }
 }
