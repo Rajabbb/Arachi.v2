@@ -21,7 +21,8 @@ function isText(file: UploadedFile): boolean {
 export function isSpreadsheet(file: UploadedFile): boolean {
   return (
     file.type === "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ||
-    file.name.toLowerCase().endsWith(".xlsx")
+    file.name.toLowerCase().endsWith(".xlsx") ||
+    file.name.toLowerCase().endsWith(".xlsm")
   );
 }
 

@@ -34,12 +34,14 @@ interface Props {
  */
 export default function ConfirmCard({ confirmation, onAnswer }: Props) {
   const [busy, setBusy] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<number[]>([]);
   const [linkOnly, setLinkOnly] = useState(false);
 
   async function answer(approve: boolean, choice?: ConfirmAnswer) {
     setBusy(true);
+    setCancelling(!approve);
     setError("");
     try {
       await onAnswer(approve, choice);
@@ -47,6 +49,7 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
       setError(err instanceof Error ? err.message : "Alınmadı.");
     } finally {
       setBusy(false);
+      setCancelling(false);
     }
   }
 
@@ -123,7 +126,7 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
         <div className="confirm-actions">
           {linkOnly ? (
             <button type="button" className="send-button" disabled={busy} onClick={() => void answer(true, { mode: "link", carrierIds: [] })}>
-              {busy ? words.busy : "Yarat və link al"}
+              {busy && !cancelling ? words.busy : "Yarat və link al"}
             </button>
           ) : (
             <button
@@ -132,14 +135,14 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
               disabled={busy || selected.length === 0}
               onClick={() => void answer(true, { mode: "send", carrierIds: selected })}
             >
-              {busy ? words.busy : `Yarat və seçilənlərə göndər${selected.length ? ` (${selected.length})` : ""}`}
+              {busy && !cancelling ? words.busy : `Yarat və seçilənlərə göndər${selected.length ? ` (${selected.length})` : ""}`}
             </button>
           )}
           <button type="button" className="confirm-no" disabled={busy} onClick={() => void answer(true, { mode: "create", carrierIds: [] })}>
             Yalnız yarat
           </button>
           <button type="button" className="confirm-no" disabled={busy} onClick={() => void answer(false)}>
-            Ləğv et
+            {cancelling ? "Ləğv edilir…" : "Ləğv et"}
           </button>
         </div>
         {error && <p className="confirm-error">{error}</p>}
@@ -153,10 +156,10 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
       {pending ? (
         <div className="confirm-actions">
           <button type="button" className="send-button" disabled={busy} onClick={() => void answer(true)}>
-            {busy ? words.busy : words.yes}
+            {busy && !cancelling ? words.busy : words.yes}
           </button>
           <button type="button" className="confirm-no" disabled={busy} onClick={() => void answer(false)}>
-            Xeyr
+            {cancelling ? "Ləğv edilir…" : "Xeyr"}
           </button>
         </div>
       ) : (

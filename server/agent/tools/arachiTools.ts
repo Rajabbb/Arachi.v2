@@ -3,6 +3,8 @@ import * as api from "../../arachi/api";
 import { config } from "../../config";
 import { categoryOrThrow, isMine, recipientLines, rfqOrThrow, subCategoryOrThrow } from "./lookup";
 import type { CarrierChoices } from "../../../shared/protocol";
+import { toAttachment } from "../files";
+import { checkRfq } from "./sourceCheck";
 
 export { recipientLines };
 
@@ -157,7 +159,20 @@ function portProblem(place: string): string | null {
  * Rules the model kept missing in live tests, applied to what the user will see and what runs:
  * sea and air need a port/airport, and at sea the vehicle is a container, not a truck.
  */
-function normalizeRfq(p: Record<string, unknown>): Record<string, unknown> {
+/** The user's text plus the text of the files they attached; null when a file cannot be read as text (PDF, image). */
+async function sourceText(ctx: { text: string; files: Parameters<typeof toAttachment>[0][] }) {
+  const parts = [ctx.text];
+  let fromFile = false;
+  for (const file of ctx.files) {
+    const a = await toAttachment(file);
+    if (a.kind !== "text") return null;
+    parts.push(a.text);
+    fromFile = true;
+  }
+  return { text: parts.join("\n"), fromFile };
+}
+
+function normalizeRfq(p: Record<string, unknown>, source: { text: string; fromFile: boolean } | null = null) {
   const out = { ...p };
   const mode = out.transport_mode;
   if (mode === "Dəniz" || mode === "Hava") {
@@ -183,7 +198,7 @@ function normalizeRfq(p: Record<string, unknown>): Record<string, unknown> {
       out.container_type = `${size} reefer`;
     }
   }
-  return out;
+  return checkRfq(out, source);
 }
 
 /** "Don't create it" / "yaratma": the user asked to see the fields, not to create the RFQ. */
@@ -238,7 +253,8 @@ export const createRfq: AgentTool = {
   },
   async confirm(raw, ctx) {
     refuseWhenNotWanted(ctx.text);
-    const p = normalizeRfq(raw);
+    const checked = normalizeRfq(raw, await sourceText(ctx));
+    const p = checked.params;
     rfqFieldLines(p); // validates numbers and dates before the user is asked
     const rows: [string, unknown][] = [
       ["Yükləmə yeri", p.origin],
@@ -260,7 +276,7 @@ export const createRfq: AgentTool = {
       ["Əlavə məlumat", p.notes],
     ];
     const lines = rows.filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== "").map(([k, v]) => `• ${k}: ${v}`);
-    const warnings = rfqWarnings(p).map((w) => `⚠ ${w}`);
+    const warnings = [...checked.warnings, ...rfqWarnings(p)].map((w) => `⚠ ${w}`);
     const choices = await carrierChoices();
     return {
       summary:
@@ -275,7 +291,7 @@ export const createRfq: AgentTool = {
     return `RFQ #${r.number} yaradıldı. Hələ daşıyıcılara göndərilməyib.`;
   },
   async run(raw) {
-    const p = normalizeRfq(raw);
+    const p = normalizeRfq(raw).params;
     const amount = p.volume_amount as number;
     const fields = rfqFieldLines(p);
     const loading = (p.loading_date as string).trim();

@@ -125,7 +125,7 @@ export async function takeOutcomes(conversationId: number): Promise<string[]> {
   for (const row of rows) await db().run("UPDATE confirmations SET noted = 1 WHERE id = ?", row.id);
   return rows.map((row) =>
     row.status === "declined"
-      ? `The user pressed "Xeyr" (no) for: ${row.summary} Nothing was sent.`
+      ? `The user pressed "Xeyr" (no) for: ${row.summary} It was CANCELLED: nothing was created or sent. Do not offer or prepare it again from this earlier message unless the user asks for it again.`
       : `The user pressed "Bəli" (yes) for: ${row.summary} Outcome: ${row.result}`,
   );
 }
