@@ -118,8 +118,8 @@ function rfqWarnings(p: Record<string, unknown>): string[] {
   return out;
 }
 
-/** The carrier base as the picker under a prepared RFQ shows it; undefined when it is empty or can't be read. */
-async function carrierChoices(): Promise<CarrierChoices | undefined> {
+/** null = the base could not be read; undefined = it is empty. */
+async function readCarrierChoices(): Promise<CarrierChoices | undefined | null> {
   try {
     const [all, categories] = await Promise.all([api.listCarriers(), api.listCategories()]);
     const carriers = all.filter(isMine).filter((c) => (c.email ?? "").trim());
@@ -131,8 +131,20 @@ async function carrierChoices(): Promise<CarrierChoices | undefined> {
       carriers: carriers.map((c) => ({ id: c.id, name: c.company_name, email: c.email })),
     };
   } catch {
-    return undefined;
+    return null;
   }
+}
+
+/**
+ * The carrier base as the picker under a prepared RFQ shows it; undefined when it is empty or can't be read.
+ * A transient arachi.co error must not silently turn the picker into a plain card, so one retry.
+ */
+async function carrierChoices(): Promise<CarrierChoices | undefined> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const found = await readCarrierChoices();
+    if (found !== null) return found;
+  }
+  return undefined;
 }
 
 /** Places that are only a country: for sea and air the user must name the port or airport. */

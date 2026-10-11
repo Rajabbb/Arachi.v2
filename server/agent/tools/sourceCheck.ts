@@ -47,7 +47,7 @@ export function numberSupported(value: number, source: string): boolean {
 
 function addNote(p: Record<string, unknown>, note: string) {
   const existing = String(p.notes ?? "").trim();
-  if (!existing.includes(note)) p.notes = existing ? `${existing}. ${note}` : note;
+  if (!existing.includes(note)) p.notes = existing ? `${existing.replace(/[.s]+$/, "")}. ${note}` : note;
 }
 
 /**
