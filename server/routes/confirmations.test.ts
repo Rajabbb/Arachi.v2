@@ -167,8 +167,12 @@ test("result cards show what was done: with the reply, saved with it, and for wh
     ...RFQ_DEFAULTS, origin: "Bakı", destination: "Milan", volume_unit: "CBM", volume_amount: 3, incoterm: "FOB", adr: "Klass 3",
   });
   const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "sorğu yarat", files: [] } });
-  assert.equal(chat.body.cards.length, 1);
-  const card = chat.body.cards[0];
+  assert.equal(chat.body.cards.length, 0, "nothing was created yet: the RFQ waits for Bəli");
+  assert.equal(chat.body.confirmations.length, 1);
+  assert.match(chat.body.confirmations[0].text, /Yükləmə yeri: Bakı/);
+  const created = await request<ConfirmationResponse>("POST", `/api/confirmations/${chat.body.confirmations[0].id}`, { approve: true });
+  assert.equal(created.body.message!.cards!.length, 1);
+  const card = created.body.message!.cards![0];
   assert.match(card.title, /RFQ #2 yaradıldı/);
   const rows = Object.fromEntries((card.rows ?? []).map((r) => [r.label, r.value]));
   assert.equal(rows["Yükləmə yeri"], "Bakı");
@@ -179,7 +183,7 @@ test("result cards show what was done: with the reply, saved with it, and for wh
 
   // The card is part of the saved conversation.
   const saved = await request<ConversationData>("GET", `/api/conversations/${chat.body.conversationId}`);
-  assert.equal(saved.body.messages[1].cards?.[0].title, card.title);
+  assert.equal(saved.body.messages[saved.body.messages.length - 1].cards?.[0].title, card.title);
 
   // A send waits for Bəli; its card appears with the outcome and lists exactly who got it.
   toolCallingProvider("send_rfq_to_carriers", { rfq_id: 1 });
@@ -222,4 +226,18 @@ test("a joke or code request is refused without calling the model; a Russian que
   const az = toolCallingProvider("get_dashboard", {});
   await request<ChatResponse>("POST", "/api/chat", { message: { text: "Bakıdan Berlinə yük üçün qiymət lazımdır", files: [] } });
   assert.doesNotMatch(az[0], /System note/);
+});
+
+test("create_rfq is refused when the user said not to create it, and creates nothing without Bəli", async () => {
+  toolCallingProvider("create_rfq", { ...RFQ_DEFAULTS, origin: "Mersin", destination: "Bakı", volume_unit: "CBM", volume_amount: 5 });
+  const no = await request<ChatResponse>("POST", "/api/chat", { message: { text: "Sorğunun məlumatlarını çıxar, sorğunu yaratma", files: [] } });
+  assert.equal(no.body.confirmations.length, 0, "no confirmation is offered when the user said yaratma");
+  assert.equal(no.body.cards.length, 0);
+
+  toolCallingProvider("create_rfq", { ...RFQ_DEFAULTS, origin: "Mersin", destination: "Bakı", volume_unit: "CBM", volume_amount: 5 });
+  const ask = await request<ChatResponse>("POST", "/api/chat", { message: { text: "Mersindən Bakıya sorğu yarat", files: [] } });
+  assert.equal(ask.body.confirmations.length, 1);
+  const declined = await request<ConfirmationResponse>("POST", `/api/confirmations/${ask.body.confirmations[0].id}`, { approve: false });
+  assert.equal(declined.body.confirmation.status, "declined");
+  assert.equal(declined.body.message?.cards?.length ?? 0, 0);
 });

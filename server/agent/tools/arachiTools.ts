@@ -53,10 +53,49 @@ export function panelDate(label: string, value: string): string {
   return `${m[1]}-${m[2]}-${m[3]} ${String(h).padStart(2, "0")}:${m[5]} ${suffix}`;
 }
 
+/**
+ * The panel's "ixtiyari parametrlər" and volume lines for an RFQ, exactly as the panel writes them.
+ * Throws for a number or date that can't be used, so the user is never asked to confirm a broken RFQ.
+ */
+function rfqFieldLines(p: Record<string, unknown>): string[] {
+  const unit = p.volume_unit as string;
+  const amount = p.volume_amount as number;
+  if (!(amount > 0)) throw new Error("Həcm / palet miqdarı 0-dan böyük olmalıdır.");
+  if (!((p.weight_kg as number) > 0)) throw new Error("Çəki 0-dan böyük olmalıdır.");
+  const fields: string[] = [];
+  const loading = (p.loading_date as string).trim();
+  const delivery = (p.delivery_deadline as string).trim();
+  if (loading) fields.push(`Loading Date: ${panelDate("loading_date", loading)}`);
+  if ((p.truck_type as string).trim()) fields.push(`Truck Type: ${(p.truck_type as string).trim()}`);
+  if ((p.hs_code as string).trim()) fields.push(`HS Code: ${(p.hs_code as string).trim()}`);
+  if (p.stackable) fields.push(`Stackable / Non-stackable: ${p.stackable}`);
+  if (p.shipment_type) fields.push(`Shipment Type: ${p.shipment_type}`);
+  if (p.incoterm) fields.push(`Incoterm: ${p.incoterm}`);
+  if ((p.adr as string).trim()) fields.push(`Dangerous Goods (ADR): ${(p.adr as string).trim()}`);
+  if ((p.temperature as string).trim()) fields.push(`Temperature Requirement: ${(p.temperature as string).trim()}`);
+  if (delivery) fields.push(`Delivery Deadline: ${panelDate("delivery_deadline", delivery)}`);
+  const notes = (p.notes as string).trim();
+  if (notes) fields.push(`Additional Information: ${notes}`);
+  fields.push(`Həcm / Palet: ${amount} ${unit}`);
+  return fields;
+}
+
+/** "Don't create it" / "yaratma": the user asked to see the fields, not to create the RFQ. */
+const NOT_NOW =
+  /\b(yaratma|yaratmayın|yaratmayin|yaratmağa\s+ehtiyac\s+yoxdur|hələ\s+yaratma|yaratmaq\s+lazım\s+deyil|do\s+not\s+create|don'?t\s+create|not\s+yet\s+create|без\s+создания|не\s+создавай|не\s+надо\s+создавать)\b/i;
+
+function refuseWhenNotWanted(userText: string) {
+  if (NOT_NOW.test(userText)) {
+    throw new Error(
+      "İstifadəçi sorğunun hələ yaradılmamasını istəyib. Sorğunu yaratmayın: sahələri mətnlə yazın, çatışanları bildirin və yaratmağı soruşun.",
+    );
+  }
+}
+
 export const createRfq: AgentTool = {
   name: "create_rfq",
   description:
-    "Creates a new freight RFQ on arachi.co with exactly the fields of the panel's RFQ form and returns it with its number. It does not send it to carriers: use send_rfq_to_carriers for that. The mandatory fields are origin, destination, cargo_type, weight_kg, volume (amount + unit) and transport_mode; if the user did not give one of them, ask for it before calling. The optional fields are only set when the user mentioned them.",
+    "Prepares a new freight RFQ with exactly the fields of the panel's RFQ form. The user sees every field and presses \"Bəli\" before it is created on arachi.co; it never sends it to carriers (use send_rfq_to_carriers for that). Do not call it when the user only asked to see or extract the fields, or said not to create it. The mandatory fields are origin, destination, cargo_type, weight_kg, volume (amount + unit) and transport_mode; if the user did not give one of them, ask for it before calling. The optional fields are only set when the user mentioned them.",
   params: {
     origin: { type: "string", description: "Loading place (city, country or full address), e.g. \"Bakı, Azərbaycan\"." },
     destination: { type: "string", description: "Unloading place (city, country or full address), e.g. \"İstanbul, Türkiyə\"." },
@@ -84,28 +123,42 @@ export const createRfq: AgentTool = {
     temperature: { type: "string", description: "Temperature requirement (reefer), e.g. \"+2 to +8 °C\"; empty = none.", default: "" },
     notes: { type: "string", description: "Additional information and special instructions for carriers.", default: "" },
   },
+  async confirm(p, ctx) {
+    refuseWhenNotWanted(ctx.text);
+    rfqFieldLines(p); // validates numbers and dates before the user is asked
+    const rows: [string, unknown][] = [
+      ["Yükləmə yeri", p.origin],
+      ["Boşaltma yeri", p.destination],
+      ["Yükün növü", p.cargo_type],
+      ["Çəki", `${p.weight_kg} kq`],
+      ["Həcm / Palet", `${p.volume_amount} ${p.volume_unit}`],
+      ["Daşınma növü", p.transport_mode],
+      ["Yükləmə tarixi", p.loading_date ? panelDate("loading_date", String(p.loading_date)) : ""],
+      ["Çatdırılma müddəti", p.delivery_deadline ? panelDate("delivery_deadline", String(p.delivery_deadline)) : ""],
+      ["Maşın növü", p.truck_type],
+      ["HS Code", p.hs_code],
+      ["Stackable", p.stackable],
+      ["Daşınma tipi", p.shipment_type],
+      ["Incoterm", p.incoterm],
+      ["Təhlükəli yük (ADR)", p.adr],
+      ["Temperatur", p.temperature],
+      ["Əlavə məlumat", p.notes],
+    ];
+    const lines = rows.filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== "").map(([k, v]) => `• ${k}: ${v}`);
+    return {
+      summary: `Yeni RFQ yaradılacaq (daşıyıcılara göndərilmir):\n${lines.join("\n")}`,
+      params: p,
+    };
+  },
+  done(result) {
+    const r = result as { number?: number };
+    return `RFQ #${r.number} yaradıldı. Hələ daşıyıcılara göndərilməyib.`;
+  },
   async run(p) {
-    const unit = p.volume_unit as string;
     const amount = p.volume_amount as number;
-    if (!(amount > 0)) throw new Error("Həcm / palet miqdarı 0-dan böyük olmalıdır.");
-    if (!(p.weight_kg as number > 0)) throw new Error("Çəki 0-dan böyük olmalıdır.");
-    // The panel stores these as text lines, in this order; carriers see them on the quote page.
-    const fields: string[] = [];
+    const fields = rfqFieldLines(p);
     const loading = (p.loading_date as string).trim();
-    const delivery = (p.delivery_deadline as string).trim();
-    if (loading) fields.push(`Loading Date: ${panelDate("loading_date", loading)}`);
-    if ((p.truck_type as string).trim()) fields.push(`Truck Type: ${(p.truck_type as string).trim()}`);
-    if ((p.hs_code as string).trim()) fields.push(`HS Code: ${(p.hs_code as string).trim()}`);
-    if (p.stackable) fields.push(`Stackable / Non-stackable: ${p.stackable}`);
-    if (p.shipment_type) fields.push(`Shipment Type: ${p.shipment_type}`);
-    if (p.incoterm) fields.push(`Incoterm: ${p.incoterm}`);
-    if ((p.adr as string).trim()) fields.push(`Dangerous Goods (ADR): ${(p.adr as string).trim()}`);
-    if ((p.temperature as string).trim()) fields.push(`Temperature Requirement: ${(p.temperature as string).trim()}`);
-    if (delivery) fields.push(`Delivery Deadline: ${panelDate("delivery_deadline", delivery)}`);
     const notes = (p.notes as string).trim();
-    if (notes) fields.push(`Additional Information: ${notes}`);
-    fields.push(`Həcm / Palet: ${amount} ${unit}`);
-
     const rfq = await api.createRfq({
       origin: (p.origin as string).trim(),
       destination: (p.destination as string).trim(),

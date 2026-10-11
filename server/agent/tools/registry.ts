@@ -51,7 +51,7 @@ export interface AgentTool {
    * For tools that send messages: what this call would do, for the user to
    * confirm; null when it would send nothing (it then just runs).
    */
-  confirm?(params: Record<string, unknown>): Promise<ConfirmPlan | null>;
+  confirm?(params: Record<string, unknown>, ctx: ToolContext): Promise<ConfirmPlan | null>;
   /** One line for the chat after the user confirmed and the tool ran. */
   done?(result: unknown): string;
   /**
@@ -110,7 +110,7 @@ export class ToolRegistry {
 
     try {
       if (tool.confirm && ctx.askUser) {
-        const plan = await tool.confirm(resolved.params);
+        const plan = await tool.confirm(resolved.params, ctx);
         if (plan) {
           // The same action asked twice in a turn gets one card, not two.
           const same = ctx.confirmations.find((c) => c.text === plan.summary);
