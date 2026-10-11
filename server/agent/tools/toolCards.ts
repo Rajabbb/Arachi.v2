@@ -46,6 +46,7 @@ export const cardFor: Record<string, CardFn> = {
         ...row("Daşınma növü", p.transport_mode),
         ...row("Yükləmə tarixi", p.loading_date ? panelDate("loading_date", String(p.loading_date)) : ""),
         ...row("Çatdırılma müddəti", p.delivery_deadline ? panelDate("delivery_deadline", String(p.delivery_deadline)) : ""),
+        ...row("Təklif üçün son tarix", p.quote_deadline ? String(p.quote_deadline).replace("T", " ") : ""),
         ...row("Maşın növü", p.truck_type),
         ...row("Konteyner", p.container_type ? `${Number(p.container_count) > 0 ? `${p.container_count} × ` : ""}${p.container_type}` : ""),
         ...row("HS Code", p.hs_code),
@@ -198,7 +199,9 @@ export const cardFor: Record<string, CardFn> = {
     for (const group of r.rankings as R[]) {
       for (const o of group.offers as R[]) {
         const eq = o.currency && o.currency !== "AZN" && o.price_azn !== null && o.price_azn !== undefined ? ` (≈ ${o.price_azn} AZN)` : "";
-        lines.push(`${o.rank}. ${o.carrier} · ${money(o.price, o.currency ?? group.currency)}${eq}${o.transit_days ? ` · ${o.transit_days} gün` : ""}${o.is_winner ? " · QALİB" : ""}`);
+        const inc = o.includes ? ` · daxildir: ${o.includes}` : "";
+        const exc = o.excludes ? ` · daxil deyil: ${o.excludes}` : "";
+        lines.push(`${o.rank}. ${o.carrier} · ${money(o.price, o.currency ?? group.currency)}${eq}${inc}${exc}${o.transit_days ? ` · ${o.transit_days} gün` : ""}${o.is_winner ? " · QALİB" : ""}`);
       }
     }
     const note = [r.rate_note, r.warning].filter(Boolean).join(" ");
@@ -207,6 +210,24 @@ export const cardFor: Record<string, CardFn> = {
       tone: "info",
       items: items(lines),
       ...(note ? { note } : {}),
+    };
+  },
+
+  route_price_history(result) {
+    const r = result as R;
+    if (!r.offers) return { title: `${r.origin} → ${r.destination}: keçmiş təklif yoxdur`, tone: "info" };
+    const st = r.stats as R;
+    const latest = (r.latest as R[]) ?? [];
+    return {
+      title: `${r.origin} → ${r.destination}: keçmiş qiymətlər`,
+      tone: "info",
+      rows: [
+        ...row("Təklif sayı", `${r.offers} (${r.rfqs} sorğu)`),
+        ...row("Orta", st ? `${st.avg_azn} AZN` : ""),
+        ...row("Ən aşağı / ən yüksək", st ? `${st.min_azn} / ${st.max_azn} AZN` : ""),
+      ],
+      items: items(latest.map((i) => `#${i.rfq} · ${i.carrier} · ${money(i.price, i.currency)}${i.price_azn !== null && i.currency !== "AZN" ? ` (≈ ${i.price_azn} AZN)` : ""} · ${i.date}`)),
+      note: st?.fx_date ? `AZN-ə çevirmə: Mərkəzi Bank məzənnəsi, ${st.fx_date}` : undefined,
     };
   },
 

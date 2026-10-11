@@ -40,6 +40,8 @@ export interface ToolContext {
 
 /** What the user will be asked to confirm, and the exact parameters that will then run. */
 export interface ConfirmPlan {
+  /** The tool that will run on "Bəli" when it is not this one (duplicate_rfq runs create_rfq). */
+  tool?: string;
   summary: string;
   params: Record<string, unknown>;
   /** A new RFQ: the carriers to pick from under the card. */
@@ -118,7 +120,7 @@ export class ToolRegistry {
         if (plan) {
           // The same action asked twice in a turn gets one card, not two.
           const same = ctx.confirmations.find((c) => c.text === plan.summary);
-          const confirmation = same ?? (await ctx.askUser(name, plan.params, plan.summary, plan.choices));
+          const confirmation = same ?? (await ctx.askUser(plan.tool ?? name, plan.params, plan.summary, plan.choices));
           if (!same) ctx.confirmations.push(confirmation);
           return {
             ...resolved,

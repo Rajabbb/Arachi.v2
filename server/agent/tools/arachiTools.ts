@@ -1,4 +1,4 @@
-import type { AgentTool } from "./registry";
+import { resolveParams, type AgentTool } from "./registry";
 import * as api from "../../arachi/api";
 import { config } from "../../config";
 import { categoryOrThrow, isMine, recipientLines, rfqOrThrow, subCategoryOrThrow } from "./lookup";
@@ -79,6 +79,11 @@ function rfqFieldLines(p: Record<string, unknown>): string[] {
   if ((p.adr as string).trim()) fields.push(`Dangerous Goods (ADR): ${(p.adr as string).trim()}`);
   if ((p.temperature as string).trim()) fields.push(`Temperature Requirement: ${(p.temperature as string).trim()}`);
   if (delivery) fields.push(`Delivery Deadline: ${panelDate("delivery_deadline", delivery)}`);
+  const due = String(p.quote_deadline ?? "").trim();
+  if (due) {
+    fields.push(`Offer Due: ${offerDueText(due)}`);
+    if (p.auto_reminder === false) fields.push("Auto Reminder: off");
+  }
   const notes = (p.notes as string).trim();
   if (notes) fields.push(`Additional Information: ${notes}`);
   fields.push(`Həcm / Palet: ${amount} ${unit}`);
@@ -116,6 +121,17 @@ function rfqWarnings(p: Record<string, unknown>): string[] {
     }
   }
   return out;
+}
+
+/** One line on what this route cost before, from the user's own RFQs; empty when there is none or it can't be read. */
+async function routeHistoryLine(origin: string, destination: string): Promise<string> {
+  try {
+    const h = await api.routePrices(origin, destination);
+    if (!h.count || !h.stats) return "";
+    return `Bu marşrut üzrə keçmiş: ${h.count} təklif (${h.rfq_count} sorğu), orta ${h.stats.avg_azn} AZN, ən aşağı ${h.stats.min_azn} AZN.`;
+  } catch {
+    return "";
+  }
 }
 
 /** null = the base could not be read; undefined = it is empty. */
@@ -213,6 +229,24 @@ function normalizeRfq(p: Record<string, unknown>, source: { text: string; fromFi
   return checkRfq(out, source);
 }
 
+/** The offer deadline as the panel stores it ("Offer Due: 2026-10-16 17:00"); a date alone means the end of that day. */
+function offerDueText(value: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2}))?$/.exec(value.trim());
+  if (!m || Number.isNaN(Date.parse(`${m[1]}-${m[2]}-${m[3]}T00:00:00Z`))) {
+    throw new Error("Təklif üçün son tarix YYYY-MM-DD və ya YYYY-MM-DDTHH:MM formatında olmalıdır (məsələn 2026-10-16T17:00).");
+  }
+  return `${m[1]}-${m[2]}-${m[3]} ${m[4] ?? "23"}:${m[5] ?? "59"}`;
+}
+
+/** The deadline must still be ahead (Baku time), or no reminder could ever be sent. */
+function refusePastOfferDue(value: string) {
+  const text = offerDueText(value);
+  const bakuNow = new Date(Date.now() + 4 * 3600_000).toISOString().slice(0, 16).replace("T", " ");
+  if (text < bakuNow) {
+    throw new Error(`Təklif üçün son tarix (${text}) keçmişdədir. İstifadəçidən gələcək bir tarix soruşun, sorğunu hələ hazırlamayın.`);
+  }
+}
+
 /** "Don't create it" / "yaratma": the user asked to see the fields, not to create the RFQ. */
 const NOT_NOW =
   /\b(yaratma|yaratmayın|yaratmayin|yaratmağa\s+ehtiyac\s+yoxdur|hələ\s+yaratma|yaratmaq\s+lazım\s+deyil|do\s+not\s+create|don'?t\s+create|not\s+yet\s+create|без\s+создания|не\s+создавай|не\s+надо\s+создавать)\b/i;
@@ -247,6 +281,16 @@ export const createRfq: AgentTool = {
     },
     loading_date: { type: "string", description: "Loading date, YYYY-MM-DD or YYYY-MM-DDTHH:MM; empty = not specified.", default: "" },
     delivery_deadline: { type: "string", description: "Delivery deadline, YYYY-MM-DD or YYYY-MM-DDTHH:MM; empty = not specified.", default: "" },
+    quote_deadline: {
+      type: "string",
+      description: "The date and time by which carriers must send their offer (\"təklif üçün son tarix\", quote deadline), YYYY-MM-DDTHH:MM. This is NOT the loading date. Empty = not specified.",
+      default: "",
+    },
+    auto_reminder: {
+      type: "boolean",
+      description: "With a quote deadline: remind carriers that have not answered 24 hours before it. Set false only if the user asked for no automatic reminder.",
+      default: true,
+    },
     truck_type: { type: "string", description: "Vehicle type for road freight, e.g. Tentli, Refrijerator. Not for sea freight: use container_type there.", default: "" },
     container_type: {
       type: "string",
@@ -267,6 +311,7 @@ export const createRfq: AgentTool = {
     refuseWhenNotWanted(ctx.text);
     const checked = normalizeRfq(raw, await sourceText(ctx));
     const p = checked.params;
+    if (String(p.quote_deadline ?? "").trim()) refusePastOfferDue(String(p.quote_deadline));
     rfqFieldLines(p); // validates numbers and dates before the user is asked
     const rows: [string, unknown][] = [
       ["Yükləmə yeri", p.origin],
@@ -277,6 +322,8 @@ export const createRfq: AgentTool = {
       ["Daşınma növü", p.transport_mode],
       ["Yükləmə tarixi", p.loading_date ? panelDate("loading_date", String(p.loading_date)) : ""],
       ["Çatdırılma müddəti", p.delivery_deadline ? panelDate("delivery_deadline", String(p.delivery_deadline)) : ""],
+      ["Təklif üçün son tarix", String(p.quote_deadline ?? "").trim() ? offerDueText(String(p.quote_deadline)) : ""],
+      ["Avtomatik xatırlatma", String(p.quote_deadline ?? "").trim() ? (p.auto_reminder === false ? "söndürülüb" : "cavab verməyənlərə son tarixdən 24 saat əvvəl") : ""],
       ["Maşın növü", p.truck_type],
       ["Konteyner", p.container_type ? `${Number(p.container_count) > 0 ? `${p.container_count} × ` : ""}${p.container_type}` : ""],
       ["HS Code", p.hs_code],
@@ -290,10 +337,12 @@ export const createRfq: AgentTool = {
     const lines = rows.filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== "").map(([k, v]) => `• ${k}: ${v}`);
     const warnings = [...checked.warnings, ...rfqWarnings(p)].map((w) => `⚠ ${w}`);
     const choices = await carrierChoices();
+    const history = await routeHistoryLine(String(p.origin), String(p.destination));
     return {
       summary:
         `Yeni RFQ yaradılacaq${choices ? "" : " (daşıyıcılara göndərilmir)"}:\n${lines.join("\n")}` +
-        (warnings.length ? `\n\n${warnings.join("\n")}` : ""),
+        (warnings.length ? `\n\n${warnings.join("\n")}` : "") +
+        (history ? `\n\nℹ ${history}` : ""),
       params: p,
       choices,
     };
@@ -304,6 +353,7 @@ export const createRfq: AgentTool = {
   },
   async run(raw, ctx) {
     const p = normalizeRfq(raw).params;
+    if (String(p.quote_deadline ?? "").trim()) refusePastOfferDue(String(p.quote_deadline));
     const amount = p.volume_amount as number;
     const fields = rfqFieldLines(p);
     const loading = (p.loading_date as string).trim();
@@ -326,6 +376,98 @@ export const createRfq: AgentTool = {
     });
     const number = (await api.listRfqs()).find((r) => r.id === rfq.id)?.display_id;
     return { number, ...rfqView(rfq), page_url: `${siteUrl()}/customer` };
+  },
+};
+
+const MODE_FROM_PANEL: [RegExp, string][] = [
+  [/quru|road/i, "Quru"],
+  [/dəniz|sea/i, "Dəniz"],
+  [/hava|air/i, "Hava"],
+  [/dəmir|rail/i, "Dəmiryolu"],
+];
+
+/** The create_rfq parameters of an existing RFQ (its stored fields and "ixtiyari parametr" lines), for a copy. */
+function paramsFromRfq(rfq: api.ArachiRfq, overrides: Record<string, unknown>): Record<string, unknown> {
+  const lines = (rfq.required_fields ?? []).filter((l): l is string => typeof l === "string");
+  const line = (re: RegExp) => lines.map((l) => re.exec(l)?.[1]?.trim()).find(Boolean) ?? "";
+  const vol = lines.map((l) => /Həcm \/ Palet:\s*([\d.,]+)\s*(CBM|Palet)?/i.exec(l)).find(Boolean);
+  const mode = MODE_FROM_PANEL.find(([re]) => re.test(String(rfq.transportation_mode ?? "")))?.[1];
+  const keep = (key: string, fallback: unknown) => {
+    const v = overrides[key];
+    return v === undefined || v === "" || v === 0 ? fallback : v;
+  };
+  const notes = String(rfq.additional_notes ?? "").replace(/\s*\|?\s*Təklif üçün son tarix:[^|]*/g, "").trim();
+  return {
+    origin: keep("origin", rfq.origin),
+    destination: keep("destination", rfq.destination),
+    cargo_type: rfq.cargo_type ?? "",
+    weight_kg: keep("weight_kg", rfq.weight_kg ?? 0),
+    volume_amount: keep("volume_amount", vol ? Number(vol[1].replace(",", ".")) : (rfq.volume_m3 ?? 0)),
+    volume_unit: vol?.[2] && /pal/i.test(vol[2]) ? "Palet" : "CBM",
+    transport_mode: mode ?? "",
+    // Dates are not copied: they belong to the old shipment.
+    loading_date: String(overrides.loading_date ?? ""),
+    delivery_deadline: String(overrides.delivery_deadline ?? ""),
+    quote_deadline: String(overrides.quote_deadline ?? ""),
+    auto_reminder: !lines.some((l) => /^\s*Auto Reminder\s*:\s*(off|no|0)/i.test(l)),
+    truck_type: rfq.truck_type ?? line(/^Truck Type:\s*(.+)$/i),
+    hs_code: rfq.hs_code ?? line(/^HS Code:\s*(.+)$/i),
+    stackable: rfq.stackable === true ? "Stackable" : rfq.stackable === false ? "Non-stackable" : "",
+    shipment_type: rfq.shipment_type ?? line(/^Shipment Type:\s*(.+)$/i),
+    incoterm: line(/^Incoterm:\s*(.+)$/i),
+    adr: line(/^Dangerous Goods \(ADR\):\s*(.+)$/i),
+    temperature: line(/^Temperature Requirement:\s*(.+)$/i),
+    container_type: line(/^Container Type:\s*(.+)$/i),
+    container_count: Number(line(/^Container Count:\s*(\d+)/i) || 0),
+    notes: String(overrides.notes ?? "").trim() || notes,
+  };
+}
+
+export const duplicateRfq: AgentTool = {
+  name: "duplicate_rfq",
+  description:
+    "Prepares a NEW RFQ as a copy of an existing one (same route, cargo, weight, volume and conditions) so the user does not have to type it again. Dates are not copied: pass the new loading_date, delivery_deadline and quote_deadline when the user gave them, otherwise they stay empty. The user then sees the usual card (fields, carrier picker) and confirms; the old RFQ is not touched.",
+  params: {
+    rfq_id: { type: "integer", description: "RFQ number as shown in the panel on arachi.co (RFQ #n) to copy." },
+    loading_date: { type: "string", description: "New loading date, YYYY-MM-DD or YYYY-MM-DDTHH:MM; empty = not given.", default: "" },
+    delivery_deadline: { type: "string", description: "New delivery deadline; empty = not given.", default: "" },
+    quote_deadline: { type: "string", description: "New offer deadline (təklif üçün son tarix), YYYY-MM-DDTHH:MM; empty = not given.", default: "" },
+    origin: { type: "string", description: "Different loading place; empty = same as the copied RFQ.", default: "" },
+    destination: { type: "string", description: "Different unloading place; empty = same.", default: "" },
+    weight_kg: { type: "number", description: "Different weight in kg; 0 = same.", default: 0 },
+    volume_amount: { type: "number", description: "Different volume or pallet count; 0 = same.", default: 0 },
+    notes: { type: "string", description: "New additional information replacing the old; empty = keep the old.", default: "" },
+  },
+  async confirm(p, ctx) {
+    const rfq = await rfqOrThrow(p.rfq_id as number);
+    const resolved = resolveParams(createRfq, paramsFromRfq(rfq, p));
+    if ("error" in resolved) throw new Error(resolved.error);
+    const plan = await createRfq.confirm!(resolved.params, ctx);
+    if (!plan) return null;
+    return { ...plan, tool: "create_rfq", summary: `RFQ #${rfq.display_id} kopyası. ${plan.summary}` };
+  },
+  async run(p, ctx) {
+    const rfq = await rfqOrThrow(p.rfq_id as number);
+    const resolved = resolveParams(createRfq, paramsFromRfq(rfq, p));
+    if ("error" in resolved) throw new Error(resolved.error);
+    return createRfq.run(resolved.params, ctx);
+  },
+};
+
+export const routePriceHistory: AgentTool = {
+  name: "route_price_history",
+  description:
+    "What carriers quoted before for the same route (same loading and unloading city) in the user's own RFQs: how many offers, the average, lowest and highest in AZN at the Central Bank rate, the cheapest offer and the latest ones. Use it for \"how much did Baku–Berlin cost before\" or to judge whether a new offer is normal. Only the user's own data; nothing is sent.",
+  params: {
+    origin: { type: "string", description: "Loading place, e.g. \"Bakı\" or \"Bakı, Azərbaycan\" (the city is compared)." },
+    destination: { type: "string", description: "Unloading place, e.g. \"Berlin\"." },
+    exclude_rfq_id: { type: "integer", description: "RFQ number (as in the panel) to leave out, usually the one being judged; 0 = none.", default: 0 },
+  },
+  async run(p) {
+    const exclude = (p.exclude_rfq_id as number) > 0 ? (await rfqOrThrow(p.exclude_rfq_id as number)).id : undefined;
+    const h = await api.routePrices(String(p.origin), String(p.destination), exclude);
+    if (!h.count) return { origin: p.origin, destination: p.destination, message: "Bu marşrut üzrə əvvəlki təklif tapılmadı." };
+    return { origin: p.origin, destination: p.destination, offers: h.count, rfqs: h.rfq_count, stats: h.stats, cheapest: h.cheapest, latest: h.items.slice(0, 5) };
   },
 };
 
@@ -500,6 +642,8 @@ function offerView(o: api.ArachiOffer) {
     price: o.price,
     currency: o.currency,
     price_azn: o.price_azn ?? null,
+    includes: typeof o.extra_details?.["Daxildir"] === "string" ? o.extra_details["Daxildir"] : undefined,
+    excludes: typeof o.extra_details?.["Daxil deyil"] === "string" ? o.extra_details["Daxil deyil"] : undefined,
     transit_days: o.transit_time_days,
     is_winner: o.is_winner,
     details: o.extra_details,
@@ -522,15 +666,16 @@ export const listOffers: AgentTool = {
         quote_id: r.quote_id,
         carrier: r.company_name,
         email: r.is_public ? "(ictimai link)" : r.email,
-        status: r.has_submitted
-          ? "Təklif alındı"
-          : r.is_viewed
-            ? "Baxıldı"
-            : r.mail_status === "failed"
-              ? "Çatdırılmadı"
-              : r.mail_status === "delivered"
-                ? "Çatdırıldı"
-                : "Göndərilir",
+        status:
+          (r.has_submitted
+            ? "Təklif alındı"
+            : r.is_viewed
+              ? "Baxıldı"
+              : r.mail_status === "failed"
+                ? "Çatdırılmadı"
+                : r.mail_status === "delivered"
+                  ? "Çatdırıldı"
+                  : "Göndərilir") + (!r.has_submitted && r.auto_reminded_at ? " · avtomatik xatırlatma göndərilib" : ""),
       })),
     };
   },

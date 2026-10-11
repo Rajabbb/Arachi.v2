@@ -7,6 +7,8 @@ import { createCustomerQuote, exportRfqs } from "./documentTools";
 import {
   addCarriers,
   compareOffers,
+  duplicateRfq,
+  routePriceHistory,
   createRfq,
   getDashboard,
   getQuoteLink,
@@ -40,6 +42,8 @@ export const tools = new ToolRegistry()
   // Offers
   .register(listOffers)
   .register(compareOffers)
+  .register(duplicateRfq)
+  .register(routePriceHistory)
   .register(selectWinner)
   .register(cancelWinner)
   .register(offerHistory)

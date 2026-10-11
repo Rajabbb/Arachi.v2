@@ -57,7 +57,7 @@ export function fakeJwt(customerId: number): string {
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 
-function handle(method: string, path: string, body: any, customerId: number, form?: FormData): Response | Promise<Response> {
+function handle(method: string, path: string, body: any, customerId: number, form?: FormData, query?: URLSearchParams): Response | Promise<Response> {
   arachiData.calls.push(`${method} ${path}`);
   const own = (rid: number) => arachiData.rfqs.find((r) => r.id === rid && r.customer_id === customerId);
   let m: RegExpMatchArray | null;
@@ -123,6 +123,7 @@ function handle(method: string, path: string, body: any, customerId: number, for
         return {
           quote_id: q.id, carrier_id: q.carrier_id, company_name: c.company_name, email: c.email, mail_status: q.mail_status,
           is_viewed: q.is_viewed, has_submitted: q.price !== null, token: q.token, is_public: false,
+          auto_reminded_at: (q.extra_details as Record<string, unknown>)?._auto_reminded_at ?? null,
         };
       });
     return json(200, { status: "success", carriers, has_public_link: false });
@@ -198,6 +199,29 @@ function handle(method: string, path: string, body: any, customerId: number, for
     arachiData.carriers = arachiData.carriers.filter((c) => !(c.customer_id === customerId && body.carrier_ids.includes(c.id)));
     return json(200, { status: "success", message: "silindi" });
   }
+  if (method === "GET" && path === "/analytics/route-prices") {
+    const city = (t: string) => t.toLowerCase().split(",")[0].trim().replace(/ı/g, "i").replace(/ə/g, "e");
+    const o = city(query?.get("origin") ?? "");
+    const d = city(query?.get("destination") ?? "");
+    const exclude = Number(query?.get("exclude_request_id") ?? 0);
+    const rfqs = arachiData.rfqs.filter((r) => r.customer_id === customerId && city(String(r.origin)) === o && city(String(r.destination)) === d && r.id !== exclude);
+    const items = arachiData.quotes
+      .filter((q) => rfqs.some((r) => r.id === q.request_id) && q.price !== null)
+      .map((q) => ({
+        rfq: q.request_id,
+        carrier: arachiData.carriers.find((c) => c.id === q.carrier_id)?.company_name ?? "?",
+        price: q.price as number,
+        currency: q.currency,
+        price_azn: arachiData.rates[q.currency] ? Math.round((q.price as number) * arachiData.rates[q.currency] * 100) / 100 : null,
+        transit_days: q.transit_time_days,
+        date: "2026-01-01",
+      }));
+    const azn = items.map((i) => i.price_azn).filter((x): x is number => x !== null).sort((a, b) => a - b);
+    const stats = azn.length
+      ? { min_azn: azn[0], max_azn: azn[azn.length - 1], avg_azn: Math.round((azn.reduce((a, b) => a + b, 0) / azn.length) * 100) / 100, median_azn: azn[Math.floor(azn.length / 2)], fx_date: "2026-10-09" }
+      : undefined;
+    return json(200, { status: "success", count: items.length, rfq_count: rfqs.length, stats, cheapest: null, items: items.slice(0, 10) });
+  }
   if (method === "POST" && path === "/requests/upload-attachment") {
     const file = form?.get("file") as File | null;
     if (!file) return json(400, { detail: "Fayl yoxdur" });
@@ -272,7 +296,7 @@ export function installFakeArachi(): () => void {
     }
     const form = init?.body instanceof FormData ? init.body : undefined;
     const body = init?.body && !form ? JSON.parse(String(init.body)) : undefined;
-    return handle(init?.method ?? "GET", url.pathname, body, customerId, form);
+    return handle(init?.method ?? "GET", url.pathname, body, customerId, form, url.searchParams);
   }) as typeof fetch;
   return () => {
     globalThis.fetch = realFetch;

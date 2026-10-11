@@ -18,6 +18,7 @@ export interface ArachiRfq {
   hs_code?: string | null;
   shipment_type?: string | null;
   stackable?: boolean | null;
+  transportation_mode?: string | null;
   required_fields?: string[] | null;
   additional_notes?: string | null;
   status: string;
@@ -63,6 +64,22 @@ export interface ArachiRecipient {
   is_viewed: boolean;
   has_submitted: boolean;
   is_public: boolean;
+  /** When the automatic reminder before the offer deadline was sent (not shown to carriers). */
+  auto_reminded_at?: string | null;
+}
+
+export interface RoutePrices {
+  count: number;
+  rfq_count: number;
+  stats?: { min_azn: number; max_azn: number; avg_azn: number; median_azn: number; fx_date?: string | null };
+  cheapest?: { rfq: number; carrier: string; price: number; currency: string; price_azn: number | null; date: string } | null;
+  items: { rfq: number; carrier: string; price: number; currency: string; price_azn: number | null; transit_days: number | null; date: string }[];
+}
+
+/** What carriers quoted before for the same loading and unloading city in the user's own RFQs. */
+export async function routePrices(origin: string, destination: string, excludeRequestId?: number): Promise<RoutePrices> {
+  const q = new URLSearchParams({ origin, destination, ...(excludeRequestId ? { exclude_request_id: String(excludeRequestId) } : {}) });
+  return arachi<RoutePrices>("GET", `/analytics/route-prices?${q}`);
 }
 
 export async function listRfqs(): Promise<ArachiRfq[]> {
