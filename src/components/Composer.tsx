@@ -94,6 +94,7 @@ export default function Composer({ disabled, onSend }: Props) {
           Göndər
         </button>
       </div>
+      <p className="composer-note">Arachi AI səhv edə bilər. Sorğunu göndərməzdən əvvəl məlumatları yoxlayın.</p>
     </form>
   );
 }

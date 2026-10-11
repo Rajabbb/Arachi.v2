@@ -139,7 +139,7 @@ export class ToolRegistry {
       const result = await tool.run(resolved.params, ctx);
       try {
         const card = tool.card?.(result, resolved.params);
-        if (card) ctx.cards.push(card);
+        if (card) ctx.cards.push({ ...card, source: name });
       } catch {
         // A card is a convenience; the tool's result still goes back to the model.
       }

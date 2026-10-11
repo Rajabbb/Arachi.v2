@@ -313,3 +313,60 @@ test("a send with nobody ticked, or a carrier outside the list, is refused and s
   const ok = await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "create", carrierIds: [] });
   assert.equal(ok.status, 200);
 });
+
+test("sea freight: the port is asked for, a truck type becomes a reefer container", async () => {
+  // "Vaşinqton, ABŞ" is not a port: nothing is prepared and the model is told to ask which one.
+  await assert.rejects(
+    call("create_rfq", { ...RFQ_DEFAULTS, origin: "Mersin, Türkiyə", destination: "Vaşinqton, ABŞ", transport_mode: "Dəniz" }, undefined, userId),
+    /liman.hava limanı olmalıdır.*Baltimor/s,
+  );
+  await assert.rejects(call("create_rfq", { ...RFQ_DEFAULTS, origin: "Mersin", destination: "ABŞ", transport_mode: "Dəniz" }, undefined, userId), /yalnız ölkədir/);
+  await assert.rejects(call("create_rfq", { ...RFQ_DEFAULTS, origin: "Bakı", destination: "Washington", transport_mode: "Hava" }, undefined, userId), /hava limanını/);
+
+  // A named port, or any road/rail route, is fine.
+  toolCallingProvider("create_rfq", { ...RFQ_DEFAULTS, origin: "Mersin", destination: "Baltimor, ABŞ", transport_mode: "Dəniz", truck_type: "Refrijerator", container_type: "20DC", container_count: 2, temperature: "+3 °C" });
+  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "sorğu yarat", files: [] } });
+  const c = chat.body.confirmations[0];
+  assert.match(c.text, /Konteyner: 2 × 20 reefer/);
+  assert.doesNotMatch(c.text, /Maşın növü/);
+  await request("POST", `/api/confirmations/${c.id}`, { approve: false });
+
+  // Cold cargo at sea without a container size: ask.
+  await assert.rejects(
+    call("create_rfq", { ...RFQ_DEFAULTS, origin: "Mersin", destination: "Baltimor", transport_mode: "Dəniz", temperature: "+3 °C" }, undefined, userId),
+    /20 ft yoxsa 40 ft/,
+  );
+});
+
+test("with a carrier picker the plain carrier-list card is left out", async () => {
+  const seen: string[] = [];
+  const provider: ModelProvider<Msg> = {
+    name: "anthropic",
+    model: "fake",
+    ownsTranscript: (t): t is Msg[] => t.every((m) => typeof m === "object" && m !== null && "fake" in m),
+    userMessage: (text) => ({ fake: `user:${text}` }),
+    dropAttachments: (m) => m,
+    async generate(_s, messages): Promise<ModelStep<Msg>> {
+      const last = messages[messages.length - 1].fake;
+      seen.push(last);
+      if (last.startsWith("user:")) {
+        return {
+          kind: "tool_calls",
+          message: { fake: "calls" },
+          calls: [
+            { id: "1", name: "list_carriers", input: {} },
+            { id: "2", name: "create_rfq", input: { ...RFQ_DEFAULTS, origin: "Bakı", destination: "Tbilisi" } },
+          ],
+        };
+      }
+      return { kind: "answer", message: { fake: "answer" }, text: "Seçin." };
+    },
+    toolResults: (results) => ({ fake: `results:${results.length}` }),
+    describeError: () => null,
+  };
+  setProvider(provider as ModelProvider);
+  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "daşıyıcıları göstər və sorğu yarat", files: [] } });
+  assert.equal(chat.body.confirmations.length, 1);
+  assert.ok(chat.body.confirmations[0].choices);
+  assert.equal(chat.body.cards.some((x) => /Daşıyıcı bazası/.test(x.title)), false, "the carrier list is shown once, in the picker");
+});

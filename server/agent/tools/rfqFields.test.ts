@@ -37,7 +37,7 @@ test("a full RFQ is written exactly like the panel writes it", async () => {
     weight_kg: 1200,
     volume_amount: 15,
     volume_unit: "Palet",
-    transport_mode: "Dəniz",
+    transport_mode: "Quru",
     loading_date: "2026-10-12T10:30",
     delivery_deadline: "2026-10-20",
     truck_type: "Tentli",
@@ -52,7 +52,7 @@ test("a full RFQ is written exactly like the panel writes it", async () => {
   assert.equal(result.number, 1);
   const row = stored();
   assert.equal(row.volume_m3, 15, "the amount goes to the volume field, the unit to the text line (as in the panel)");
-  assert.equal(row.transportation_mode, "Su/Dəniz (Sea)");
+  assert.equal(row.transportation_mode, "Quru (Road)");
   assert.equal(row.stackable, "Non-stackable");
   assert.equal(row.shipment_type, "LTL");
   assert.equal(row.deadline, "2026-10-12T10:30");

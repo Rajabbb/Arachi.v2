@@ -963,3 +963,5 @@ p.error:not(.small) {
 .picker-bulk { margin: var(--s2) 0 0; font-size: 13px; }
 .link-button { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
 .link-button:disabled { opacity: 0.5; cursor: default; }
+
+.composer-note { margin: 6px 4px 0; font-size: 12px; text-align: center; opacity: 0.6; }

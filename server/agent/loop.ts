@@ -22,6 +22,15 @@ export interface TurnResult {
 }
 
 /**
+ * The cards to show: when the turn prepared an RFQ with a carrier picker, the plain
+ * carrier-list card is left out (the picker already lists them, once is enough).
+ */
+function visibleCards(ctx: ToolContext): ResultCard[] {
+  const picker = ctx.confirmations.some((c) => c.choices);
+  return picker ? ctx.cards.filter((c) => c.source !== "list_carriers") : ctx.cards;
+}
+
+/**
  * Runs one user turn: appends the user's message to the transcript, calls
  * the model, executes any tools it asks for, and repeats until it answers.
  * The loop is the same for every provider; the transcript holds messages in
@@ -58,7 +67,7 @@ export async function runTurn<M>(
     toolCalls,
     downloads: ctx.downloads,
     confirmations: ctx.confirmations,
-    cards: ctx.cards,
+    cards: visibleCards(ctx),
   });
 
   for (let i = 0; i < config.maxIterations; i++) {
@@ -73,7 +82,7 @@ export async function runTurn<M>(
           toolCalls,
           downloads: ctx.downloads,
           confirmations: ctx.confirmations,
-          cards: ctx.cards,
+          cards: visibleCards(ctx),
         };
 
       case "continue":

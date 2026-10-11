@@ -48,6 +48,8 @@ export interface ResultCard {
   rows?: { label: string; value: string }[];
   items?: string[];
   note?: string;
+  /** The tool that produced the card (not shown). */
+  source?: string;
 }
 
 /**

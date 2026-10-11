@@ -133,6 +133,59 @@ async function carrierChoices(): Promise<CarrierChoices | undefined> {
   }
 }
 
+/** Places that are only a country: for sea and air the user must name the port or airport. */
+const COUNTRY_ONLY = new Set(
+  "abş,amerika,usa,united states,türkiyə,turkiye,turkey,çin,china,rusiya,russia,almaniya,germany,gürcüstan,georgia,iran,i̇ran,italiya,italy,fransa,france,ispaniya,spain,hollandiya,netherlands,belçika,belgium,polşa,poland,ukrayna,ukraine,yunanıstan,greece,bolqarıstan,bulgaria,rumıniya,romania,hindistan,india,yaponiya,japan,koreya,korea,kanada,canada,braziliya,brazil,meksika,mexico,birləşmiş ərəb əmirlikləri,bəə,uae,səudiyyə ərəbistanı,qazaxıstan,kazakhstan,özbəkistan,uzbekistan,türkmənistan,turkmenistan,misir,egypt,böyük britaniya,uk,england,ingiltərə,vyetnam,vietnam,tailand,thailand".split(","),
+);
+/** Cities that share a name with another (or are not seaports): ask which port is meant. */
+const AMBIGUOUS_PLACE = /^(vaşinqton|washington|kembric|cambridge|portland|richmond|springfield|columbus|victoria|georgetown|alexandria|kingston|birmingham|san[- ]?jose)\b/i;
+const PORT_WORDS = /liman|\bport\b|terminal|airport|hava limanı|aeroport|\([A-Z]{3}\)/i;
+
+function portProblem(place: string): string | null {
+  const text = place.trim();
+  if (!text || PORT_WORDS.test(text)) return null;
+  if (!text.includes(",") && COUNTRY_ONLY.has(text.toLowerCase())) {
+    return `"${text}" yalnız ölkədir`;
+  }
+  if (AMBIGUOUS_PLACE.test(text)) {
+    return `"${text}" aydın deyil (eyni adlı yerlər var və dəniz limanı deyil)`;
+  }
+  return null;
+}
+
+/**
+ * Rules the model kept missing in live tests, applied to what the user will see and what runs:
+ * sea and air need a port/airport, and at sea the vehicle is a container, not a truck.
+ */
+function normalizeRfq(p: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...p };
+  const mode = out.transport_mode;
+  if (mode === "Dəniz" || mode === "Hava") {
+    for (const [label, place] of [["yükləmə", out.origin], ["boşaltma", out.destination]] as const) {
+      const problem = portProblem(String(place ?? ""));
+      if (problem) {
+        throw new Error(
+          `${mode} daşımasında ${label} yeri liman/hava limanı olmalıdır: ${problem}. Sorğunu hələ hazırlamayın: istifadəçidən hansı ${mode === "Dəniz" ? "limanı" : "hava limanını"} nəzərdə tutduğunu soruşun (məs. Vaşinqton üçün Baltimor, Norfolk, New York).`,
+        );
+      }
+    }
+  }
+  if (mode === "Dəniz") {
+    const truck = String(out.truck_type ?? "").trim();
+    const cold = /refrij|reefer|soyuduc|frigo|рефриж/i.test(truck) || String(out.temperature ?? "").trim() !== "";
+    out.truck_type = ""; // a truck type means nothing at sea
+    const container = String(out.container_type ?? "");
+    if (cold && !/reefer$/.test(container)) {
+      const size = container.match(/^(20|40)/)?.[1];
+      if (!size) {
+        throw new Error("Dəniz daşımasında temperaturlu yük reefer konteynerlə daşınır: 20 ft yoxsa 40 ft reefer? İstifadəçidən soruşun, sorğunu hələ hazırlamayın.");
+      }
+      out.container_type = `${size} reefer`;
+    }
+  }
+  return out;
+}
+
 /** "Don't create it" / "yaratma": the user asked to see the fields, not to create the RFQ. */
 const NOT_NOW =
   /\b(yaratma|yaratmayın|yaratmayin|yaratmağa\s+ehtiyac\s+yoxdur|hələ\s+yaratma|yaratmaq\s+lazım\s+deyil|do\s+not\s+create|don'?t\s+create|not\s+yet\s+create|без\s+создания|не\s+создавай|не\s+надо\s+создавать)\b/i;
@@ -183,8 +236,9 @@ export const createRfq: AgentTool = {
     temperature: { type: "string", description: "Temperature requirement (reefer), e.g. \"+2 to +8 °C\"; empty = none.", default: "" },
     notes: { type: "string", description: "Additional information and special instructions for carriers.", default: "" },
   },
-  async confirm(p, ctx) {
+  async confirm(raw, ctx) {
     refuseWhenNotWanted(ctx.text);
+    const p = normalizeRfq(raw);
     rfqFieldLines(p); // validates numbers and dates before the user is asked
     const rows: [string, unknown][] = [
       ["Yükləmə yeri", p.origin],
@@ -220,7 +274,8 @@ export const createRfq: AgentTool = {
     const r = result as { number?: number };
     return `RFQ #${r.number} yaradıldı. Hələ daşıyıcılara göndərilməyib.`;
   },
-  async run(p) {
+  async run(raw) {
+    const p = normalizeRfq(raw);
     const amount = p.volume_amount as number;
     const fields = rfqFieldLines(p);
     const loading = (p.loading_date as string).trim();
