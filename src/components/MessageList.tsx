@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
+import type { ConfirmAnswer } from "../../shared/protocol";
 import type { Message } from "../types";
 import { formatSize } from "../lib/agent";
 import MarkdownText from "./MarkdownText";
@@ -9,7 +10,7 @@ import ResultCards from "./ResultCards";
 interface Props {
   messages: Message[];
   busy: boolean;
-  onConfirm?: (confirmationId: string, approve: boolean) => Promise<void>;
+  onConfirm?: (confirmationId: string, approve: boolean, answer?: ConfirmAnswer) => Promise<void>;
   /** Shown instead of the list while there are no messages (the greeting). */
   empty?: ReactNode;
 }
@@ -60,7 +61,7 @@ export default function MessageList({ messages, busy, onConfirm, empty }: Props)
             )}
             {onConfirm &&
               m.confirmations?.map((c) => (
-                <ConfirmCard key={c.id} confirmation={c} onAnswer={(approve) => onConfirm(c.id, approve)} />
+                <ConfirmCard key={c.id} confirmation={c} onAnswer={(approve, answer) => onConfirm(c.id, approve, answer)} />
               ))}
           </div>
         </div>

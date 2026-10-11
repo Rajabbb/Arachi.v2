@@ -2,6 +2,7 @@ import type { AgentTool } from "./registry";
 import * as api from "../../arachi/api";
 import { config } from "../../config";
 import { categoryOrThrow, isMine, recipientLines, rfqOrThrow, subCategoryOrThrow } from "./lookup";
+import type { CarrierChoices } from "../../../shared/protocol";
 
 export { recipientLines };
 
@@ -67,6 +68,8 @@ function rfqFieldLines(p: Record<string, unknown>): string[] {
   const delivery = (p.delivery_deadline as string).trim();
   if (loading) fields.push(`Loading Date: ${panelDate("loading_date", loading)}`);
   if ((p.truck_type as string).trim()) fields.push(`Truck Type: ${(p.truck_type as string).trim()}`);
+  if (p.container_type) fields.push(`Container Type: ${p.container_type}`);
+  if ((p.container_count as number) > 0) fields.push(`Container Count: ${p.container_count}`);
   if ((p.hs_code as string).trim()) fields.push(`HS Code: ${(p.hs_code as string).trim()}`);
   if (p.stackable) fields.push(`Stackable / Non-stackable: ${p.stackable}`);
   if (p.shipment_type) fields.push(`Shipment Type: ${p.shipment_type}`);
@@ -78,6 +81,56 @@ function rfqFieldLines(p: Record<string, unknown>): string[] {
   if (notes) fields.push(`Additional Information: ${notes}`);
   fields.push(`Həcm / Palet: ${amount} ${unit}`);
   return fields;
+}
+
+/** Distant sea routes: below this many days between loading and delivery the transit is not realistic. */
+const FAR_PLACES =
+  /(?<![\p{L}])(?:ABŞ|USA|United States|Amerika|Kanada|Canada|Meksika|Mexico|Braziliya|Brazil|Argentina|Çin|China|Yaponiya|Japan|Koreya|Korea|Hindistan|India|Avstraliya|Australia|Vyetnam|Vietnam|Tailand|Thailand|İndoneziya|Indonesia|Malayziya|Malaysia|Sinqapur|Singapore)(?![\p{L}])/iu;
+/** Euro-pallets that usually fit one container, by its length in feet. */
+const PALLETS_PER_CONTAINER: Record<string, number> = { "20": 10, "40": 20, "45": 23 };
+
+/** Things worth the user's attention before creating; they never block the RFQ. */
+function rfqWarnings(p: Record<string, unknown>): string[] {
+  const out: string[] = [];
+  const load = Date.parse(String(p.loading_date ?? "").slice(0, 10));
+  const deliver = Date.parse(String(p.delivery_deadline ?? "").slice(0, 10));
+  if (p.transport_mode === "Dəniz" && Number.isFinite(load) && Number.isFinite(deliver) && deliver >= load) {
+    const days = Math.round((deliver - load) / 86_400_000);
+    const far = FAR_PLACES.test(String(p.origin)) || FAR_PLACES.test(String(p.destination));
+    if (far ? days < 25 : days < 7) {
+      out.push(
+        `Yükləmə ilə çatdırılma arasında ${days} gün var: bu dəniz marşrutu üçün adətən real deyil. Müddəti yoxlayın (sorğu bloklanmır).`,
+      );
+    }
+  }
+  const size = String(p.container_type ?? "").match(/^(20|40|45)/)?.[1];
+  const count = Number(p.container_count ?? 0);
+  if (p.volume_unit === "Palet" && size && count > 0) {
+    const capacity = PALLETS_PER_CONTAINER[size] * count;
+    if (Number(p.volume_amount) > capacity) {
+      out.push(
+        `${p.volume_amount} palet ${count} × ${p.container_type} konteynerə (≈ ${capacity} palet) adətən yalnız paletlər üst-üstə yığılanda sığır. Dəqiqləşdirin.`,
+      );
+    }
+  }
+  return out;
+}
+
+/** The carrier base as the picker under a prepared RFQ shows it; undefined when it is empty or can't be read. */
+async function carrierChoices(): Promise<CarrierChoices | undefined> {
+  try {
+    const [all, categories] = await Promise.all([api.listCarriers(), api.listCategories()]);
+    const carriers = all.filter(isMine).filter((c) => (c.email ?? "").trim());
+    if (carriers.length === 0) return undefined;
+    return {
+      categories: categories
+        .map((cat) => ({ name: cat.name, carrierIds: carriers.filter((c) => c.category_id === cat.id).map((c) => c.id) }))
+        .filter((cat) => cat.carrierIds.length > 0),
+      carriers: carriers.map((c) => ({ id: c.id, name: c.company_name, email: c.email })),
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 /** "Don't create it" / "yaratma": the user asked to see the fields, not to create the RFQ. */
@@ -114,7 +167,14 @@ export const createRfq: AgentTool = {
     },
     loading_date: { type: "string", description: "Loading date, YYYY-MM-DD or YYYY-MM-DDTHH:MM; empty = not specified.", default: "" },
     delivery_deadline: { type: "string", description: "Delivery deadline, YYYY-MM-DD or YYYY-MM-DDTHH:MM; empty = not specified.", default: "" },
-    truck_type: { type: "string", description: "Vehicle type, e.g. Tentli, Refrijerator.", default: "" },
+    truck_type: { type: "string", description: "Vehicle type for road freight, e.g. Tentli, Refrijerator. Not for sea freight: use container_type there.", default: "" },
+    container_type: {
+      type: "string",
+      description: "Container type for sea freight (a reefer container is a reefer type, not a truck); empty = not specified or not a container shipment.",
+      enum: ["", "20DC", "40DC", "40HC", "45HC", "20 reefer", "40 reefer"],
+      default: "",
+    },
+    container_count: { type: "integer", description: "How many containers; 0 = not specified.", default: 0 },
     hs_code: { type: "string", description: "HS code, e.g. 1234.56.", default: "" },
     stackable: { type: "string", description: "Whether the cargo can be stacked; empty = not specified.", enum: ["", "Stackable", "Non-stackable"], default: "" },
     shipment_type: { type: "string", description: "Shipment type; empty = not specified.", enum: ["", "FTL", "LTL", "FCL", "LCL"], default: "" },
@@ -136,6 +196,7 @@ export const createRfq: AgentTool = {
       ["Yükləmə tarixi", p.loading_date ? panelDate("loading_date", String(p.loading_date)) : ""],
       ["Çatdırılma müddəti", p.delivery_deadline ? panelDate("delivery_deadline", String(p.delivery_deadline)) : ""],
       ["Maşın növü", p.truck_type],
+      ["Konteyner", p.container_type ? `${Number(p.container_count) > 0 ? `${p.container_count} × ` : ""}${p.container_type}` : ""],
       ["HS Code", p.hs_code],
       ["Stackable", p.stackable],
       ["Daşınma tipi", p.shipment_type],
@@ -145,9 +206,14 @@ export const createRfq: AgentTool = {
       ["Əlavə məlumat", p.notes],
     ];
     const lines = rows.filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== "").map(([k, v]) => `• ${k}: ${v}`);
+    const warnings = rfqWarnings(p).map((w) => `⚠ ${w}`);
+    const choices = await carrierChoices();
     return {
-      summary: `Yeni RFQ yaradılacaq (daşıyıcılara göndərilmir):\n${lines.join("\n")}`,
+      summary:
+        `Yeni RFQ yaradılacaq${choices ? "" : " (daşıyıcılara göndərilmir)"}:\n${lines.join("\n")}` +
+        (warnings.length ? `\n\n${warnings.join("\n")}` : ""),
       params: p,
+      choices,
     };
   },
   done(result) {

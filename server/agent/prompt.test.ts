@@ -20,3 +20,12 @@ test("the prompt tells the model how to read containers, ranges and mandatory fi
 test("the prompt stays free of today's date, so it can be cached", () => {
   assert.doesNotMatch(systemPrompt, /20\d\d-\d\d-\d\d/);
 });
+
+test("the prompt covers the carrier picker, sea ports, containers, short transit and pallet fit", () => {
+  assert.match(systemPrompt, /carrier list; they tick the carriers/);
+  assert.match(systemPrompt, /never call send_rfq_to_carriers for an RFQ that does not exist yet/);
+  assert.match(systemPrompt, /must be a port or an airport/);
+  assert.match(systemPrompt, /container_type and container_count, never in truck_type/);
+  assert.match(systemPrompt, /never block it/);
+  assert.match(systemPrompt, /20 ft takes about 10 pallets/);
+});

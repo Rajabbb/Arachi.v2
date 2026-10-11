@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ConversationSummary } from "../shared/protocol";
+import type { ConfirmAnswer, ConversationSummary } from "../shared/protocol";
 import type { Message } from "./types";
 import { AgentRequestError, sendToAgent, toAttachment } from "./lib/agent";
 import { answerConfirmation, deleteConversation, listConversations, loadConversation, toMessage } from "./lib/conversations";
@@ -117,8 +117,8 @@ export default function App({ user }: { user: User }) {
     }
   }
 
-  async function handleConfirm(confirmationId: string, approve: boolean) {
-    const res = await answerConfirmation(confirmationId, approve);
+  async function handleConfirm(confirmationId: string, approve: boolean, answer?: ConfirmAnswer) {
+    const res = await answerConfirmation(confirmationId, approve, answer);
     setMessages((prev) => [
       ...prev.map((m) =>
         m.confirmations?.some((c) => c.id === confirmationId)

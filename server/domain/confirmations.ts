@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { Confirmation } from "../../shared/protocol";
+import type { CarrierChoices, Confirmation } from "../../shared/protocol";
 import { currentUserId } from "../auth/current";
 import { db, now } from "../db";
 
@@ -20,6 +20,7 @@ export interface StoredConfirmation {
   tool: string;
   params: string;
   summary: string;
+  choices: string | null;
   status: Confirmation["status"];
   result: string;
   created_at: string;
@@ -29,8 +30,25 @@ function expired(row: StoredConfirmation): boolean {
   return row.status === "pending" && Date.parse(row.created_at) < Date.now() - CONFIRM_HOURS * 3600_000;
 }
 
+export function parseChoices(row: StoredConfirmation): CarrierChoices | undefined {
+  if (!row.choices) return undefined;
+  try {
+    return JSON.parse(row.choices) as CarrierChoices;
+  } catch {
+    return undefined;
+  }
+}
+
 export function toConfirmation(row: StoredConfirmation): Confirmation {
-  return { id: row.id, tool: row.tool, text: row.summary, status: expired(row) ? "expired" : row.status, result: row.result };
+  const choices = parseChoices(row);
+  return {
+    id: row.id,
+    tool: row.tool,
+    text: row.summary,
+    status: expired(row) ? "expired" : row.status,
+    result: row.result,
+    ...(choices ? { choices } : {}),
+  };
 }
 
 export async function createConfirmation(
@@ -38,14 +56,15 @@ export async function createConfirmation(
   tool: string,
   params: Record<string, unknown>,
   summary: string,
+  choices?: CarrierChoices,
 ): Promise<Confirmation> {
   const id = randomBytes(16).toString("base64url");
   await db().run(
-    `INSERT INTO confirmations (id, user_id, conversation_id, tool, params, summary, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    id, currentUserId(), conversationId, tool, JSON.stringify(params), summary, now(),
+    `INSERT INTO confirmations (id, user_id, conversation_id, tool, params, summary, choices, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    id, currentUserId(), conversationId, tool, JSON.stringify(params), summary, choices ? JSON.stringify(choices) : null, now(),
   );
-  return { id, tool, text: summary, status: "pending", result: "" };
+  return { id, tool, text: summary, status: "pending", result: "", ...(choices ? { choices } : {}) };
 }
 
 /** Ties the actions prepared in a turn to the reply that shows their buttons. */

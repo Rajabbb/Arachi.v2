@@ -47,6 +47,7 @@ export const cardFor: Record<string, CardFn> = {
         ...row("Yükləmə tarixi", p.loading_date ? panelDate("loading_date", String(p.loading_date)) : ""),
         ...row("Çatdırılma müddəti", p.delivery_deadline ? panelDate("delivery_deadline", String(p.delivery_deadline)) : ""),
         ...row("Maşın növü", p.truck_type),
+        ...row("Konteyner", p.container_type ? `${Number(p.container_count) > 0 ? `${p.container_count} × ` : ""}${p.container_type}` : ""),
         ...row("HS Code", p.hs_code),
         ...row("Stackable", p.stackable),
         ...row("Daşınma tipi", p.shipment_type),

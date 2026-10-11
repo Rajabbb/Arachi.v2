@@ -244,4 +244,9 @@ export const migrations: string[] = [
   `
   ALTER TABLE conversation_messages ADD COLUMN cards TEXT NOT NULL DEFAULT '[]';
   `,
+
+  // 15: carrier picker under a prepared RFQ (see migrations/0009_confirmation_choices.sql).
+  `
+  ALTER TABLE confirmations ADD COLUMN choices TEXT;
+  `,
 ];

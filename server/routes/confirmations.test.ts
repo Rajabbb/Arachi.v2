@@ -170,7 +170,7 @@ test("result cards show what was done: with the reply, saved with it, and for wh
   assert.equal(chat.body.cards.length, 0, "nothing was created yet: the RFQ waits for Bəli");
   assert.equal(chat.body.confirmations.length, 1);
   assert.match(chat.body.confirmations[0].text, /Yükləmə yeri: Bakı/);
-  const created = await request<ConfirmationResponse>("POST", `/api/confirmations/${chat.body.confirmations[0].id}`, { approve: true });
+  const created = await request<ConfirmationResponse>("POST", `/api/confirmations/${chat.body.confirmations[0].id}`, { approve: true, mode: "create", carrierIds: [] });
   assert.equal(created.body.message!.cards!.length, 1);
   const card = created.body.message!.cards![0];
   assert.match(card.title, /RFQ #2 yaradıldı/);
@@ -240,4 +240,76 @@ test("create_rfq is refused when the user said not to create it, and creates not
   const declined = await request<ConfirmationResponse>("POST", `/api/confirmations/${ask.body.confirmations[0].id}`, { approve: false });
   assert.equal(declined.body.confirmation.status, "declined");
   assert.equal(declined.body.message?.cards?.length ?? 0, 0);
+});
+
+/** The RFQ card has a carrier picker; what the user ticks is exactly who gets the email. */
+async function prepareRfq() {
+  toolCallingProvider("create_rfq", { ...RFQ_DEFAULTS, origin: "Mersin", destination: "Baltimor, ABŞ", volume_unit: "Palet", volume_amount: 40, transport_mode: "Dəniz", container_type: "20DC", container_count: 2, loading_date: "2026-10-13", delivery_deadline: "2026-10-30" });
+  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "sorğu yarat, daşıyıcını seçəcəm", files: [] } });
+  return chat.body.confirmations[0];
+}
+
+test("a new RFQ card offers the carrier base, container and warnings", async () => {
+  const c = await prepareRfq();
+  assert.equal(c.tool, "create_rfq");
+  assert.deepEqual(c.choices!.carriers.map((x) => x.email).sort(), ["a@road.az", "x@evil.example"]);
+  assert.match(c.text, /Konteyner: 2 × 20DC/);
+  assert.match(c.text, /⚠.*17 gün/s, "17 days by sea to a far place is flagged");
+  assert.match(c.text, /⚠.*40 palet/s, "40 pallets do not fit 2 × 20 ft");
+  assert.doesNotMatch(c.text, /daşıyıcılara göndərilmir/);
+  assert.equal(arachiData.mails.length, 0);
+  assert.equal(arachiData.rfqs.length, 1, "nothing created before the user chooses");
+});
+
+test("create and send goes only to the ticked carrier", async () => {
+  const c = await prepareRfq();
+  const a = c.choices!.carriers.find((x) => x.email === "a@road.az")!;
+  const yes = await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "send", carrierIds: [a.id] });
+  assert.equal(yes.status, 200);
+  assert.equal(yes.body.confirmation.status, "done");
+  assert.equal(arachiData.rfqs.length, 2);
+  assert.deepEqual(arachiData.mails.map((m) => m.to), ["a@road.az"], "the unticked carrier got nothing");
+  assert.match(yes.body.message!.text, /RFQ #\d+ yaradıldı\. 1 daşıyıcıya göndərildi: Road A \(a@road\.az\)/);
+  assert.doesNotMatch(yes.body.message!.text, /evil/);
+  const titles = (yes.body.message!.cards ?? []).map((x) => x.title);
+  assert.ok(titles.some((t) => /yaradıldı/.test(t)) && titles.some((t) => /göndərildi/.test(t)));
+  const rfqCard = yes.body.message!.cards!.find((x) => /yaradıldı/.test(x.title))!;
+  assert.equal(rfqCard.note, undefined, "the card no longer says it was not sent");
+});
+
+test("only create sends nothing; link-only makes a link and sends nothing; cancel creates nothing", async () => {
+  const only = await prepareRfq();
+  const created = await request<ConfirmationResponse>("POST", `/api/confirmations/${only.id}`, { approve: true, mode: "create", carrierIds: [] });
+  assert.match(created.body.message!.text, /yaradıldı/);
+  assert.equal(arachiData.mails.length, 0);
+  assert.equal(arachiData.rfqs.length, 2);
+
+  const link = await prepareRfq();
+  const made = await request<ConfirmationResponse>("POST", `/api/confirmations/${link.id}`, { approve: true, mode: "link", carrierIds: [] });
+  assert.match(made.body.message!.text, /Heç bir daşıyıcıya email göndərilmədi. Ümumi link: http/);
+  assert.equal(arachiData.mails.length, 0);
+  assert.equal(arachiData.rfqs.length, 3);
+
+  const cancel = await prepareRfq();
+  const no = await request<ConfirmationResponse>("POST", `/api/confirmations/${cancel.id}`, { approve: false });
+  assert.equal(no.body.confirmation.status, "declined");
+  assert.equal(arachiData.rfqs.length, 3, "cancel creates no RFQ");
+  assert.equal(arachiData.mails.length, 0);
+});
+
+test("a send with nobody ticked, or a carrier outside the list, is refused and stays pending", async () => {
+  const c = await prepareRfq();
+  const none = await request<{ error: string }>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "send", carrierIds: [] });
+  assert.equal(none.status, 400);
+  const foreign = await request<{ error: string }>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "send", carrierIds: [9999] });
+  assert.equal(foreign.status, 400);
+  const noMode = await request<{ error: string }>("POST", `/api/confirmations/${c.id}`, { approve: true });
+  assert.equal(noMode.status, 400);
+  assert.equal(arachiData.rfqs.length, 1);
+  const saved = await request<ConversationData>("GET", `/api/conversations/${(await request<{ conversations: { id: number }[] }>("GET", "/api/conversations")).body.conversations[0].id}`);
+  assert.equal(saved.body.messages.at(-1)!.confirmations![0].status, "pending");
+  assert.ok(saved.body.messages.at(-1)!.confirmations![0].choices, "the picker survives a reload");
+  // The user can still make a valid choice afterwards.
+  const ok = await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "create", carrierIds: [] });
+  assert.equal(ok.status, 200);
 });

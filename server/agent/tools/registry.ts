@@ -1,4 +1,4 @@
-import type { Confirmation, Download, ResultCard, UploadedFile } from "../../../shared/protocol";
+import type { Confirmation, Download, ResultCard, UploadedFile, CarrierChoices } from "../../../shared/protocol";
 import type { ToolDefinition } from "../providers/types";
 
 /**
@@ -29,7 +29,7 @@ export interface ToolContext {
    * Set during a chat turn: stores an action for the user to confirm with
    * "Bəli" / "Xeyr". Tools with `confirm` then prepare instead of running.
    */
-  askUser?: (tool: string, params: Record<string, unknown>, summary: string) => Promise<Confirmation>;
+  askUser?: (tool: string, params: Record<string, unknown>, summary: string, choices?: CarrierChoices) => Promise<Confirmation>;
   /** Actions prepared in this turn, shown under the reply. */
   confirmations: Confirmation[];
   /** What tools did in this turn (see AgentTool.card), shown under the reply. */
@@ -40,6 +40,8 @@ export interface ToolContext {
 export interface ConfirmPlan {
   summary: string;
   params: Record<string, unknown>;
+  /** A new RFQ: the carriers to pick from under the card. */
+  choices?: CarrierChoices;
 }
 
 export interface AgentTool {
@@ -114,7 +116,7 @@ export class ToolRegistry {
         if (plan) {
           // The same action asked twice in a turn gets one card, not two.
           const same = ctx.confirmations.find((c) => c.text === plan.summary);
-          const confirmation = same ?? (await ctx.askUser(name, plan.params, plan.summary));
+          const confirmation = same ?? (await ctx.askUser(name, plan.params, plan.summary, plan.choices));
           if (!same) ctx.confirmations.push(confirmation);
           return {
             ...resolved,
@@ -123,8 +125,12 @@ export class ToolRegistry {
               status: "waiting_for_user",
               will_do: plan.summary,
               note:
-                "Nothing has been sent yet. Under your reply the user sees exactly this with \"Bəli\" (yes) and \"Xeyr\" (no) buttons; " +
-                "it runs only when they press Bəli. Say in one short sentence what will happen and ask them to press Bəli. " +
+                (plan.choices
+                  ? "Nothing has been created or sent yet. Under your reply the user sees this RFQ with the carrier list: they tick the carriers and press " +
+                    "\"Yarat və seçilənlərə göndər\", \"Yalnız yarat\" or \"Ləğv et\". Say in one short sentence that they should choose the carriers in the card and press a button. " +
+                    "Do not ask who to send it to in text and do not call send_rfq_to_carriers for it. "
+                  : "Nothing has been sent yet. Under your reply the user sees exactly this with \"Bəli\" (yes) and \"Xeyr\" (no) buttons; " +
+                    "it runs only when they press Bəli. Say in one short sentence what will happen and ask them to press Bəli. ") +
                 "Don't call this tool again for the same action, even if they answer yes in text.",
             }),
           };

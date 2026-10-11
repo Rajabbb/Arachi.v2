@@ -953,3 +953,13 @@ p.error:not(.small) {
 .result-rows + .result-items { margin-top: 8px; }
 .result-note { margin: 8px 0 0; color: var(--muted); font-size: 0.85rem; }
 @media (max-width: 520px) { .result-row { grid-template-columns: 1fr; gap: 0; } }
+
+/* Carrier picker under a prepared RFQ */
+.carrier-picker { margin-top: var(--s3); padding-top: var(--s3); border-top: 1px solid var(--border); }
+.picker-title { margin: 0 0 var(--s2); font-weight: 600; }
+.picker-label { margin: var(--s2) 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.7; }
+.picker-row { display: flex; align-items: flex-start; gap: var(--s2); padding: 3px 0; cursor: pointer; font-size: 14px; }
+.picker-row input { margin-top: 3px; }
+.picker-bulk { margin: var(--s2) 0 0; font-size: 13px; }
+.link-button { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
+.link-button:disabled { opacity: 0.5; cursor: default; }

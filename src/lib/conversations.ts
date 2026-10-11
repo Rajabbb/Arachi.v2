@@ -2,6 +2,7 @@ import type {
   ChatError,
   ConversationData,
   ConversationListData,
+  ConfirmAnswer,
   ConfirmationResponse,
   ConversationMessage,
 } from "../../shared/protocol";
@@ -19,11 +20,11 @@ export async function loadConversation(id: number): Promise<Message[]> {
 }
 
 /** The user's "Bəli" (approve) or "Xeyr" for an action the agent prepared. */
-export async function answerConfirmation(id: string, approve: boolean): Promise<ConfirmationResponse> {
+export async function answerConfirmation(id: string, approve: boolean, answer?: ConfirmAnswer): Promise<ConfirmationResponse> {
   const res = await fetch(`/api/confirmations/${encodeURIComponent(id)}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ approve }),
+    body: JSON.stringify({ approve, ...(answer ?? {}) }),
   });
   if (res.status === 401) window.location.reload();
   const body = (await res.json().catch(() => null)) as ConfirmationResponse | ChatError | null;
