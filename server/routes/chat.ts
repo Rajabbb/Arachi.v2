@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ChatRequest, ChatResponse, ConversationData, ConversationListData } from "../../shared/protocol";
 import { runTurn } from "../agent/loop";
+import { languageNote, scopeRefusal } from "../agent/guards";
 import { remember, usableTurns } from "../agent/history";
 import { provider } from "../agent/providers";
 import {
@@ -60,15 +61,23 @@ export async function handleChat(req: IncomingMessage, res: ServerResponse) {
   const id = existing?.id ?? (await createConversation(titleFor(message.text, message.files)));
   await addMessage(id, { role: "user", text: message.text, attachments: attachmentInfo(message.files) });
 
+  // Plainly off-topic requests (jokes, programs to write) get a short refusal without a model call.
+  const refusal = scopeRefusal(message.text, message.files.length);
+  if (refusal) {
+    await addMessage(id, { role: "assistant", text: refusal });
+    const body: ChatResponse = { conversationId: id, reply: refusal, toolCalls: [], downloads: [], confirmations: [], cards: [] };
+    return send(res, 200, body);
+  }
+
   try {
     const model = provider();
     const turns = usableTurns(parseContext(existing?.context ?? "[]"), model);
     const previous = turns.flat();
     // The agent only saw "waiting for the user" for actions it prepared; tell it what the user decided.
     const outcomes = await takeOutcomes(id);
-    const text = outcomes.length
-      ? `[System note, not written by the user: ${outcomes.join(" ")}]\n\n${message.text}`
-      : message.text;
+    // Notes in front of the message: what the user decided on prepared actions, and the language to answer in.
+    const notes = [...outcomes, languageNote(message.text)].filter(Boolean);
+    const text = notes.length ? `[System note, not written by the user: ${notes.join(" ")}]\n\n${message.text}` : message.text;
     const result = await runTurn(previous, text, message.files, model, (tool, params, summary) =>
       createConfirmation(id, tool, params, summary),
     );

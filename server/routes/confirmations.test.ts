@@ -190,3 +190,36 @@ test("result cards show what was done: with the reply, saved with it, and for wh
   assert.match(sentCard.title, /RFQ #1 2 daşıyıcıya göndərildi/);
   assert.deepEqual(sentCard.items?.sort(), ["Evil · x@evil.example", "Road A · a@road.az"]);
 });
+
+test("a joke or code request is refused without calling the model; a Russian question reaches it with a language note", async () => {
+  let modelCalls = 0;
+  const strict: ModelProvider<Msg> = {
+    name: "anthropic",
+    model: "fake",
+    ownsTranscript: (_t): _t is Msg[] => true,
+    userMessage: (text) => ({ fake: `user:${text}` }),
+    dropAttachments: (m) => m,
+    async generate(): Promise<ModelStep<Msg>> {
+      modelCalls++;
+      return { kind: "answer", message: { fake: "answer" }, text: "model" };
+    },
+    toolResults: () => ({ fake: "results" }),
+    describeError: () => null,
+  };
+  setProvider(strict as ModelProvider);
+  const refused = await request<ChatResponse>("POST", "/api/chat", { message: { text: "Futbol haqqında zarafat de və Python-da kod yaz", files: [] } });
+  assert.equal(refused.status, 200);
+  assert.match(refused.body.reply, /yalnız Arachi/);
+  assert.equal(modelCalls, 0, "the model was not called");
+  const saved = await request<ConversationData>("GET", `/api/conversations/${refused.body.conversationId}`);
+  assert.deepEqual(saved.body.messages.map((m) => m.role), ["user", "assistant"]);
+
+  // The refusal does not swallow what the user decided on a prepared action.
+  const seen = toolCallingProvider("get_dashboard", {});
+  await request<ChatResponse>("POST", "/api/chat", { message: { text: "В чём разница между EXW и FCA?", files: [] } });
+  assert.match(seen[0], /\[System note.*Russian.*\]/s);
+  assert.match(seen[0], /В чём разница между EXW и FCA\?$/);
+  const az = toolCallingProvider("get_dashboard", {});
+  await request<ChatResponse>("POST", "/api/chat", { message: { text: "Bakıdan Berlinə yük üçün qiymət lazımdır", files: [] } });
+  assert.doesNotMatch(az[0], /System note/);
+});
