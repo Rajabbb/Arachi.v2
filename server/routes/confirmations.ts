@@ -1,12 +1,15 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { CarrierChoices, ConfirmationResponse, ConfirmMode } from "../../shared/protocol";
 import { tools } from "../agent/tools";
+import { attachmentMime } from "../agent/attachments";
+import * as arachiApi from "../arachi/api";
 import { emptyContext } from "../agent/tools/registry";
 import {
   claimConfirmation,
   findConfirmation,
   finishConfirmation,
   parseChoices,
+  storedFiles,
   toConfirmation,
 } from "../domain/confirmations";
 import { addMessage, conversationMessages } from "../domain/conversations";
@@ -26,10 +29,19 @@ const answered: Record<string, string> = {
  * parameters the user was shown; the outcome is added to the chat.
  */
 export async function handleConfirmation(req: IncomingMessage, res: ServerResponse, id: string) {
-  const body = (await readJson(req, SMALL_BODY_BYTES)) as { approve?: unknown; mode?: unknown; carrierIds?: unknown } | null;
+  const body = (await readJson(req, SMALL_BODY_BYTES)) as { approve?: unknown; mode?: unknown; carrierIds?: unknown; attachFile?: unknown } | null;
   if (typeof body?.approve !== "boolean") throw new HttpError(400, "Sorğunun formatı yanlışdır.");
   const stored = await findConfirmation(id);
   if (!stored) throw new HttpError(404, "Təsdiq tapılmadı.");
+
+  // The file the user chose to show to carriers (if any) must be one of those kept with the card.
+  const files = storedFiles(stored);
+  let attachIndex: number | undefined;
+  if (body.approve && body.attachFile !== undefined && body.attachFile !== null) {
+    const i = Number(body.attachFile);
+    if (!Number.isInteger(i) || i < 0 || i >= files.length) throw new HttpError(400, "Seçilən fayl tapılmadı.");
+    attachIndex = i;
+  }
 
   // A new RFQ with a carrier picker: what the user chose is checked before the action is claimed.
   const choices = parseChoices(stored);
@@ -56,6 +68,17 @@ export async function handleConfirmation(req: IncomingMessage, res: ServerRespon
 
   const tool = tools.get(stored.tool);
   const ctx = emptyContext();
+  // The chosen file goes to arachi.co first; if it is refused the RFQ is still created, and the text says so.
+  let attachNote = "";
+  if (attachIndex !== undefined) {
+    const file = files[attachIndex];
+    try {
+      ctx.attachmentUrl = await arachiApi.uploadAttachment(file.name, Buffer.from(file.data, "base64"), attachmentMime(file.name) ?? file.type);
+      attachNote = ` Fayl daşıyıcılara görünür: ${file.name}.`;
+    } catch (err) {
+      attachNote = ` ⚠ Fayl əlavə olunmadı (${err instanceof Error ? err.message : "xəta"}): daşıyıcılar yalnız sahələri görəcək.`;
+    }
+  }
   const run = await tools.execute(stored.tool, JSON.parse(stored.params), ctx);
   let outcome = run.ok
     ? (tool?.done?.(JSON.parse(run.content)) ?? "Hazırdır.")
@@ -69,6 +92,7 @@ export async function handleConfirmation(req: IncomingMessage, res: ServerRespon
       for (const card of ctx.cards) if (card.title.includes("yaradıldı")) delete card.note;
     }
   }
+  if (run.ok) outcome += attachNote;
   await finishConfirmation(id, run.ok ? "done" : "failed", outcome);
   const messageId = await addMessage(Number(stored.conversation_id), { role: "assistant", text: `${clean ? "✓" : "⚠"} ${outcome}`, cards: ctx.cards });
   const messages = await conversationMessages(Number(stored.conversation_id));

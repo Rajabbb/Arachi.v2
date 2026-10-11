@@ -89,6 +89,8 @@ export interface NewRfq {
   /** The "ixtiyari parametrlər" and volume lines exactly as the panel writes them ("Incoterm: FOB" ...). */
   required_fields: string[];
   additional_notes: string;
+  /** A file the carriers see on the quote page ("Sənədə Bax"), from uploadAttachment. */
+  attachment_url?: string;
 }
 
 /** Creates the RFQ only; sending it to carriers is a separate, confirmed step. */
@@ -97,6 +99,14 @@ export async function createRfq(rfq: NewRfq): Promise<ArachiRfq> {
     json: { ...rfq, customer_id: currentCustomerId(), send_option: "none", send_to_all: false },
   });
   return data.request_details;
+}
+
+/** Uploads one file to arachi.co as an RFQ attachment (PDF, Word, Excel, CSV, TXT, PNG/JPG up to 10 MB). */
+export async function uploadAttachment(name: string, data: Uint8Array, type: string): Promise<string> {
+  const form = new FormData();
+  form.set("file", new Blob([data as unknown as ArrayBuffer], { type }), name);
+  const res = await arachi<{ attachment_url: string }>("POST", "/requests/upload-attachment", { form });
+  return res.attachment_url;
 }
 
 export async function listCarriers(): Promise<ArachiCarrier[]> {

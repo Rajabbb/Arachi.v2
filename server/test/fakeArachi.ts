@@ -28,11 +28,13 @@ export const arachiData = {
   next: 1,
   /** When set, every call fails with this status (e.g. 401 = arachi.co session ended). */
   failWith: 0,
+  uploads: [] as { name: string; type: string; size: number }[],
   /** Central Bank rates in AZN; empty = rates unavailable. */
   rates: { AZN: 1, USD: 1.7, EUR: 1.9 } as Record<string, number>,
 };
 
 export function resetArachi() {
+  arachiData.uploads = [];
   arachiData.rates = { AZN: 1, USD: 1.7, EUR: 1.9 };
   arachiData.carriers = [];
   arachiData.rfqs = [];
@@ -195,6 +197,13 @@ function handle(method: string, path: string, body: any, customerId: number, for
     if (body.customer_id !== customerId) return json(403, { detail: "İcazə rədd edildi." });
     arachiData.carriers = arachiData.carriers.filter((c) => !(c.customer_id === customerId && body.carrier_ids.includes(c.id)));
     return json(200, { status: "success", message: "silindi" });
+  }
+  if (method === "POST" && path === "/requests/upload-attachment") {
+    const file = form?.get("file") as File | null;
+    if (!file) return json(400, { detail: "Fayl yoxdur" });
+    if (file.name.startsWith("bad")) return json(400, { detail: "Təhlükəsizlik: bu fayl qəbul olunmur." });
+    arachiData.uploads.push({ name: file.name, type: file.type, size: file.size });
+    return json(200, { status: "success", attachment_url: `/uploads/uuid-${file.name}`, filename: file.name });
   }
   if (method === "POST" && path === "/carriers/upload-excel") {
     // The fake reads the file as CSV text: "name,email" lines.

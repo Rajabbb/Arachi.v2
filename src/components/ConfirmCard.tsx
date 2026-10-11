@@ -38,6 +38,7 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
   const [error, setError] = useState("");
   const [selected, setSelected] = useState<number[]>([]);
   const [linkOnly, setLinkOnly] = useState(false);
+  const [attach, setAttach] = useState<number | null>(null);
 
   async function answer(approve: boolean, choice?: ConfirmAnswer) {
     setBusy(true);
@@ -65,6 +66,34 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
   function toggleCategory(ids: number[]) {
     setSelected((prev) => (ids.every((id) => prev.includes(id)) ? prev.filter((id) => !ids.includes(id)) : [...new Set([...prev, ...ids])]));
   }
+
+  const files = confirmation.files ?? [];
+  const attachBox =
+    pending && files.length > 0 ? (
+      <div className="attach-choice">
+        {files.length === 1 ? (
+          <label className="picker-row">
+            <input type="checkbox" disabled={busy} checked={attach === 0} onChange={(e) => setAttach(e.target.checked ? 0 : null)} />
+            <span>
+              Fayl daşıyıcılara görünsün <span className="muted">· {files[0].name}</span>
+            </span>
+          </label>
+        ) : (
+          <label className="picker-row">
+            <span>Fayl daşıyıcılara görünsün:</span>
+            <select disabled={busy} value={attach ?? ""} onChange={(e) => setAttach(e.target.value === "" ? null : Number(e.target.value))}>
+              <option value="">Heç biri</option>
+              {files.map((f, i) => (
+                <option key={f.name + i} value={i}>
+                  {f.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+        <p className="muted attach-hint">Seçilərsə, daşıyıcı səhifəsində «Sənədə Bax» düyməsi görünəcək. Faylda daxili qiymət və ya şərh varsa, seçməyin.</p>
+      </div>
+    ) : null;
 
   if (pending && choices) {
     const pickDisabled = busy || linkOnly;
@@ -123,9 +152,10 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
             <span>Heç kimə göndərmə, yalnız link yarat</span>
           </label>
         </div>
+        {attachBox}
         <div className="confirm-actions">
           {linkOnly ? (
-            <button type="button" className="send-button" disabled={busy} onClick={() => void answer(true, { mode: "link", carrierIds: [] })}>
+            <button type="button" className="send-button" disabled={busy} onClick={() => void answer(true, { mode: "link", carrierIds: [], ...(attach !== null ? { attachFile: attach } : {}) })}>
               {busy && !cancelling ? words.busy : "Yarat və link al"}
             </button>
           ) : (
@@ -133,12 +163,12 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
               type="button"
               className="send-button"
               disabled={busy || selected.length === 0}
-              onClick={() => void answer(true, { mode: "send", carrierIds: selected })}
+              onClick={() => void answer(true, { mode: "send", carrierIds: selected, ...(attach !== null ? { attachFile: attach } : {}) })}
             >
               {busy && !cancelling ? words.busy : `Yarat və seçilənlərə göndər${selected.length ? ` (${selected.length})` : ""}`}
             </button>
           )}
-          <button type="button" className="confirm-no" disabled={busy} onClick={() => void answer(true, { mode: "create", carrierIds: [] })}>
+          <button type="button" className="confirm-no" disabled={busy} onClick={() => void answer(true, { mode: "create", carrierIds: [], ...(attach !== null ? { attachFile: attach } : {}) })}>
             Yalnız yarat
           </button>
           <button type="button" className="confirm-no" disabled={busy} onClick={() => void answer(false)}>
@@ -153,9 +183,15 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
   return (
     <div className={`confirm-card ${confirmation.status}`}>
       <p className="confirm-text">{confirmation.text}</p>
+      {attachBox}
       {pending ? (
         <div className="confirm-actions">
-          <button type="button" className="send-button" disabled={busy} onClick={() => void answer(true)}>
+          <button
+            type="button"
+            className="send-button"
+            disabled={busy}
+            onClick={() => void answer(true, attach !== null ? { mode: "create", carrierIds: [], attachFile: attach } : undefined)}
+          >
             {busy && !cancelling ? words.busy : words.yes}
           </button>
           <button type="button" className="confirm-no" disabled={busy} onClick={() => void answer(false)}>

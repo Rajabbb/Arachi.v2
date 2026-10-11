@@ -69,6 +69,8 @@ export type ConfirmMode = "send" | "create" | "link";
 export interface ConfirmAnswer {
   mode: ConfirmMode;
   carrierIds: number[];
+  /** Index (in Confirmation.files) of the file carriers should see on the RFQ; absent = none. */
+  attachFile?: number;
 }
 
 export interface Confirmation {
@@ -77,6 +79,8 @@ export interface Confirmation {
   tool?: string;
   /** For a new RFQ: the carriers the user can pick under the card; absent when there is no base. */
   choices?: CarrierChoices;
+  /** For a new RFQ made from attached files: the files that can be shown to carriers (names only). */
+  files?: { name: string; size: number }[];
   /** What will happen, written by the server from the exact action (recipients included). */
   text: string;
   /** pending → running → done | failed after "Bəli", declined after "Xeyr", expired when left too long. */

@@ -965,3 +965,6 @@ p.error:not(.small) {
 .link-button:disabled { opacity: 0.5; cursor: default; }
 
 .composer-note { margin: 6px 4px 0; font-size: 12px; text-align: center; opacity: 0.6; }
+
+.attach-choice { margin-top: var(--s3); padding-top: var(--s2); border-top: 1px dashed var(--border); }
+.attach-hint { margin: 2px 0 0 26px; font-size: 12px; }

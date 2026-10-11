@@ -370,3 +370,55 @@ test("with a carrier picker the plain carrier-list card is left out", async () =
   assert.ok(chat.body.confirmations[0].choices);
   assert.equal(chat.body.cards.some((x) => /Daşıyıcı bazası/.test(x.title)), false, "the carrier list is shown once, in the picker");
 });
+
+/** A new RFQ prepared from attached files: the user may show one of them to carriers. */
+const b64 = (text: string) => Buffer.from(text).toString("base64");
+async function prepareWithFiles(files: { name: string; type: string; data: string }[]) {
+  toolCallingProvider("create_rfq", { ...RFQ_DEFAULTS, origin: "Bakı", destination: "Tbilisi" });
+  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "bu fayldan sorğu yarat", files } });
+  return chat.body.confirmations[0];
+}
+
+test("the card lists attachable files by name only, and keeps no file that arachi.co would refuse", async () => {
+  const c = await prepareWithFiles([
+    { name: "rfq.xlsx", type: "", data: b64("PK") },
+    { name: "macro.xlsm", type: "", data: b64("PK") },
+    { name: "notes.txt", type: "text/plain", data: b64("salam") },
+  ]);
+  assert.deepEqual(c.files!.map((f) => f.name), ["rfq.xlsx", "notes.txt"]);
+  assert.equal(JSON.stringify(c).includes(b64("salam")), false, "contents are never sent back to the browser");
+  assert.equal(arachiData.uploads.length, 0, "nothing is uploaded before the user chooses");
+});
+
+test("a chosen file is uploaded and shown to carriers; otherwise nothing is uploaded", async () => {
+  const withFile = await prepareWithFiles([{ name: "rfq.pdf", type: "application/pdf", data: b64("%PDF") }]);
+  const yes = await request<ConfirmationResponse>("POST", `/api/confirmations/${withFile.id}`, { approve: true, mode: "create", carrierIds: [], attachFile: 0 });
+  assert.equal(yes.status, 200);
+  assert.deepEqual(arachiData.uploads.map((u) => u.name), ["rfq.pdf"]);
+  assert.equal(arachiData.uploads[0].type, "application/pdf");
+  const stored = arachiData.rfqs[arachiData.rfqs.length - 1] as Record<string, unknown>;
+  assert.equal(stored.attachment_url, "/uploads/uuid-rfq.pdf");
+  assert.match(yes.body.message!.text, /Fayl daşıyıcılara görünür: rfq.pdf/);
+  const row = await db().get<{ files: string | null }>("SELECT files FROM confirmations WHERE id = ?", withFile.id);
+  assert.equal(row!.files, null, "the file is not kept after the card was answered");
+
+  arachiData.uploads.length = 0;
+  const without = await prepareWithFiles([{ name: "rfq2.pdf", type: "application/pdf", data: b64("%PDF") }]);
+  await request<ConfirmationResponse>("POST", `/api/confirmations/${without.id}`, { approve: true, mode: "create", carrierIds: [] });
+  assert.equal(arachiData.uploads.length, 0);
+  assert.equal((arachiData.rfqs[arachiData.rfqs.length - 1] as Record<string, unknown>).attachment_url, undefined);
+});
+
+test("a bad file index is refused, a refused upload still creates the RFQ and says so", async () => {
+  const c = await prepareWithFiles([{ name: "rfq.pdf", type: "application/pdf", data: b64("%PDF") }]);
+  const bad = await request<{ error: string }>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "create", carrierIds: [], attachFile: 5 });
+  assert.equal(bad.status, 400);
+
+  const refused = await prepareWithFiles([{ name: "bad.pdf", type: "application/pdf", data: b64("%PDF") }]);
+  const before = arachiData.rfqs.length;
+  const res = await request<ConfirmationResponse>("POST", `/api/confirmations/${refused.id}`, { approve: true, mode: "create", carrierIds: [], attachFile: 0 });
+  assert.equal(res.status, 200);
+  assert.equal(arachiData.rfqs.length, before + 1, "the RFQ is still created");
+  assert.match(res.body.message!.text, /Fayl əlavə olunmadı/);
+  assert.equal((arachiData.rfqs[arachiData.rfqs.length - 1] as Record<string, unknown>).attachment_url, undefined);
+});

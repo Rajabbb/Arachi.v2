@@ -19,6 +19,8 @@ export interface ParamSpec {
 
 /** What a tool can see and produce besides its parameters. */
 export interface ToolContext {
+  /** Set when the user chose to show an uploaded file to carriers: the arachi.co URL of that file. */
+  attachmentUrl?: string;
   /** Files the user attached to the current message. */
   files: UploadedFile[];
   /** The text of the user's current message. */

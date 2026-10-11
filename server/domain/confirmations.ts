@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { CarrierChoices, Confirmation } from "../../shared/protocol";
+import type { CarrierChoices, Confirmation, UploadedFile } from "../../shared/protocol";
 import { currentUserId } from "../auth/current";
 import { db, now } from "../db";
 
@@ -21,6 +21,7 @@ export interface StoredConfirmation {
   params: string;
   summary: string;
   choices: string | null;
+  files: string | null;
   status: Confirmation["status"];
   result: string;
   created_at: string;
@@ -39,8 +40,23 @@ export function parseChoices(row: StoredConfirmation): CarrierChoices | undefine
   }
 }
 
+/** The files kept with a pending RFQ card (contents included); empty when none. */
+export function storedFiles(row: StoredConfirmation): UploadedFile[] {
+  if (!row.files) return [];
+  try {
+    return JSON.parse(row.files) as UploadedFile[];
+  } catch {
+    return [];
+  }
+}
+
+function fileSize(file: UploadedFile): number {
+  return Math.floor((file.data.length * 3) / 4);
+}
+
 export function toConfirmation(row: StoredConfirmation): Confirmation {
   const choices = parseChoices(row);
+  const files = storedFiles(row);
   return {
     id: row.id,
     tool: row.tool,
@@ -48,6 +64,7 @@ export function toConfirmation(row: StoredConfirmation): Confirmation {
     status: expired(row) ? "expired" : row.status,
     result: row.result,
     ...(choices ? { choices } : {}),
+    ...(files.length ? { files: files.map((f) => ({ name: f.name, size: fileSize(f) })) } : {}),
   };
 }
 
@@ -57,14 +74,22 @@ export async function createConfirmation(
   params: Record<string, unknown>,
   summary: string,
   choices?: CarrierChoices,
+  files?: UploadedFile[],
 ): Promise<Confirmation> {
   const id = randomBytes(16).toString("base64url");
+  // Files of cards that were never answered are not kept beyond the confirmation window.
+  await db().run("UPDATE confirmations SET files = NULL WHERE files IS NOT NULL AND status = 'pending' AND created_at < ?", new Date(Date.now() - CONFIRM_HOURS * 3600_000).toISOString());
   await db().run(
-    `INSERT INTO confirmations (id, user_id, conversation_id, tool, params, summary, choices, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-    id, currentUserId(), conversationId, tool, JSON.stringify(params), summary, choices ? JSON.stringify(choices) : null, now(),
+    `INSERT INTO confirmations (id, user_id, conversation_id, tool, params, summary, choices, files, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    id, currentUserId(), conversationId, tool, JSON.stringify(params), summary,
+    choices ? JSON.stringify(choices) : null, files?.length ? JSON.stringify(files) : null, now(),
   );
-  return { id, tool, text: summary, status: "pending", result: "", ...(choices ? { choices } : {}) };
+  return {
+    id, tool, text: summary, status: "pending", result: "",
+    ...(choices ? { choices } : {}),
+    ...(files?.length ? { files: files.map((f) => ({ name: f.name, size: fileSize(f) })) } : {}),
+  };
 }
 
 /** Ties the actions prepared in a turn to the reply that shows their buttons. */
@@ -107,7 +132,7 @@ export async function claimConfirmation(id: string, status: "running" | "decline
 
 export async function finishConfirmation(id: string, status: "done" | "failed", result: string) {
   await db().run(
-    "UPDATE confirmations SET status = ?, result = ? WHERE id = ? AND user_id = ?",
+    "UPDATE confirmations SET status = ?, result = ?, files = NULL WHERE id = ? AND user_id = ?",
     status, result, id, currentUserId(),
   );
 }

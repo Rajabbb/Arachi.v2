@@ -249,4 +249,9 @@ export const migrations: string[] = [
   `
   ALTER TABLE confirmations ADD COLUMN choices TEXT;
   `,
+
+  // 16: files a new RFQ card may show to carriers (see migrations/0010_confirmation_files.sql).
+  `
+  ALTER TABLE confirmations ADD COLUMN files TEXT;
+  `,
 ];

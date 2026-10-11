@@ -302,7 +302,7 @@ export const createRfq: AgentTool = {
     const r = result as { number?: number };
     return `RFQ #${r.number} yaradıldı. Hələ daşıyıcılara göndərilməyib.`;
   },
-  async run(raw) {
+  async run(raw, ctx) {
     const p = normalizeRfq(raw).params;
     const amount = p.volume_amount as number;
     const fields = rfqFieldLines(p);
@@ -322,6 +322,7 @@ export const createRfq: AgentTool = {
       transportation_mode: TRANSPORT_MODES[p.transport_mode as string],
       required_fields: fields,
       additional_notes: notes,
+      ...(ctx.attachmentUrl ? { attachment_url: ctx.attachmentUrl } : {}),
     });
     const number = (await api.listRfqs()).find((r) => r.id === rfq.id)?.display_id;
     return { number, ...rfqView(rfq), page_url: `${siteUrl()}/customer` };

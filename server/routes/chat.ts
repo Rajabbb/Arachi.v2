@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ChatRequest, ChatResponse, ConversationData, ConversationListData } from "../../shared/protocol";
 import { runTurn } from "../agent/loop";
 import { internalsRefusal, languageNote, scopeRefusal } from "../agent/guards";
+import { attachableFiles } from "../agent/attachments";
 import { remember, usableTurns } from "../agent/history";
 import { provider } from "../agent/providers";
 import {
@@ -79,7 +80,7 @@ export async function handleChat(req: IncomingMessage, res: ServerResponse) {
     const notes = [...outcomes, languageNote(message.text)].filter(Boolean);
     const text = notes.length ? `[System note, not written by the user: ${notes.join(" ")}]\n\n${message.text}` : message.text;
     const result = await runTurn(previous, text, message.files, model, (tool, params, summary, choices) =>
-      createConfirmation(id, tool, params, summary, choices),
+      createConfirmation(id, tool, params, summary, choices, tool === "create_rfq" ? attachableFiles(message.files) : undefined),
     );
     await saveContext(id, remember(turns, result.transcript.slice(previous.length), model));
     // A reply that names the tools is replaced in code, whatever the model wrote.
