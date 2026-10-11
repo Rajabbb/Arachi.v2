@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { ChatRequest, ChatResponse, ConversationData, ConversationListData } from "../../shared/protocol";
 import { runTurn } from "../agent/loop";
-import { languageNote, scopeRefusal } from "../agent/guards";
+import { internalsRefusal, languageNote, scopeRefusal } from "../agent/guards";
 import { remember, usableTurns } from "../agent/history";
 import { provider } from "../agent/providers";
 import {
@@ -82,11 +82,13 @@ export async function handleChat(req: IncomingMessage, res: ServerResponse) {
       createConfirmation(id, tool, params, summary),
     );
     await saveContext(id, remember(turns, result.transcript.slice(previous.length), model));
-    const replyId = await addMessage(id, { role: "assistant", text: result.reply, downloads: result.downloads, cards: result.cards });
+    // A reply that names the tools is replaced in code, whatever the model wrote.
+    const reply = internalsRefusal(result.reply, message.text) ?? result.reply;
+    const replyId = await addMessage(id, { role: "assistant", text: reply, downloads: result.downloads, cards: result.cards });
     await attachConfirmations(result.confirmations.map((c) => c.id), replyId);
     const body: ChatResponse = {
       conversationId: id,
-      reply: result.reply,
+      reply,
       toolCalls: result.toolCalls,
       downloads: result.downloads,
       confirmations: result.confirmations,

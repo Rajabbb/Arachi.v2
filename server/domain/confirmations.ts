@@ -30,7 +30,7 @@ function expired(row: StoredConfirmation): boolean {
 }
 
 export function toConfirmation(row: StoredConfirmation): Confirmation {
-  return { id: row.id, text: row.summary, status: expired(row) ? "expired" : row.status, result: row.result };
+  return { id: row.id, tool: row.tool, text: row.summary, status: expired(row) ? "expired" : row.status, result: row.result };
 }
 
 export async function createConfirmation(
@@ -45,7 +45,7 @@ export async function createConfirmation(
      VALUES (?, ?, ?, ?, ?, ?, ?)`,
     id, currentUserId(), conversationId, tool, JSON.stringify(params), summary, now(),
   );
-  return { id, text: summary, status: "pending", result: "" };
+  return { id, tool, text: summary, status: "pending", result: "" };
 }
 
 /** Ties the actions prepared in a turn to the reply that shows their buttons. */

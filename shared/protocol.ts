@@ -57,6 +57,8 @@ export interface ResultCard {
  */
 export interface Confirmation {
   id: string;
+  /** The tool that prepared it (the card words its button after what it does). */
+  tool?: string;
   /** What will happen, written by the server from the exact action (recipients included). */
   text: string;
   /** pending → running → done | failed after "Bəli", declined after "Xeyr", expired when left too long. */
