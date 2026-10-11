@@ -349,6 +349,7 @@ function offerView(o: api.ArachiOffer) {
     carrier: o.carrier_company,
     price: o.price,
     currency: o.currency,
+    price_azn: o.price_azn ?? null,
     transit_days: o.transit_time_days,
     is_winner: o.is_winner,
     details: o.extra_details,
@@ -387,20 +388,41 @@ export const listOffers: AgentTool = {
 
 export const compareOffers: AgentTool = {
   name: "compare_offers",
-  description: "Ranks an RFQ's offers. Offers in different currencies are ranked separately (no conversion).",
+  description:
+    "Ranks an RFQ's offers. Offers in different currencies are converted to AZN at the Central Bank of Azerbaijan rate so they can be compared; each offer keeps its original price and shows its AZN equivalent. If the rate is unavailable they are ranked separately per currency.",
   params: {
     rfq_id: { type: "integer", description: "RFQ number as shown in the panel on arachi.co (RFQ #n)." },
-    criterion: { type: "string", description: "price = cheapest first; transit = fastest first.", enum: ["price", "transit"], default: "price" },
+    criterion: { type: "string", description: "price = cheapest first (in AZN); transit = fastest first.", enum: ["price", "transit"], default: "price" },
   },
   async run(p) {
     const rfq = await rfqOrThrow(p.rfq_id as number);
-    const priced = (await api.offers(rfq.id)).filter((o) => o.price !== null);
+    const { offers, fx } = await api.offersWithFx(rfq.id);
+    const priced = offers.filter((o) => o.price !== null);
     if (priced.length === 0) return { message: "Hələ qiymətli təklif yoxdur." };
-    const key = (o: api.ArachiOffer) => (p.criterion === "transit" ? (o.transit_time_days ?? Infinity) : (o.price as number));
+    const converted = priced.every((o) => typeof o.price_azn === "number");
+    const key = (o: api.ArachiOffer) =>
+      p.criterion === "transit" ? (o.transit_time_days ?? Infinity) : converted ? (o.price_azn as number) : (o.price as number);
+    if (converted) {
+      const foreign = [...new Set(priced.map((o) => o.currency).filter((c) => c !== "AZN"))];
+      return {
+        criterion: p.criterion,
+        converted_to: "AZN",
+        rate_note: foreign.length
+          ? `Məzənnə (${fx?.source ?? "?"}, ${fx?.date ?? "?"}): ${foreign.map((c) => `1 ${c} = ${fx?.rates[c]} AZN`).join(", ")}`
+          : undefined,
+        rankings: [
+          {
+            currency: "AZN",
+            offers: [...priced].sort((a, b) => key(a) - key(b)).map((o, i) => ({ rank: i + 1, ...offerView(o) })),
+          },
+        ],
+      };
+    }
     const byCurrency = new Map<string, api.ArachiOffer[]>();
     for (const o of priced) byCurrency.set(o.currency, [...(byCurrency.get(o.currency) ?? []), o]);
     return {
       criterion: p.criterion,
+      warning: byCurrency.size > 1 ? "Məzənnə hazırda əlçatan deyil: təkliflər valyutaya görə ayrıca sıralanıb, bir-biri ilə müqayisə olunmur." : undefined,
       rankings: [...byCurrency].map(([currency, list]) => ({
         currency,
         offers: list.sort((a, b) => key(a) - key(b)).map((o, i) => ({ rank: i + 1, ...offerView(o) })),

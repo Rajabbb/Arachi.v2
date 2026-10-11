@@ -28,9 +28,12 @@ export const arachiData = {
   next: 1,
   /** When set, every call fails with this status (e.g. 401 = arachi.co session ended). */
   failWith: 0,
+  /** Central Bank rates in AZN; empty = rates unavailable. */
+  rates: { AZN: 1, USD: 1.7, EUR: 1.9 } as Record<string, number>,
 };
 
 export function resetArachi() {
+  arachiData.rates = { AZN: 1, USD: 1.7, EUR: 1.9 };
   arachiData.carriers = [];
   arachiData.rfqs = [];
   arachiData.quotes = [];
@@ -126,8 +129,12 @@ function handle(method: string, path: string, body: any, customerId: number, for
     if (!own(Number(m[1]))) return json(403, { detail: "İcazə rədd edildi." });
     const quotes = arachiData.quotes
       .filter((q) => q.request_id === Number(m![1]) && q.price !== null)
-      .map((q) => ({ ...q, carrier_company: arachiData.carriers.find((c) => c.id === q.carrier_id)!.company_name }));
-    return json(200, { status: "success", quotes });
+      .map((q) => ({
+        ...q,
+        carrier_company: arachiData.carriers.find((c) => c.id === q.carrier_id)!.company_name,
+        price_azn: arachiData.rates[q.currency] ? Math.round((q.price as number) * arachiData.rates[q.currency] * 100) / 100 : null,
+      }));
+    return json(200, { status: "success", quotes, fx: { date: "2026-10-09", source: "Azərbaycan Mərkəzi Bankı", rates: arachiData.rates } });
   }
   if (method === "POST" && path === "/quotes/select-winner") {
     if (!own(body.request_id)) return json(403, { detail: "İcazə rədd edildi." });

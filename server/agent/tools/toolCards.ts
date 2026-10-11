@@ -196,10 +196,17 @@ export const cardFor: Record<string, CardFn> = {
     const lines: string[] = [];
     for (const group of r.rankings as R[]) {
       for (const o of group.offers as R[]) {
-        lines.push(`${o.rank}. ${o.carrier} · ${money(o.price, group.currency)}${o.transit_days ? ` · ${o.transit_days} gün` : ""}${o.is_winner ? " · QALİB" : ""}`);
+        const eq = o.currency && o.currency !== "AZN" && o.price_azn !== null && o.price_azn !== undefined ? ` (≈ ${o.price_azn} AZN)` : "";
+        lines.push(`${o.rank}. ${o.carrier} · ${money(o.price, o.currency ?? group.currency)}${eq}${o.transit_days ? ` · ${o.transit_days} gün` : ""}${o.is_winner ? " · QALİB" : ""}`);
       }
     }
-    return { title: `Təklif müqayisəsi (${r.criterion === "transit" ? "müddətə görə" : "qiymətə görə"})`, tone: "info", items: items(lines) };
+    const note = [r.rate_note, r.warning].filter(Boolean).join(" ");
+    return {
+      title: `Təklif müqayisəsi (${r.criterion === "transit" ? "müddətə görə" : r.converted_to ? "qiymətə görə, AZN ilə" : "qiymətə görə"})`,
+      tone: "info",
+      items: items(lines),
+      ...(note ? { note } : {}),
+    };
   },
 
   select_winner(result) {

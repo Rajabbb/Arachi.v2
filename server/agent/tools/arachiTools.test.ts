@@ -111,15 +111,32 @@ test("list_offers shows offers and each carrier's status; compare ranks them", a
   assert.deepEqual(byDays.offers.map((o: { carrier: string }) => o.carrier), ["Road A", "Road B"]);
 });
 
-test("offers in different currencies are ranked per currency, never mixed", async () => {
+test("offers in different currencies are converted to AZN and ranked together", async () => {
   const { rfq, carriers } = await setup();
   await call("send_rfq_to_carriers", { rfq_id: rfq.number });
+  offerFrom(carriers[0].id, rfqDb(rfq), 900, 5, "EUR"); // 900 × 1.9 = 1710 AZN
+  offerFrom(carriers[1].id, rfqDb(rfq), 800, 5, "USD"); // 800 × 1.7 = 1360 AZN
+  const res = (await call("compare_offers", { rfq_id: rfq.number })).result;
+  assert.equal(res.converted_to, "AZN");
+  assert.equal(res.rankings.length, 1);
+  assert.deepEqual(res.rankings[0].offers.map((o: { carrier: string }) => o.carrier), ["Road B", "Road A"]);
+  const first = res.rankings[0].offers[0];
+  assert.equal(first.price, 800);
+  assert.equal(first.currency, "USD");
+  assert.equal(first.price_azn, 1360);
+  assert.match(res.rate_note, /1 USD = 1\.7 AZN/);
+});
+
+test("when the rate is unavailable, currencies are ranked separately and the user is told", async () => {
+  const { rfq, carriers } = await setup();
+  await call("send_rfq_to_carriers", { rfq_id: rfq.number });
+  arachiData.rates = { AZN: 1 };
   offerFrom(carriers[0].id, rfqDb(rfq), 900, 5, "EUR");
   offerFrom(carriers[1].id, rfqDb(rfq), 800, 5, "USD");
-  const { rankings } = (await call("compare_offers", { rfq_id: rfq.number })).result;
-  assert.equal(rankings.length, 2);
-  assert.deepEqual(rankings.map((r: { currency: string }) => r.currency).sort(), ["EUR", "USD"]);
-  assert.equal((await call("compare_offers", { rfq_id: 1 })).result.rankings.length, 2);
+  const res = (await call("compare_offers", { rfq_id: rfq.number })).result;
+  assert.equal(res.rankings.length, 2);
+  assert.deepEqual(res.rankings.map((r: { currency: string }) => r.currency).sort(), ["EUR", "USD"]);
+  assert.match(res.warning, /əlçatan deyil/);
 });
 
 test("select_winner closes the RFQ on arachi.co and rejects an offer of another RFQ", async () => {

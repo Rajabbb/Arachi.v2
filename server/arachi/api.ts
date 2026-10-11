@@ -40,10 +40,18 @@ export interface ArachiOffer {
   carrier_email?: string;
   price: number | null;
   currency: string;
+  /** The price in AZN at the Central Bank rate; null when the rate is unavailable. */
+  price_azn?: number | null;
   transit_time_days: number | null;
   is_winner: boolean;
   extra_details: Record<string, unknown>;
   quote_history: unknown[];
+}
+
+export interface ArachiFx {
+  date: string | null;
+  source: string | null;
+  rates: Record<string, number>;
 }
 
 export interface ArachiRecipient {
@@ -114,8 +122,13 @@ export async function publicLink(requestId: number): Promise<string> {
   return (await arachi<{ public_link: string }>("POST", `/requests/${requestId}/public-link`)).public_link;
 }
 
+export async function offersWithFx(requestId: number): Promise<{ offers: ArachiOffer[]; fx: ArachiFx | null }> {
+  const res = await arachi<{ quotes?: ArachiOffer[]; fx?: ArachiFx }>("GET", `/quotes/request/${requestId}`);
+  return { offers: res.quotes ?? [], fx: res.fx ?? null };
+}
+
 export async function offers(requestId: number): Promise<ArachiOffer[]> {
-  return (await arachi<{ quotes?: ArachiOffer[] }>("GET", `/quotes/request/${requestId}`)).quotes ?? [];
+  return (await offersWithFx(requestId)).offers;
 }
 
 export async function recipients(requestId: number): Promise<ArachiRecipient[]> {
