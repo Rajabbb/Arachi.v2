@@ -400,11 +400,11 @@ function paramsFromRfq(rfq: api.ArachiRfq, overrides: Record<string, unknown>): 
   return {
     origin: keep("origin", rfq.origin),
     destination: keep("destination", rfq.destination),
-    cargo_type: rfq.cargo_type ?? "",
+    cargo_type: keep("cargo_type", rfq.cargo_type ?? ""),
     weight_kg: keep("weight_kg", rfq.weight_kg ?? 0),
     volume_amount: keep("volume_amount", vol ? Number(vol[1].replace(",", ".")) : (rfq.volume_m3 ?? 0)),
     volume_unit: vol?.[2] && /pal/i.test(vol[2]) ? "Palet" : "CBM",
-    transport_mode: mode ?? "",
+    transport_mode: keep("transport_mode", mode ?? ""),
     // Dates are not copied: they belong to the old shipment.
     loading_date: String(overrides.loading_date ?? ""),
     delivery_deadline: String(overrides.delivery_deadline ?? ""),
@@ -423,6 +423,24 @@ function paramsFromRfq(rfq: api.ArachiRfq, overrides: Record<string, unknown>): 
   };
 }
 
+/** The copy's parameters; an old RFQ may lack a mandatory field, then the user is asked instead of a bare error. */
+function copyParams(rfq: api.ArachiRfq, overrides: Record<string, unknown>): Record<string, unknown> {
+  const raw = paramsFromRfq(rfq, overrides);
+  const missing: string[] = [];
+  if (!String(raw.cargo_type ?? "").trim()) missing.push("yükün növü (cargo_type)");
+  if (!(Number(raw.weight_kg) > 0)) missing.push("çəki (weight_kg)");
+  if (!(Number(raw.volume_amount) > 0)) missing.push("həcm / palet (volume_amount)");
+  if (!raw.transport_mode) missing.push("daşınma növü (transport_mode)");
+  if (missing.length) {
+    throw new Error(
+      `RFQ #${rfq.display_id}-də bu məlumat yoxdur: ${missing.join(", ")}. İstifadəçidən soruşun və duplicate_rfq-ya həmin dəyərləri ötürün.`,
+    );
+  }
+  const resolved = resolveParams(createRfq, raw);
+  if ("error" in resolved) throw new Error(resolved.error);
+  return resolved.params;
+}
+
 export const duplicateRfq: AgentTool = {
   name: "duplicate_rfq",
   description:
@@ -436,21 +454,25 @@ export const duplicateRfq: AgentTool = {
     destination: { type: "string", description: "Different unloading place; empty = same.", default: "" },
     weight_kg: { type: "number", description: "Different weight in kg; 0 = same.", default: 0 },
     volume_amount: { type: "number", description: "Different volume or pallet count; 0 = same.", default: 0 },
+    cargo_type: { type: "string", description: "Different cargo; empty = same. Needed when the copied RFQ has none.", default: "" },
+    transport_mode: {
+      type: "string",
+      description: "Transport mode when the copied RFQ does not have one (old RFQs): Quru, Dəniz, Hava or Dəmiryolu; empty = same.",
+      enum: ["", ...Object.keys(TRANSPORT_MODES)],
+      default: "",
+    },
     notes: { type: "string", description: "New additional information replacing the old; empty = keep the old.", default: "" },
   },
   async confirm(p, ctx) {
     const rfq = await rfqOrThrow(p.rfq_id as number);
-    const resolved = resolveParams(createRfq, paramsFromRfq(rfq, p));
-    if ("error" in resolved) throw new Error(resolved.error);
-    const plan = await createRfq.confirm!(resolved.params, ctx);
+    const resolved = copyParams(rfq, p);
+    const plan = await createRfq.confirm!(resolved, ctx);
     if (!plan) return null;
     return { ...plan, tool: "create_rfq", summary: `RFQ #${rfq.display_id} kopyası. ${plan.summary}` };
   },
   async run(p, ctx) {
     const rfq = await rfqOrThrow(p.rfq_id as number);
-    const resolved = resolveParams(createRfq, paramsFromRfq(rfq, p));
-    if ("error" in resolved) throw new Error(resolved.error);
-    return createRfq.run(resolved.params, ctx);
+    return createRfq.run(copyParams(rfq, p), ctx);
   },
 };
 

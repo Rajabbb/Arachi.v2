@@ -116,3 +116,12 @@ test("offers carry what the price includes, and the automatic reminder shows in 
   assert.match(status["Road B"], /avtomatik xatırlatma göndərilib/);
   assert.doesNotMatch(status["Road A"], /avtomatik/);
 });
+
+test("duplicate_rfq of an old RFQ without a transport mode asks for it instead of failing blindly", async () => {
+  await call("create_rfq", { ...base, weight_kg: 700 });
+  (arachiData.rfqs[0] as Record<string, unknown>).transportation_mode = null;
+  await assert.rejects(call("duplicate_rfq", { rfq_id: 1 }), /daşınma növü \(transport_mode\)/);
+  await call("duplicate_rfq", { rfq_id: 1, transport_mode: "Quru" });
+  assert.equal(arachiData.rfqs.length, 2);
+  assert.equal((arachiData.rfqs[1] as Record<string, unknown>).transportation_mode, "Quru (Road)");
+});
