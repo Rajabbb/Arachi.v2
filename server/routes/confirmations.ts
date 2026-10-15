@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { CarrierChoices, ConfirmationResponse, ConfirmMode } from "../../shared/protocol";
 import { tools } from "../agent/tools";
+import { applyRfqEdits } from "../agent/tools/arachiTools";
 import { attachmentMime } from "../agent/attachments";
 import * as arachiApi from "../arachi/api";
 import { emptyContext } from "../agent/tools/registry";
@@ -29,7 +30,7 @@ const answered: Record<string, string> = {
  * parameters the user was shown; the outcome is added to the chat.
  */
 export async function handleConfirmation(req: IncomingMessage, res: ServerResponse, id: string) {
-  const body = (await readJson(req, SMALL_BODY_BYTES)) as { approve?: unknown; mode?: unknown; carrierIds?: unknown; attachFile?: unknown; subject?: unknown } | null;
+  const body = (await readJson(req, SMALL_BODY_BYTES)) as { approve?: unknown; mode?: unknown; carrierIds?: unknown; attachFile?: unknown; edits?: unknown } | null;
   if (typeof body?.approve !== "boolean") throw new HttpError(400, "Sorğunun formatı yanlışdır.");
   const stored = await findConfirmation(id);
   if (!stored) throw new HttpError(404, "Təsdiq tapılmadı.");
@@ -57,6 +58,16 @@ export async function handleConfirmation(req: IncomingMessage, res: ServerRespon
       if (carrierIds.some((cid) => !known.has(cid))) throw new HttpError(400, "Seçilən daşıyıcı siyahıda yoxdur.");
     }
   }
+  // Fields the user changed on the card are checked like a prepared RFQ before anything is claimed or run,
+  // so a mistake in them is shown on the card and the card stays pending.
+  let params = JSON.parse(stored.params) as Record<string, unknown>;
+  if (body.approve && stored.tool === "create_rfq" && body.edits && typeof body.edits === "object" && !Array.isArray(body.edits)) {
+    try {
+      params = applyRfqEdits(params, body.edits as Record<string, unknown>);
+    } catch (err) {
+      throw new HttpError(400, err instanceof Error ? err.message : "Düzəlişlər qəbul edilmədi.");
+    }
+  }
   if (!(await claimConfirmation(id, body.approve ? "running" : "declined"))) {
     const status = toConfirmation(stored).status;
     throw new HttpError(409, answered[status] ?? "Bu əməliyyat artıq cavablandırılıb.");
@@ -78,11 +89,6 @@ export async function handleConfirmation(req: IncomingMessage, res: ServerRespon
     } catch (err) {
       attachNote = ` ⚠ Fayl əlavə olunmadı (${err instanceof Error ? err.message : "xəta"}): daşıyıcılar yalnız sahələri görəcək.`;
     }
-  }
-  // The subject (group) may be edited on the card; it is the only field the card lets the user change.
-  const params = JSON.parse(stored.params) as Record<string, unknown>;
-  if (stored.tool === "create_rfq" && typeof body.subject === "string") {
-    params.subject = body.subject.replace(/\s+/g, " ").trim().slice(0, 120);
   }
   const run = await tools.execute(stored.tool, params, ctx);
   let outcome = run.ok

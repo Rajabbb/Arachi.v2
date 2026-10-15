@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { ConfirmAnswer, Confirmation } from "../../shared/protocol";
+import { RFQ_EDIT_FIELDS, type ConfirmAnswer, type Confirmation, type RfqEditField } from "../../shared/protocol";
 import { useProgress } from "../lib/progress";
 
 const statusText: Record<Confirmation["status"], string> = {
@@ -21,6 +21,13 @@ function wording(tool?: string, picker = false) {
   return { yes: "Bəli, göndər", busy: "Göndərilir…", done: statusText.done, declined: statusText.declined };
 }
 
+/** A form value as text; 0 and "not set" both read as empty so only real changes count. */
+function asText(v: unknown): string {
+  if (v === undefined || v === null) return "";
+  if (typeof v === "number") return v === 0 ? "" : String(v);
+  return String(v);
+}
+
 interface Props {
   confirmation: Confirmation;
   /** Sends the answer; resolves when the server has handled it. */
@@ -30,8 +37,8 @@ interface Props {
 /**
  * An action the agent prepared. It runs only when the user presses a button;
  * the text comes from the server and lists exactly what will happen. A new RFQ
- * also shows the carrier base: the user ticks who gets it, and only those
- * carriers are emailed.
+ * also shows the carrier base (the user ticks who gets it, and only those
+ * carriers are emailed) and its fields can be changed on the card.
  */
 export default function ConfirmCard({ confirmation, onAnswer }: Props) {
   const [busy, setBusy] = useState(false);
@@ -40,14 +47,30 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
   const [selected, setSelected] = useState<number[]>([]);
   const [linkOnly, setLinkOnly] = useState(false);
   const [attach, setAttach] = useState<number | null>(null);
-  // The subject (group) the RFQ was prepared with; the user may edit it before pressing the button.
-  const [subject, setSubject] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+  const [values, setValues] = useState<Record<string, string>>({});
   const [stepMode, setStepMode] = useState<"create" | "send" | "link">("create");
+
+  const original = confirmation.fields;
+
+  /** Only the fields whose value differs from the prepared RFQ. */
+  function changedFields(): Record<string, string | number> | undefined {
+    if (!original) return undefined;
+    const out: Record<string, string | number> = {};
+    for (const f of RFQ_EDIT_FIELDS) {
+      if (!(f.key in values)) continue;
+      const next = values[f.key].trim();
+      if (next === asText(original[f.key]).trim()) continue;
+      out[f.key] = f.kind === "number" ? (next === "" ? 0 : Number(next)) : next;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
 
   async function answer(approve: boolean, choice?: ConfirmAnswer) {
     setStepMode(choice?.mode ?? "create");
-    if (choice && subject !== null) choice = { ...choice, subject };
-    else if (approve && !choice && subject !== null && confirmation.tool === "create_rfq") choice = { mode: "create", carrierIds: [], subject };
+    const edits = approve && confirmation.tool === "create_rfq" ? changedFields() : undefined;
+    if (edits) choice = { ...(choice ?? { mode: "create", carrierIds: [] }), edits };
     setBusy(true);
     setCancelling(!approve);
     setError("");
@@ -84,21 +107,51 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
     setSelected((prev) => (ids.every((id) => prev.includes(id)) ? prev.filter((id) => !ids.includes(id)) : [...new Set([...prev, ...ids])]));
   }
 
-  const subjectBox =
-    pending && creating && confirmation.subject !== undefined ? (
-      <div className="subject-edit">
-        <label className="picker-row">
-          <span>Başlıq (qrup):</span>
-          <input
-            type="text"
-            maxLength={120}
-            disabled={busy}
-            value={subject ?? confirmation.subject}
-            placeholder="məs: Sifarişçi: Azersun (məcburi deyil)"
-            onChange={(e) => setSubject(e.target.value)}
-          />
-        </label>
-        <p className="muted attach-hint">Sorğunu qruplaşdırmaq üçündür; daşıyıcılara göstərilmir. Sonra panelda bu başlıqla axtara bilərsiniz.</p>
+  function valueOf(f: RfqEditField): string {
+    return f.key in values ? values[f.key] : asText(original?.[f.key]);
+  }
+
+  function fieldInput(f: RfqEditField) {
+    const common = { disabled: busy, value: valueOf(f), onChange: (e: { target: { value: string } }) => setValues((v) => ({ ...v, [f.key]: e.target.value })) };
+    if (f.kind === "select") {
+      return (
+        <select {...common}>
+          {(f.options ?? []).map((o) => (
+            <option key={o} value={o}>
+              {o === "" ? "— seçilməyib —" : o}
+            </option>
+          ))}
+        </select>
+      );
+    }
+    if (f.kind === "textarea") return <textarea rows={2} maxLength={2000} placeholder={f.placeholder} {...common} />;
+    return <input type={f.kind === "number" ? "number" : "text"} min={f.kind === "number" ? 0 : undefined} step="any" maxLength={200} placeholder={f.placeholder} {...common} />;
+  }
+
+  const editBox =
+    pending && creating && original ? (
+      <div className="rfq-edit">
+        <button type="button" className="link-button" disabled={busy} onClick={() => setEditing((e) => !e)}>
+          {editing ? "Düzəlişi bağla" : "✎ Sahələri düzəlt"}
+        </button>
+        {editing && (
+          <div className="rfq-edit-form">
+            {RFQ_EDIT_FIELDS.filter((f) => !f.more || showMore).map((f) => (
+              <label key={f.key} className="rfq-edit-row">
+                <span>{f.label}</span>
+                {fieldInput(f)}
+              </label>
+            ))}
+            <p className="muted attach-hint">
+              <button type="button" className="link-button" onClick={() => setShowMore((m) => !m)}>
+                {showMore ? "Az sahə göstər" : "Daha çox sahə (tarixlər, konteyner, HS Code, qeyd...)"}
+              </button>
+            </p>
+            <p className="muted attach-hint">
+              Düzəlişlər düyməyə basanda tətbiq olunur və yoxlanılır. Başlıq (qrup) daşıyıcılara göstərilmir. Məcburi olanlar: yükləmə yeri, boşaltma yeri, yükün növü.
+            </p>
+          </div>
+        )}
       </div>
     ) : null;
 
@@ -130,11 +183,14 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
       </div>
     ) : null;
 
+  const cardText = editing ? null : <p className="confirm-text">{confirmation.text}</p>;
+
   if (pending && choices) {
     const pickDisabled = busy || linkOnly;
     return (
       <div className={`confirm-card ${confirmation.status}`}>
-        <p className="confirm-text">{confirmation.text}</p>
+        {cardText}
+        {editBox}
         <div className="carrier-picker">
           <p className="picker-title">Kimə göndərək?</p>
           {choices.categories.length > 0 && (
@@ -187,7 +243,6 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
             <span>Heç kimə göndərmə, yalnız link yarat</span>
           </label>
         </div>
-        {subjectBox}
         {attachBox}
         <div className="confirm-actions">
           {linkOnly ? (
@@ -218,8 +273,8 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
 
   return (
     <div className={`confirm-card ${confirmation.status}`}>
-      <p className="confirm-text">{confirmation.text}</p>
-      {subjectBox}
+      {cardText}
+      {editBox}
       {attachBox}
       {pending ? (
         <div className="confirm-actions">

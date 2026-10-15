@@ -16,12 +16,17 @@ beforeEach(freshDb);
 
 const stored = () => arachiData.rfqs[arachiData.rfqs.length - 1] as Record<string, unknown>;
 
-test("the panel's mandatory fields are mandatory for the agent too", () => {
+test("only origin, destination and cargo type are mandatory for the agent; the rest is optional", async () => {
   const tool = tools.get("create_rfq")!;
   const missing = resolveParams(tool, { origin: "Bakı", destination: "Tbilisi" });
-  assert.ok("error" in missing && /cargo_type|weight_kg|volume/.test(missing.error));
+  assert.ok("error" in missing && /cargo_type/.test(missing.error));
+  const minimal = resolveParams(tool, { origin: "Bakı", destination: "Tbilisi", cargo_type: "Un" });
+  assert.ok(!("error" in minimal));
+  assert.ok(!("error" in minimal) && minimal.params.weight_kg === 0 && minimal.params.volume_amount === 0 && minimal.params.transport_mode === "");
+  // An empty mandatory field is refused with a message that makes the agent ask the user.
+  await assert.rejects(call("create_rfq", { origin: "Bakı", destination: "Tbilisi", cargo_type: " " }), /yükün növü/);
   const noUnit = resolveParams(tool, { ...RFQ_DEFAULTS, origin: "A", destination: "B", volume_unit: undefined });
-  assert.ok("error" in noUnit && /volume_unit/.test(noUnit.error));
+  assert.ok(!("error" in noUnit) && noUnit.params.volume_unit === "CBM");
   const badUnit = resolveParams(tool, { ...RFQ_DEFAULTS, origin: "A", destination: "B", volume_unit: "m3" });
   assert.ok("error" in badUnit);
   const badMode = resolveParams(tool, { ...RFQ_DEFAULTS, origin: "A", destination: "B", transport_mode: "Qatar" });
@@ -83,8 +88,8 @@ test("a minimal RFQ only carries what was given, and the unit line is always the
 
 test("bad numbers and dates are refused before anything is created", async () => {
   const base = { ...RFQ_DEFAULTS, origin: "A", destination: "B" };
-  await assert.rejects(call("create_rfq", { ...base, volume_amount: 0 }), /miqdarı/);
-  await assert.rejects(call("create_rfq", { ...base, weight_kg: 0 }), /Çəki/);
+  await assert.rejects(call("create_rfq", { ...base, volume_amount: -1 }), /miqdarı/);
+  await assert.rejects(call("create_rfq", { ...base, weight_kg: -3 }), /Çəki/);
   await assert.rejects(call("create_rfq", { ...base, loading_date: "12.10.2026" }), /YYYY-MM-DD/);
   await assert.rejects(call("create_rfq", { ...base, delivery_deadline: "2026-13-45" }), /YYYY-MM-DD/);
   assert.equal(arachiData.rfqs.length, 0);

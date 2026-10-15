@@ -278,7 +278,10 @@ export const createCustomerQuote: AgentTool = {
       if (rfq.truck_type) rows.push([s.truck, rfq.truck_type]);
       if (rfq.shipment_type) rows.push([s.shipment, rfq.shipment_type]);
       if (rfq.deadline) rows.push([s.deadline, rfq.deadline]);
-      if (offer.transit_time_days) rows.push([s.transit, `${offer.transit_time_days} ${s.days}`]);
+      if (offer.transit_time_days) {
+        const range = offer.extra_details?.["transit_range"];
+        rows.push([s.transit, `${typeof range === "string" ? range : offer.transit_time_days} ${s.days}`]);
+      }
       if (p.show_carrier) rows.push([s.carrier, offer.carrier_company]);
       table(doc, ["", ""], rows, [1, 2]);
       doc.moveDown();

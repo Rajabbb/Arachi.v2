@@ -14,7 +14,8 @@ test("the prompt keeps its confidentiality, scope and language rules", () => {
 test("the prompt tells the model how to read containers, ranges and mandatory fields", () => {
   assert.match(systemPrompt, /40HC.*FCL/s);
   assert.match(systemPrompt, /Ranges and approximations/);
-  assert.match(systemPrompt, /did not give a mandatory field, ask/);
+  assert.match(systemPrompt, /Mandatory \(only these three\)/);
+  assert.match(systemPrompt, /never ask for it/);
 });
 
 test("the prompt stays free of today's date, so it can be cached", () => {

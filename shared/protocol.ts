@@ -86,8 +86,8 @@ export interface Quota {
 export interface ConfirmAnswer {
   mode: ConfirmMode;
   carrierIds: number[];
-  /** The RFQ's subject (group) as the user left it on the card; absent = as prepared. */
-  subject?: string;
+  /** For a new RFQ: the fields the user changed on the card (only the changed ones). */
+  edits?: Record<string, string | number>;
   /** Index (in Confirmation.files) of the file carriers should see on the RFQ; absent = none. */
   attachFile?: number;
 }
@@ -100,8 +100,8 @@ export interface Confirmation {
   choices?: CarrierChoices;
   /** For a new RFQ made from attached files: the files that can be shown to carriers (names only). */
   files?: { name: string; size: number }[];
-  /** For a new RFQ: its subject (group) as prepared; the user may edit it on the card. */
-  subject?: string;
+  /** For a new RFQ: the fields as prepared; the user may change them on the card (see RFQ_EDIT_FIELDS). */
+  fields?: Record<string, string | number>;
   /** What will happen, written by the server from the exact action (recipients included). */
   text: string;
   /** pending → running → done | failed after "Bəli", declined after "Xeyr", expired when left too long. */
@@ -453,4 +453,49 @@ export interface CarrierDetailData {
     /** Its offers for the RFQ (latest versions, with earlier ones), marked against all offers of the RFQ. */
     offers: RfqDetailData["offers"];
   }[];
+}
+
+/** A field of a prepared RFQ that the user may change on its card, and how the form shows it. */
+export interface RfqEditField {
+  key: string;
+  label: string;
+  kind: "text" | "number" | "select" | "textarea";
+  options?: string[];
+  placeholder?: string;
+  /** Shown only after "Daha çox sahə". */
+  more?: boolean;
+}
+
+export const RFQ_EDIT_FIELDS: RfqEditField[] = [
+  { key: "subject", label: "Başlıq (qrup)", kind: "text", placeholder: "məs: Sifarişçi: Azersun (məcburi deyil)" },
+  { key: "origin", label: "Yükləmə yeri", kind: "text" },
+  { key: "destination", label: "Boşaltma yeri", kind: "text" },
+  { key: "cargo_type", label: "Yükün növü", kind: "text" },
+  { key: "weight_kg", label: "Çəki (kq)", kind: "number", placeholder: "məcburi deyil" },
+  { key: "volume_amount", label: "Həcm / Palet miqdarı", kind: "number", placeholder: "məcburi deyil" },
+  { key: "volume_unit", label: "Həcm vahidi", kind: "select", options: ["CBM", "Palet"] },
+  { key: "transport_mode", label: "Daşınma növü", kind: "select", options: ["", "Quru", "Dəniz", "Hava", "Dəmiryolu"] },
+  { key: "loading_date", label: "Yükləmə tarixi", kind: "text", placeholder: "YYYY-MM-DD", more: true },
+  { key: "delivery_deadline", label: "Çatdırılma müddəti", kind: "text", placeholder: "YYYY-MM-DD", more: true },
+  { key: "quote_deadline", label: "Təklif üçün son tarix", kind: "text", placeholder: "YYYY-MM-DDTHH:MM", more: true },
+  { key: "truck_type", label: "Maşın növü", kind: "text", more: true },
+  { key: "container_type", label: "Konteyner növü", kind: "select", options: ["", "20DC", "40DC", "40HC", "45HC", "20 reefer", "40 reefer"], more: true },
+  { key: "container_count", label: "Konteyner sayı", kind: "number", more: true },
+  { key: "hs_code", label: "HS Code", kind: "text", more: true },
+  { key: "stackable", label: "Stackable", kind: "select", options: ["", "Stackable", "Non-stackable"], more: true },
+  { key: "shipment_type", label: "Daşınma tipi", kind: "select", options: ["", "FTL", "LTL", "FCL", "LCL"], more: true },
+  { key: "incoterm", label: "Incoterm", kind: "select", options: ["", "EXW", "FCA", "FAS", "FOB", "CFR", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP"], more: true },
+  { key: "adr", label: "Təhlükəli yük (ADR)", kind: "text", more: true },
+  { key: "temperature", label: "Temperatur", kind: "text", more: true },
+  { key: "notes", label: "Əlavə məlumat", kind: "textarea", more: true },
+];
+
+/** The editable values of a prepared RFQ's parameters (numbers stay numbers; missing values are empty). */
+export function rfqEditableValues(params: Record<string, unknown>): Record<string, string | number> {
+  const out: Record<string, string | number> = {};
+  for (const f of RFQ_EDIT_FIELDS) {
+    const v = params[f.key];
+    out[f.key] = f.kind === "number" ? (typeof v === "number" ? v : Number(v) || 0) : typeof v === "string" ? v : "";
+  }
+  return out;
 }

@@ -33,7 +33,7 @@ const person = (p: { name?: string; email?: string }) => (p.email ? `${p.name ||
 export const cardFor: Record<string, CardFn> = {
   create_rfq(result, p) {
     const r = result as R;
-    const volume = `${p.volume_amount} ${p.volume_unit}`;
+    const volume = Number(p.volume_amount) > 0 ? `${p.volume_amount} ${p.volume_unit}` : "";
     return {
       title: `RFQ #${r.number} yaradıldı`,
       tone: "success",
@@ -41,7 +41,7 @@ export const cardFor: Record<string, CardFn> = {
         ...row("Yükləmə yeri", p.origin),
         ...row("Boşaltma yeri", p.destination),
         ...row("Yükün növü", p.cargo_type),
-        ...row("Çəki", `${p.weight_kg} kq`),
+        ...row("Çəki", Number(p.weight_kg) > 0 ? `${p.weight_kg} kq` : ""),
         ...row("Həcm / Palet", volume),
         ...row("Daşınma növü", p.transport_mode),
         ...row("Yükləmə tarixi", p.loading_date ? panelDate("loading_date", String(p.loading_date)) : ""),
@@ -186,7 +186,7 @@ export const cardFor: Record<string, CardFn> = {
       items: items(
         offers.map(
           (o) =>
-            `${o.carrier} · ${money(o.price, o.currency)}${o.transit_days ? ` · ${o.transit_days} gün` : ""}${o.is_winner ? " · QALİB" : ""}${o.versions ? ` · ${o.versions} köhnə versiya` : ""}`,
+            `${o.carrier} · ${money(o.price, o.currency)}${o.transit_range || o.transit_days ? ` · ${o.transit_range ?? o.transit_days} gün` : ""}${o.is_winner ? " · QALİB" : ""}${o.versions ? ` · ${o.versions} köhnə versiya` : ""}`,
         ),
       ),
     };
@@ -201,7 +201,7 @@ export const cardFor: Record<string, CardFn> = {
         const eq = o.currency && o.currency !== "AZN" && o.price_azn !== null && o.price_azn !== undefined ? ` (≈ ${o.price_azn} AZN)` : "";
         const inc = o.includes ? ` · daxildir: ${o.includes}` : "";
         const exc = o.excludes ? ` · daxil deyil: ${o.excludes}` : "";
-        lines.push(`${o.rank}. ${o.carrier} · ${money(o.price, o.currency ?? group.currency)}${eq}${inc}${exc}${o.transit_days ? ` · ${o.transit_days} gün` : ""}${o.is_winner ? " · QALİB" : ""}`);
+        lines.push(`${o.rank}. ${o.carrier} · ${money(o.price, o.currency ?? group.currency)}${eq}${inc}${exc}${o.transit_range || o.transit_days ? ` · ${o.transit_range ?? o.transit_days} gün` : ""}${o.is_winner ? " · QALİB" : ""}`);
       }
     }
     const note = [r.rate_note, r.warning].filter(Boolean).join(" ");
@@ -237,7 +237,7 @@ export const cardFor: Record<string, CardFn> = {
     return {
       title: `RFQ #${r.rfq_id}: qalib seçildi`,
       tone: "success",
-      rows: [...row("Daşıyıcı", w.carrier), ...row("Qiymət", money(w.price, w.currency)), ...row("Müddət", w.transit_days ? `${w.transit_days} gün` : "")],
+      rows: [...row("Daşıyıcı", w.carrier), ...row("Qiymət", money(w.price, w.currency)), ...row("Müddət", w.transit_range || w.transit_days ? `${w.transit_range ?? w.transit_days} gün` : "")],
       note: "Sorğu bağlandı. Daşıyıcıya mesaj göndərilməyib.",
     };
   },

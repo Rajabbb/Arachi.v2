@@ -71,7 +71,7 @@ test("runs registry tools through Gemini function calling", async () => {
   // Tools are declared from the shared registry as JSON Schema.
   const declarations = requests[0].config!.tools![0] as { functionDeclarations: { name: string; parametersJsonSchema: { required: string[] } }[] };
   const createRfq = declarations.functionDeclarations.find((d) => d.name === "create_rfq")!;
-  assert.deepEqual(createRfq.parametersJsonSchema.required, ["origin", "destination", "cargo_type", "weight_kg", "volume_amount", "volume_unit", "transport_mode"]);
+  assert.deepEqual(createRfq.parametersJsonSchema.required, ["origin", "destination", "cargo_type"]);
   assert.match(String(requests[0].config!.systemInstruction), /Arachi AI agent/);
 
   // Second call: the model turn comes back unchanged (with its thought

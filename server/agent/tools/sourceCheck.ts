@@ -108,7 +108,7 @@ export function checkRfq(input: Record<string, unknown>, source: { text: string;
   }
 
   // Volume from a document must be a number the document states or the sum of its lots.
-  if (!numberSupported(Number(p.volume_amount), text)) {
+  if (Number(p.volume_amount) > 0 && !numberSupported(Number(p.volume_amount), text)) {
     throw new Error(
       `Həcm / palet (${p.volume_amount}) faylda yazılmayıb və yazılan rəqəmlərin cəmi də deyil (hesablanmış ola bilər). Sorğunu hələ hazırlamayın: istifadəçidən həcmi (CBM və ya palet sayı) soruşun.`,
     );

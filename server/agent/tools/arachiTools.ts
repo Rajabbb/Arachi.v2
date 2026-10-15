@@ -2,7 +2,7 @@ import { resolveParams, type AgentTool } from "./registry";
 import * as api from "../../arachi/api";
 import { config } from "../../config";
 import { categoryOrThrow, isMine, recipientLines, rfqOrThrow, subCategoryOrThrow } from "./lookup";
-import type { CarrierChoices } from "../../../shared/protocol";
+import { RFQ_EDIT_FIELDS, type CarrierChoices } from "../../../shared/protocol";
 import { toAttachment } from "../files";
 import { checkRfq } from "./sourceCheck";
 
@@ -62,10 +62,11 @@ export function panelDate(label: string, value: string): string {
  * Throws for a number or date that can't be used, so the user is never asked to confirm a broken RFQ.
  */
 function rfqFieldLines(p: Record<string, unknown>): string[] {
-  const unit = p.volume_unit as string;
-  const amount = p.volume_amount as number;
-  if (!(amount > 0)) throw new Error("Həcm / palet miqdarı 0-dan böyük olmalıdır.");
-  if (!((p.weight_kg as number) > 0)) throw new Error("Çəki 0-dan böyük olmalıdır.");
+  const unit = (p.volume_unit as string) || "CBM";
+  const amount = Number(p.volume_amount ?? 0);
+  // Weight, volume and transport mode are optional: 0 means "not specified".
+  if (!Number.isFinite(amount) || amount < 0) throw new Error("Həcm / palet miqdarı mənfi ola bilməz.");
+  if (!Number.isFinite(Number(p.weight_kg ?? 0)) || Number(p.weight_kg ?? 0) < 0) throw new Error("Çəki mənfi ola bilməz.");
   const fields: string[] = [];
   const loading = (p.loading_date as string).trim();
   const delivery = (p.delivery_deadline as string).trim();
@@ -87,7 +88,7 @@ function rfqFieldLines(p: Record<string, unknown>): string[] {
   }
   const notes = (p.notes as string).trim();
   if (notes) fields.push(`Additional Information: ${notes}`);
-  fields.push(`Həcm / Palet: ${amount} ${unit}`);
+  if (amount > 0) fields.push(`Həcm / Palet: ${amount} ${unit}`);
   return fields;
 }
 
@@ -263,22 +264,28 @@ function refuseWhenNotWanted(userText: string) {
 export const createRfq: AgentTool = {
   name: "create_rfq",
   description:
-    "Prepares a new freight RFQ with exactly the fields of the panel's RFQ form. The user sees every field and presses \"Bəli\" before it is created on arachi.co; it never sends it to carriers (use send_rfq_to_carriers for that). Do not call it when the user only asked to see or extract the fields, or said not to create it. The mandatory fields are origin, destination, cargo_type, weight_kg, volume (amount + unit) and transport_mode; if the user did not give one of them, ask for it before calling. The optional fields are only set when the user mentioned them.",
+    "Prepares a new freight RFQ with exactly the fields of the panel's RFQ form. The user sees every field and presses \"Bəli\" before it is created on arachi.co; it never sends it to carriers (use send_rfq_to_carriers for that). Do not call it when the user only asked to see or extract the fields, or said not to create it. The only mandatory fields are origin, destination and cargo_type; if the user did not give one of them, ask for it before calling. Everything else (weight_kg, volume amount + unit, transport_mode, dates, subject, ...) is optional and only set when the user mentioned it: never ask for an optional field and never invent it.",
   params: {
     origin: { type: "string", description: "Loading place (city, country or full address), e.g. \"Bakı, Azərbaycan\"." },
     destination: { type: "string", description: "Unloading place (city, country or full address), e.g. \"İstanbul, Türkiyə\"." },
     cargo_type: { type: "string", description: "What the cargo is, e.g. textile, furniture, food." },
-    weight_kg: { type: "number", description: "Gross weight in kilograms (convert tonnes to kg)." },
-    volume_amount: { type: "number", description: "The quantity: number of pallets, or volume in cubic metres, depending on volume_unit." },
+    weight_kg: { type: "number", description: "Gross weight in kilograms (convert tonnes to kg); 0 = not specified (optional).", default: 0 },
+    volume_amount: {
+      type: "number",
+      description: "The quantity: number of pallets, or volume in cubic metres, depending on volume_unit; 0 = not specified (optional).",
+      default: 0,
+    },
     volume_unit: {
       type: "string",
       description: "What volume_amount counts: Palet (pallets) or CBM (cubic metres).",
       enum: ["Palet", "CBM"],
+      default: "CBM",
     },
     transport_mode: {
       type: "string",
-      description: "Transport mode: Quru (road), Dəniz (sea), Hava (air), Dəmiryolu (rail).",
-      enum: Object.keys(TRANSPORT_MODES),
+      description: "Transport mode: Quru (road), Dəniz (sea), Hava (air), Dəmiryolu (rail); empty = not specified (optional).",
+      enum: ["", ...Object.keys(TRANSPORT_MODES)],
+      default: "",
     },
     loading_date: { type: "string", description: "Loading date, YYYY-MM-DD or YYYY-MM-DDTHH:MM; empty = not specified.", default: "" },
     delivery_deadline: { type: "string", description: "Delivery deadline, YYYY-MM-DD or YYYY-MM-DDTHH:MM; empty = not specified.", default: "" },
@@ -318,14 +325,15 @@ export const createRfq: AgentTool = {
     refuseWhenNotWanted(ctx.text);
     const checked = normalizeRfq(raw, await sourceText(ctx));
     const p = checked.params;
+    requireMandatory(p);
     if (String(p.quote_deadline ?? "").trim()) refusePastOfferDue(String(p.quote_deadline));
     rfqFieldLines(p); // validates numbers and dates before the user is asked
     const rows: [string, unknown][] = [
       ["Yükləmə yeri", p.origin],
       ["Boşaltma yeri", p.destination],
       ["Yükün növü", p.cargo_type],
-      ["Çəki", `${p.weight_kg} kq`],
-      ["Həcm / Palet", `${p.volume_amount} ${p.volume_unit}`],
+      ["Çəki", Number(p.weight_kg) > 0 ? `${p.weight_kg} kq` : ""],
+      ["Həcm / Palet", Number(p.volume_amount) > 0 ? `${p.volume_amount} ${p.volume_unit}` : ""],
       ["Daşınma növü", p.transport_mode],
       ["Yükləmə tarixi", p.loading_date ? panelDate("loading_date", String(p.loading_date)) : ""],
       ["Çatdırılma müddəti", p.delivery_deadline ? panelDate("delivery_deadline", String(p.delivery_deadline)) : ""],
@@ -361,6 +369,7 @@ export const createRfq: AgentTool = {
   },
   async run(raw, ctx) {
     const p = normalizeRfq(raw).params;
+    requireMandatory(p);
     if (String(p.quote_deadline ?? "").trim()) refusePastOfferDue(String(p.quote_deadline));
     const amount = p.volume_amount as number;
     const fields = rfqFieldLines(p);
@@ -377,7 +386,7 @@ export const createRfq: AgentTool = {
       hs_code: (p.hs_code as string).trim(),
       shipment_type: p.shipment_type as string,
       stackable: p.stackable as string,
-      transportation_mode: TRANSPORT_MODES[p.transport_mode as string],
+      transportation_mode: TRANSPORT_MODES[p.transport_mode as string] ?? "",
       required_fields: fields,
       additional_notes: notes,
       subject: String(p.subject ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
@@ -387,6 +396,45 @@ export const createRfq: AgentTool = {
     return { number, ...rfqView(rfq), page_url: `${siteUrl()}/customer` };
   },
 };
+
+/** The three mandatory fields; empty text counts as missing, so the user is asked instead of a broken RFQ being offered. */
+function requireMandatory(p: Record<string, unknown>) {
+  for (const [key, label] of [["origin", "yükləmə yeri"], ["destination", "boşaltma yeri"], ["cargo_type", "yükün növü"]] as const) {
+    if (!String(p[key] ?? "").trim()) {
+      throw new Error(`Məcburi sahə çatışmır: ${label} (${key}). İstifadəçidən soruşun, sorğunu hələ hazırlamayın.`);
+    }
+  }
+}
+
+const NUMERIC_EDITS = new Set(RFQ_EDIT_FIELDS.filter((f) => f.kind === "number").map((f) => f.key));
+const EDITABLE_KEYS = new Set(RFQ_EDIT_FIELDS.map((f) => f.key));
+
+/**
+ * The card's parameters with the fields the user changed on it, checked the way a prepared RFQ is:
+ * mandatory fields, ports at sea/air, numbers and dates. Throws a message the user can act on.
+ */
+export function applyRfqEdits(stored: Record<string, unknown>, edits: Record<string, unknown>): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...stored };
+  for (const [key, value] of Object.entries(edits)) {
+    if (!EDITABLE_KEYS.has(key)) continue; // only the fields the card shows can be changed
+    if (NUMERIC_EDITS.has(key)) {
+      const n = value === "" || value === null || value === undefined ? 0 : Number(value);
+      if (!Number.isFinite(n) || n < 0) throw new Error(`"${key}" mənfi olmayan rəqəm olmalıdır.`);
+      merged[key] = key === "container_count" ? Math.floor(n) : n;
+    } else {
+      const text = String(value ?? "").trim();
+      merged[key] = key === "notes" ? text.slice(0, 2000) : text.replace(/\s+/g, " ").slice(0, 200);
+    }
+  }
+  merged.subject = String(merged.subject ?? "").slice(0, 120);
+  const resolved = resolveParams(createRfq, merged);
+  if ("error" in resolved) throw new Error(resolved.error);
+  const p = normalizeRfq(resolved.params).params;
+  requireMandatory(p);
+  if (String(p.quote_deadline ?? "").trim()) refusePastOfferDue(String(p.quote_deadline));
+  rfqFieldLines(p); // validates numbers and dates
+  return p;
+}
 
 const MODE_FROM_PANEL: [RegExp, string][] = [
   [/quru|road/i, "Quru"],
@@ -438,9 +486,6 @@ function copyParams(rfq: api.ArachiRfq, overrides: Record<string, unknown>): Rec
   const raw = paramsFromRfq(rfq, overrides);
   const missing: string[] = [];
   if (!String(raw.cargo_type ?? "").trim()) missing.push("yükün növü (cargo_type)");
-  if (!(Number(raw.weight_kg) > 0)) missing.push("çəki (weight_kg)");
-  if (!(Number(raw.volume_amount) > 0)) missing.push("həcm / palet (volume_amount)");
-  if (!raw.transport_mode) missing.push("daşınma növü (transport_mode)");
   if (missing.length) {
     throw new Error(
       `RFQ #${rfq.display_id}-də bu məlumat yoxdur: ${missing.join(", ")}. İstifadəçidən soruşun və duplicate_rfq-ya həmin dəyərləri ötürün.`,
@@ -677,6 +722,7 @@ function offerView(o: api.ArachiOffer) {
     includes: typeof o.extra_details?.["Daxildir"] === "string" ? o.extra_details["Daxildir"] : undefined,
     excludes: typeof o.extra_details?.["Daxil deyil"] === "string" ? o.extra_details["Daxil deyil"] : undefined,
     transit_days: o.transit_time_days,
+    transit_range: typeof o.extra_details?.["transit_range"] === "string" ? o.extra_details["transit_range"] : undefined,
     is_winner: o.is_winner,
     details: o.extra_details,
     versions: Array.isArray(o.quote_history) ? o.quote_history.length : 0,

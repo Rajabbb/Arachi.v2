@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import type { CarrierChoices, Confirmation, UploadedFile } from "../../shared/protocol";
+import { rfqEditableValues, type CarrierChoices, type Confirmation, type UploadedFile } from "../../shared/protocol";
 import { currentUserId } from "../auth/current";
 import { db, now } from "../db";
 
@@ -57,13 +57,12 @@ function fileSize(file: UploadedFile): number {
 export function toConfirmation(row: StoredConfirmation): Confirmation {
   const choices = parseChoices(row);
   const files = storedFiles(row);
-  let subject: string | undefined;
+  let fields: Confirmation["fields"];
   if (row.tool === "create_rfq") {
     try {
-      const params = JSON.parse(row.params) as { subject?: unknown };
-      subject = typeof params.subject === "string" ? params.subject : "";
+      fields = rfqEditableValues(JSON.parse(row.params) as Record<string, unknown>);
     } catch {
-      subject = "";
+      fields = undefined;
     }
   }
   return {
@@ -72,7 +71,7 @@ export function toConfirmation(row: StoredConfirmation): Confirmation {
     text: row.summary,
     status: expired(row) ? "expired" : row.status,
     result: row.result,
-    ...(subject !== undefined ? { subject } : {}),
+    ...(fields ? { fields } : {}),
     ...(choices ? { choices } : {}),
     ...(files.length ? { files: files.map((f) => ({ name: f.name, size: fileSize(f) })) } : {}),
   };
@@ -97,7 +96,7 @@ export async function createConfirmation(
   );
   return {
     id, tool, text: summary, status: "pending", result: "",
-    ...(tool === "create_rfq" ? { subject: typeof params.subject === "string" ? params.subject : "" } : {}),
+    ...(tool === "create_rfq" ? { fields: rfqEditableValues(params) } : {}),
     ...(choices ? { choices } : {}),
     ...(files?.length ? { files: files.map((f) => ({ name: f.name, size: fileSize(f) })) } : {}),
   };

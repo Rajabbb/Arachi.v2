@@ -430,36 +430,104 @@ async function prepareRfqWithSubject(subject: string) {
   return chat.body.confirmations[0];
 }
 
+const lastRfq = () => arachiData.rfqs[arachiData.rfqs.length - 1] as unknown as Record<string, unknown>;
+
 test("the subject is shown on the card and goes to arachi.co with the RFQ, not into the notes", async () => {
   const c = await prepareRfqWithSubject("Sifarişçi: Azersun");
-  assert.equal(c.subject, "Sifarişçi: Azersun");
+  assert.equal(c.fields?.subject, "Sifarişçi: Azersun");
   assert.match(c.text, /Başlıq \(qrup\): Sifarişçi: Azersun/);
   const yes = await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "create", carrierIds: [] });
   assert.equal(yes.body.confirmation.status, "done");
-  const created = arachiData.rfqs[arachiData.rfqs.length - 1] as unknown as { subject?: string; additional_notes?: string };
-  assert.equal(created.subject, "Sifarişçi: Azersun");
-  assert.doesNotMatch(created.additional_notes ?? "", /Azersun/);
+  assert.equal(lastRfq().subject, "Sifarişçi: Azersun");
+  assert.doesNotMatch(String(lastRfq().additional_notes ?? ""), /Azersun/);
 });
 
 test("the subject can be changed or cleared on the card before pressing the button", async () => {
   const edited = await prepareRfqWithSubject("Köhnə qrup");
   const yes = await request<ConfirmationResponse>("POST", `/api/confirmations/${edited.id}`, {
-    approve: true, mode: "create", carrierIds: [], subject: "  Gürcüstan\n  yükləri ",
+    approve: true, mode: "create", carrierIds: [], edits: { subject: "  Gürcüstan" + String.fromCharCode(10) + "  yükləri " },
   });
   assert.equal(yes.body.confirmation.status, "done");
-  assert.equal((arachiData.rfqs[arachiData.rfqs.length - 1] as unknown as { subject?: string }).subject, "Gürcüstan yükləri");
+  assert.equal(lastRfq().subject, "Gürcüstan yükləri");
 
   const cleared = await prepareRfqWithSubject("Silinəcək");
-  await request<ConfirmationResponse>("POST", `/api/confirmations/${cleared.id}`, { approve: true, mode: "create", carrierIds: [], subject: "" });
-  assert.equal((arachiData.rfqs[arachiData.rfqs.length - 1] as unknown as { subject?: string }).subject, "");
+  await request<ConfirmationResponse>("POST", `/api/confirmations/${cleared.id}`, { approve: true, mode: "create", carrierIds: [], edits: { subject: "" } });
+  assert.equal(lastRfq().subject, "");
 });
 
 test("a card without a subject offers an empty field, and a long subject is cut to 120 characters", async () => {
   toolCallingProvider("create_rfq", { ...RFQ_DEFAULTS, origin: "Bakı", destination: "Poti", volume_unit: "CBM", volume_amount: 20 });
   const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "Bakıdan Potiyə sorğu yarat", files: [] } });
   const c = chat.body.confirmations[0];
-  assert.equal(c.subject, "");
+  assert.equal(c.fields?.subject, "");
   assert.doesNotMatch(c.text, /Başlıq/);
-  await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "create", carrierIds: [], subject: "x".repeat(300) });
-  assert.equal(((arachiData.rfqs[arachiData.rfqs.length - 1] as unknown as { subject?: string }).subject ?? "").length, 120);
+  await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "create", carrierIds: [], edits: { subject: "x".repeat(300) } });
+  assert.equal(String(lastRfq().subject ?? "").length, 120);
+});
+
+test("only origin, destination and cargo type are mandatory: weight, volume and transport mode may be missing", async () => {
+  toolCallingProvider("create_rfq", { origin: "Bakı", destination: "Poti", cargo_type: "alma" });
+  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "Bakıdan Potiyə alma üçün sorğu yarat", files: [] } });
+  assert.equal(chat.body.confirmations.length, 1, "the card is offered without weight, volume or mode");
+  const c = chat.body.confirmations[0];
+  assert.doesNotMatch(c.text, /Çəki|Həcm|Daşınma növü/);
+  const yes = await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "create", carrierIds: [] });
+  assert.equal(yes.body.confirmation.status, "done");
+  const rfq = lastRfq();
+  assert.equal(rfq.cargo_type, "alma");
+  assert.equal(Number(rfq.weight_kg ?? 0), 0);
+  assert.equal(rfq.transportation_mode, "");
+  assert.ok(!(rfq.required_fields as string[]).some((l) => /Həcm \/ Palet/.test(l)), "no volume line when none was given");
+});
+
+test("a missing origin, destination or cargo type still asks the user (no card)", async () => {
+  toolCallingProvider("create_rfq", { origin: "Bakı", destination: "Poti", cargo_type: "" });
+  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "Bakıdan Potiyə sorğu yarat", files: [] } });
+  assert.equal(chat.body.confirmations.length, 0);
+});
+
+test("fields changed on the card are applied and checked before the RFQ is created", async () => {
+  const c = await prepareRfqWithSubject("Qrup A");
+  assert.equal(c.fields?.origin, "Bakı");
+  assert.equal(c.fields?.weight_kg, RFQ_DEFAULTS.weight_kg);
+  const yes = await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, {
+    approve: true, mode: "create", carrierIds: [],
+    edits: { origin: "Gəncə, Azərbaycan", cargo_type: "Un", weight_kg: 1500, volume_amount: 12, volume_unit: "Palet", transport_mode: "Quru", notes: "Səhər çatsın", hs_code: "1101.00" },
+  });
+  assert.equal(yes.status, 200);
+  assert.equal(yes.body.confirmation.status, "done");
+  const rfq = lastRfq();
+  assert.equal(rfq.origin, "Gəncə, Azərbaycan");
+  assert.equal(rfq.cargo_type, "Un");
+  assert.equal(rfq.weight_kg, 1500);
+  assert.equal(rfq.transportation_mode, "Quru (Road)");
+  assert.equal(rfq.additional_notes, "Səhər çatsın");
+  const lines = rfq.required_fields as string[];
+  assert.ok(lines.includes("Həcm / Palet: 12 Palet") && lines.includes("HS Code: 1101.00"), lines.join(" | "));
+  assert.equal(rfq.subject, "Qrup A", "fields that were not touched keep the prepared value");
+});
+
+test("a bad edit is refused on the card: nothing is created and the card stays pending", async () => {
+  const c = await prepareRfqWithSubject("Qrup B");
+  const before = arachiData.rfqs.length;
+  for (const bad of [{ origin: "" }, { cargo_type: "   " }, { weight_kg: -5 }, { quote_deadline: "2020-01-01T10:00" }, { loading_date: "dünən" }, { transport_mode: "Gəmi" }]) {
+    const no = await request<{ error: string }>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "create", carrierIds: [], edits: bad });
+    assert.equal(no.status, 400, JSON.stringify(bad));
+    assert.ok(no.body.error);
+  }
+  assert.equal(arachiData.rfqs.length, before, "no RFQ was created");
+  const again = await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "create", carrierIds: [] });
+  assert.equal(again.body.confirmation.status, "done", "the card could still be confirmed");
+});
+
+test("fields the card does not show cannot be changed through edits", async () => {
+  const c = await prepareRfqWithSubject("Qrup C");
+  const yes = await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, {
+    approve: true, mode: "create", carrierIds: [], edits: { auto_reminder: false, customer_id: 999, status: "closed", origin: "Mingəçevir" },
+  });
+  assert.equal(yes.body.confirmation.status, "done");
+  const rfq = lastRfq();
+  assert.equal(rfq.origin, "Mingəçevir");
+  assert.equal(rfq.status, "open");
+  assert.notEqual(rfq.customer_id, 999);
 });
