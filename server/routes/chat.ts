@@ -19,6 +19,8 @@ import {
 } from "../domain/conversations";
 import { HttpError, readJson, send } from "../http";
 import { attachConfirmations, createConfirmation, takeOutcomes } from "../domain/confirmations";
+import { currentUserId } from "../auth/current";
+import { consumeRequest } from "../domain/quota";
 
 function parseChatRequest(body: unknown): ChatRequest {
   const b = body as Partial<ChatRequest> | null;
@@ -59,6 +61,8 @@ export async function handleChat(req: IncomingMessage, res: ServerResponse) {
 
   const existing = conversationId ? await findConversation(conversationId) : undefined;
   if (conversationId && !existing) throw new HttpError(404, "Söhbət tapılmadı.");
+  // The plan's request allowance: refused before anything is saved or any model is called.
+  const quota = await consumeRequest(currentUserId());
   const id = existing?.id ?? (await createConversation(titleFor(message.text, message.files)));
   await addMessage(id, { role: "user", text: message.text, attachments: attachmentInfo(message.files) });
 
@@ -66,7 +70,7 @@ export async function handleChat(req: IncomingMessage, res: ServerResponse) {
   const refusal = scopeRefusal(message.text, message.files.length);
   if (refusal) {
     await addMessage(id, { role: "assistant", text: refusal });
-    const body: ChatResponse = { conversationId: id, reply: refusal, toolCalls: [], downloads: [], confirmations: [], cards: [] };
+    const body: ChatResponse = { conversationId: id, reply: refusal, toolCalls: [], downloads: [], confirmations: [], cards: [], ...(quota ? { quota } : {}) };
     return send(res, 200, body);
   }
 
@@ -94,6 +98,7 @@ export async function handleChat(req: IncomingMessage, res: ServerResponse) {
       downloads: result.downloads,
       confirmations: result.confirmations,
       cards: result.cards,
+      ...(quota ? { quota } : {}),
     };
     send(res, 200, body);
   } catch (err) {

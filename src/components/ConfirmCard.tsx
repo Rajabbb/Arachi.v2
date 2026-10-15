@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ConfirmAnswer, Confirmation } from "../../shared/protocol";
+import { useProgress } from "../lib/progress";
 
 const statusText: Record<Confirmation["status"], string> = {
   pending: "",
@@ -39,8 +40,14 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
   const [selected, setSelected] = useState<number[]>([]);
   const [linkOnly, setLinkOnly] = useState(false);
   const [attach, setAttach] = useState<number | null>(null);
+  // The subject (group) the RFQ was prepared with; the user may edit it before pressing the button.
+  const [subject, setSubject] = useState<string | null>(null);
+  const [stepMode, setStepMode] = useState<"create" | "send" | "link">("create");
 
   async function answer(approve: boolean, choice?: ConfirmAnswer) {
+    setStepMode(choice?.mode ?? "create");
+    if (choice && subject !== null) choice = { ...choice, subject };
+    else if (approve && !choice && subject !== null && confirmation.tool === "create_rfq") choice = { mode: "create", carrierIds: [], subject };
     setBusy(true);
     setCancelling(!approve);
     setError("");
@@ -57,6 +64,16 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
   const pending = confirmation.status === "pending";
   const choices = confirmation.choices;
   const words = wording(confirmation.tool, Boolean(choices));
+  const creating = confirmation.tool === "create_rfq";
+  const stepsFor =
+    creating && stepMode === "send"
+      ? ["RFQ yaradılır…", "Daşıyıcılara göndərilir…", "Nəticə hazırlanır…"]
+      : creating && stepMode === "link"
+        ? ["RFQ yaradılır…", "Link hazırlanır…", "Nəticə hazırlanır…"]
+        : creating
+          ? ["RFQ yaradılır…", "Nəticə hazırlanır…"]
+          : [words.busy, "Nəticə hazırlanır…"];
+  const busyText = useProgress(busy && !cancelling, stepsFor, 1500);
   const status = confirmation.status === "done" ? words.done : confirmation.status === "declined" ? words.declined : statusText[confirmation.status];
 
   function toggle(id: number) {
@@ -66,6 +83,24 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
   function toggleCategory(ids: number[]) {
     setSelected((prev) => (ids.every((id) => prev.includes(id)) ? prev.filter((id) => !ids.includes(id)) : [...new Set([...prev, ...ids])]));
   }
+
+  const subjectBox =
+    pending && creating && confirmation.subject !== undefined ? (
+      <div className="subject-edit">
+        <label className="picker-row">
+          <span>Başlıq (qrup):</span>
+          <input
+            type="text"
+            maxLength={120}
+            disabled={busy}
+            value={subject ?? confirmation.subject}
+            placeholder="məs: Sifarişçi: Azersun (məcburi deyil)"
+            onChange={(e) => setSubject(e.target.value)}
+          />
+        </label>
+        <p className="muted attach-hint">Sorğunu qruplaşdırmaq üçündür; daşıyıcılara göstərilmir. Sonra panelda bu başlıqla axtara bilərsiniz.</p>
+      </div>
+    ) : null;
 
   const files = confirmation.files ?? [];
   const attachBox =
@@ -152,11 +187,12 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
             <span>Heç kimə göndərmə, yalnız link yarat</span>
           </label>
         </div>
+        {subjectBox}
         {attachBox}
         <div className="confirm-actions">
           {linkOnly ? (
             <button type="button" className="send-button" disabled={busy} onClick={() => void answer(true, { mode: "link", carrierIds: [], ...(attach !== null ? { attachFile: attach } : {}) })}>
-              {busy && !cancelling ? words.busy : "Yarat və link al"}
+              {busy && !cancelling ? busyText : "Yarat və link al"}
             </button>
           ) : (
             <button
@@ -165,7 +201,7 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
               disabled={busy || selected.length === 0}
               onClick={() => void answer(true, { mode: "send", carrierIds: selected, ...(attach !== null ? { attachFile: attach } : {}) })}
             >
-              {busy && !cancelling ? words.busy : `Yarat və seçilənlərə göndər${selected.length ? ` (${selected.length})` : ""}`}
+              {busy && !cancelling ? busyText : `Yarat və seçilənlərə göndər${selected.length ? ` (${selected.length})` : ""}`}
             </button>
           )}
           <button type="button" className="confirm-no" disabled={busy} onClick={() => void answer(true, { mode: "create", carrierIds: [], ...(attach !== null ? { attachFile: attach } : {}) })}>
@@ -183,6 +219,7 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
   return (
     <div className={`confirm-card ${confirmation.status}`}>
       <p className="confirm-text">{confirmation.text}</p>
+      {subjectBox}
       {attachBox}
       {pending ? (
         <div className="confirm-actions">
@@ -192,7 +229,7 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
             disabled={busy}
             onClick={() => void answer(true, attach !== null ? { mode: "create", carrierIds: [], attachFile: attach } : undefined)}
           >
-            {busy && !cancelling ? words.busy : words.yes}
+            {busy && !cancelling ? busyText : words.yes}
           </button>
           <button type="button" className="confirm-no" disabled={busy} onClick={() => void answer(false)}>
             {cancelling ? "Ləğv edilir…" : "Xeyr"}

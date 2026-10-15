@@ -254,4 +254,19 @@ export const migrations: string[] = [
   `
   ALTER TABLE confirmations ADD COLUMN files TEXT;
   `,
+
+  // 17: plan and AI request limit from arachi.co, with a usage counter (see migrations/0011_subscription.sql).
+  `
+  ALTER TABLE users ADD COLUMN sub_plan TEXT;
+  ALTER TABLE users ADD COLUMN sub_label TEXT;
+  ALTER TABLE users ADD COLUMN sub_ai_limit INTEGER;
+  ALTER TABLE users ADD COLUMN sub_ai_period TEXT;
+  ALTER TABLE users ADD COLUMN sub_trial_ends_at TEXT;
+  CREATE TABLE ai_usage (
+    user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    period TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, period)
+  );
+  `,
 ];

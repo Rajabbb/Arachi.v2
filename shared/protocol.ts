@@ -66,9 +66,28 @@ export interface CarrierChoices {
 /** What the user chose on an RFQ card: create and send to the chosen carriers, only create, or create and make a link. */
 export type ConfirmMode = "send" | "create" | "link";
 
+/** The plan's AI request allowance of the signed-in user (from arachi.co). */
+export interface Quota {
+  plan: string;
+  label: string;
+  /** Requests allowed in the period; null = unlimited. */
+  limit: number | null;
+  used: number;
+  /** Requests left; null = unlimited. */
+  remaining: number | null;
+  /** "month" = renewed every calendar month, "total" = for the whole demo. */
+  period: "month" | "total";
+  isDemo: boolean;
+  trialEndsAt: string | null;
+  /** The demo period is over: nothing more can be asked until a plan is paid. */
+  expired: boolean;
+}
+
 export interface ConfirmAnswer {
   mode: ConfirmMode;
   carrierIds: number[];
+  /** The RFQ's subject (group) as the user left it on the card; absent = as prepared. */
+  subject?: string;
   /** Index (in Confirmation.files) of the file carriers should see on the RFQ; absent = none. */
   attachFile?: number;
 }
@@ -81,6 +100,8 @@ export interface Confirmation {
   choices?: CarrierChoices;
   /** For a new RFQ made from attached files: the files that can be shown to carriers (names only). */
   files?: { name: string; size: number }[];
+  /** For a new RFQ: its subject (group) as prepared; the user may edit it on the card. */
+  subject?: string;
   /** What will happen, written by the server from the exact action (recipients included). */
   text: string;
   /** pending → running → done | failed after "Bəli", declined after "Xeyr", expired when left too long. */
@@ -98,7 +119,8 @@ export interface ChatResponse {
   /** Actions waiting for the user's "Bəli" / "Xeyr", shown under the reply. */
   confirmations: Confirmation[];
   /** What the tools did in this turn. */
-  cards: ResultCard[];
+  cards: ResultCard[];  /** The AI request allowance after this message (absent without a plan). */
+  quota?: Quota;
 }
 
 /** POST /api/confirmations/:id { approve } — the user's answer to a confirmation. */
@@ -297,7 +319,7 @@ export interface MonthlyReportData {
 
 /** The signed-in user, from /api/auth/me, login, register and password reset. */
 export interface AuthResponse {
-  user: { id: number; email: string; name: string };
+  user: { id: number; email: string; name: string; quota?: Quota };
 }
 
 /** GET /api/rfqs — every RFQ of the signed-in user, newest first. */

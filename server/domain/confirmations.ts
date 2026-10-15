@@ -57,12 +57,22 @@ function fileSize(file: UploadedFile): number {
 export function toConfirmation(row: StoredConfirmation): Confirmation {
   const choices = parseChoices(row);
   const files = storedFiles(row);
+  let subject: string | undefined;
+  if (row.tool === "create_rfq") {
+    try {
+      const params = JSON.parse(row.params) as { subject?: unknown };
+      subject = typeof params.subject === "string" ? params.subject : "";
+    } catch {
+      subject = "";
+    }
+  }
   return {
     id: row.id,
     tool: row.tool,
     text: row.summary,
     status: expired(row) ? "expired" : row.status,
     result: row.result,
+    ...(subject !== undefined ? { subject } : {}),
     ...(choices ? { choices } : {}),
     ...(files.length ? { files: files.map((f) => ({ name: f.name, size: fileSize(f) })) } : {}),
   };
@@ -87,6 +97,7 @@ export async function createConfirmation(
   );
   return {
     id, tool, text: summary, status: "pending", result: "",
+    ...(tool === "create_rfq" ? { subject: typeof params.subject === "string" ? params.subject : "" } : {}),
     ...(choices ? { choices } : {}),
     ...(files?.length ? { files: files.map((f) => ({ name: f.name, size: fileSize(f) })) } : {}),
   };

@@ -10,12 +10,14 @@ import ResultCards from "./ResultCards";
 interface Props {
   messages: Message[];
   busy: boolean;
+  /** What the agent is doing now (shown beside the typing dots). */
+  progress?: string;
   onConfirm?: (confirmationId: string, approve: boolean, answer?: ConfirmAnswer) => Promise<void>;
   /** Shown instead of the list while there are no messages (the greeting). */
   empty?: ReactNode;
 }
 
-export default function MessageList({ messages, busy, onConfirm, empty }: Props) {
+export default function MessageList({ messages, busy, progress, onConfirm, empty }: Props) {
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -71,10 +73,11 @@ export default function MessageList({ messages, busy, onConfirm, empty }: Props)
           <span className="avatar" aria-hidden="true">
             <AiMascot size={32} mini />
           </span>
-          <div className="bubble typing" aria-label="AI yazır">
+          <div className="bubble typing" aria-label={progress || "AI yazır"}>
             <span />
             <span />
             <span />
+            {progress && <em className="typing-step">{progress}</em>}
           </div>
         </div>
       )}

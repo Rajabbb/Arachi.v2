@@ -422,3 +422,44 @@ test("a bad file index is refused, a refused upload still creates the RFQ and sa
   assert.match(res.body.message!.text, /Fayl əlavə olunmadı/);
   assert.equal((arachiData.rfqs[arachiData.rfqs.length - 1] as Record<string, unknown>).attachment_url, undefined);
 });
+
+/** The RFQ card with a subject (group) the agent filled from what the user said. */
+async function prepareRfqWithSubject(subject: string) {
+  toolCallingProvider("create_rfq", { ...RFQ_DEFAULTS, origin: "Bakı", destination: "Poti", volume_unit: "CBM", volume_amount: 20, subject });
+  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "Bakıdan Potiyə sorğu yarat", files: [] } });
+  return chat.body.confirmations[0];
+}
+
+test("the subject is shown on the card and goes to arachi.co with the RFQ, not into the notes", async () => {
+  const c = await prepareRfqWithSubject("Sifarişçi: Azersun");
+  assert.equal(c.subject, "Sifarişçi: Azersun");
+  assert.match(c.text, /Başlıq \(qrup\): Sifarişçi: Azersun/);
+  const yes = await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "create", carrierIds: [] });
+  assert.equal(yes.body.confirmation.status, "done");
+  const created = arachiData.rfqs[arachiData.rfqs.length - 1] as unknown as { subject?: string; additional_notes?: string };
+  assert.equal(created.subject, "Sifarişçi: Azersun");
+  assert.doesNotMatch(created.additional_notes ?? "", /Azersun/);
+});
+
+test("the subject can be changed or cleared on the card before pressing the button", async () => {
+  const edited = await prepareRfqWithSubject("Köhnə qrup");
+  const yes = await request<ConfirmationResponse>("POST", `/api/confirmations/${edited.id}`, {
+    approve: true, mode: "create", carrierIds: [], subject: "  Gürcüstan\n  yükləri ",
+  });
+  assert.equal(yes.body.confirmation.status, "done");
+  assert.equal((arachiData.rfqs[arachiData.rfqs.length - 1] as unknown as { subject?: string }).subject, "Gürcüstan yükləri");
+
+  const cleared = await prepareRfqWithSubject("Silinəcək");
+  await request<ConfirmationResponse>("POST", `/api/confirmations/${cleared.id}`, { approve: true, mode: "create", carrierIds: [], subject: "" });
+  assert.equal((arachiData.rfqs[arachiData.rfqs.length - 1] as unknown as { subject?: string }).subject, "");
+});
+
+test("a card without a subject offers an empty field, and a long subject is cut to 120 characters", async () => {
+  toolCallingProvider("create_rfq", { ...RFQ_DEFAULTS, origin: "Bakı", destination: "Poti", volume_unit: "CBM", volume_amount: 20 });
+  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "Bakıdan Potiyə sorğu yarat", files: [] } });
+  const c = chat.body.confirmations[0];
+  assert.equal(c.subject, "");
+  assert.doesNotMatch(c.text, /Başlıq/);
+  await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "create", carrierIds: [], subject: "x".repeat(300) });
+  assert.equal(((arachiData.rfqs[arachiData.rfqs.length - 1] as unknown as { subject?: string }).subject ?? "").length, 120);
+});

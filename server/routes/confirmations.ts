@@ -29,7 +29,7 @@ const answered: Record<string, string> = {
  * parameters the user was shown; the outcome is added to the chat.
  */
 export async function handleConfirmation(req: IncomingMessage, res: ServerResponse, id: string) {
-  const body = (await readJson(req, SMALL_BODY_BYTES)) as { approve?: unknown; mode?: unknown; carrierIds?: unknown; attachFile?: unknown } | null;
+  const body = (await readJson(req, SMALL_BODY_BYTES)) as { approve?: unknown; mode?: unknown; carrierIds?: unknown; attachFile?: unknown; subject?: unknown } | null;
   if (typeof body?.approve !== "boolean") throw new HttpError(400, "Sorğunun formatı yanlışdır.");
   const stored = await findConfirmation(id);
   if (!stored) throw new HttpError(404, "Təsdiq tapılmadı.");
@@ -79,7 +79,12 @@ export async function handleConfirmation(req: IncomingMessage, res: ServerRespon
       attachNote = ` ⚠ Fayl əlavə olunmadı (${err instanceof Error ? err.message : "xəta"}): daşıyıcılar yalnız sahələri görəcək.`;
     }
   }
-  const run = await tools.execute(stored.tool, JSON.parse(stored.params), ctx);
+  // The subject (group) may be edited on the card; it is the only field the card lets the user change.
+  const params = JSON.parse(stored.params) as Record<string, unknown>;
+  if (stored.tool === "create_rfq" && typeof body.subject === "string") {
+    params.subject = body.subject.replace(/\s+/g, " ").trim().slice(0, 120);
+  }
+  const run = await tools.execute(stored.tool, params, ctx);
   let outcome = run.ok
     ? (tool?.done?.(JSON.parse(run.content)) ?? "Hazırdır.")
     : `Alınmadı: ${run.content.replace(/^Error: /, "")}`;

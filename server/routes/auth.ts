@@ -15,6 +15,7 @@ import {
 import { arachiMode, config } from "../config";
 import { HttpError, readJson, send, SMALL_BODY_BYTES } from "../http";
 import { clientIp, limit } from "../rateLimit";
+import { quotaFor } from "../domain/quota";
 
 /** Requests per client address for each form: [max, window in minutes]. */
 const limits: Record<string, [number, number]> = {
@@ -66,7 +67,9 @@ function field(body: unknown, key: string): string {
 /** /api/auth/* — register, login, logout, current user, password reset. */
 export async function handleAuth(req: IncomingMessage, res: ServerResponse, action: string) {
   if (req.method === "GET" && action === "me") {
-    return send(res, 200, { user: publicUser(await requireUser(req)) } satisfies AuthResponse);
+    const me = await requireUser(req);
+    const quota = await quotaFor(me.id);
+    return send(res, 200, { user: { ...publicUser(me), ...(quota ? { quota } : {}) } } satisfies AuthResponse);
   }
   if (req.method !== "POST") throw new HttpError(405, "Bu əməliyyat dəstəklənmir.");
 

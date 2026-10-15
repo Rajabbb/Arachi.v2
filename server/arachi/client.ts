@@ -48,11 +48,22 @@ async function send(method: string, path: string, headers: Record<string, string
   return { res, parsed, text };
 }
 
+/** The plan arachi.co reports for the customer (AI request limit, demo end). */
+export interface SubscriptionInfo {
+  plan: string;
+  label: string;
+  ai_limit: number | null;
+  ai_period: "month" | "total";
+  is_demo: boolean;
+  trial_ends_at: string | null;
+}
+
 export interface Exchanged {
   token: string;
   /** Seconds the arachi.co token stays valid. */
   expiresIn: number;
   user: { id: number; email: string; name: string; plan: string };
+  subscription?: SubscriptionInfo;
 }
 
 /**
@@ -71,9 +82,9 @@ export async function exchangeTicket(ticket: string): Promise<Exchanged> {
     const message = detailOf(parsed) ?? "arachi.co girişi təsdiqləmədi.";
     throw new ArachiError(res.status === 403 ? 403 : res.status >= 500 ? 502 : 401, message);
   }
-  const data = parsed as { token?: string; expires_in?: number; user?: Exchanged["user"] };
+  const data = parsed as { token?: string; expires_in?: number; user?: Exchanged["user"]; subscription?: SubscriptionInfo };
   if (!data?.token || !data.user) throw new ArachiError(502, "arachi.co gözlənilməz cavab verdi.");
-  return { token: data.token, expiresIn: Number(data.expires_in) || 12 * 3600, user: data.user };
+  return { token: data.token, expiresIn: Number(data.expires_in) || 12 * 3600, user: data.user, subscription: data.subscription };
 }
 
 export interface CallOptions {

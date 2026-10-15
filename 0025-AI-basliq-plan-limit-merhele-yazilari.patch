@@ -1,0 +1,1087 @@
+From 13a2fdd40a11a9c36ee62fcd77ca4041c9b6f19a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 15 Oct 2026 22:30:25 +0400
+Subject: [PATCH] =?UTF-8?q?AI:=20RFQ=20ba=C5=9Fl=C4=B1=C4=9F=C4=B1=20(subj?=
+ =?UTF-8?q?ect),=20plan=20v=C9=99=20A=C4=B0=20sor=C4=9Fu=20limiti=20(demo?=
+ =?UTF-8?q?=2014=20g=C3=BCn=20/=20100=20sor=C4=9Fu),=20m=C9=99rh=C9=99l?=
+ =?UTF-8?q?=C9=99=20yaz=C4=B1lar=C4=B1?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Co-Authored-By: Claude Sonnet 5.5 <noreply@anthropic.com>
+---
+ server/agent/tools/arachiTools.ts          |  12 +-
+ server/arachi/api.ts                       |   4 +
+ server/arachi/client.ts                    |  15 +-
+ server/auth/accounts.ts                    |  32 ++--
+ server/db/migrations/0011_subscription.sql |  16 ++
+ server/db/sqliteSchema.ts                  |  15 ++
+ server/domain/confirmations.ts             |  11 ++
+ server/domain/quota.ts                     |  67 ++++++++
+ server/routes/auth.ts                      |   5 +-
+ server/routes/chat.ts                      |   7 +-
+ server/routes/confirmations.test.ts        |  41 +++++
+ server/routes/confirmations.ts             |   9 +-
+ server/routes/quota.test.ts                | 176 +++++++++++++++++++++
+ server/routes/sso.ts                       |   2 +-
+ shared/protocol.ts                         |  26 ++-
+ src/App.tsx                                |  20 ++-
+ src/components/ConfirmCard.tsx             |  43 ++++-
+ src/components/MessageList.tsx             |   7 +-
+ src/components/UserMenu.tsx                |  28 +++-
+ src/lib/agent.ts                           |   2 +
+ src/lib/progress.ts                        |  31 ++++
+ src/styles.css                             |   9 ++
+ 22 files changed, 546 insertions(+), 32 deletions(-)
+ create mode 100644 server/db/migrations/0011_subscription.sql
+ create mode 100644 server/domain/quota.ts
+ create mode 100644 server/routes/quota.test.ts
+ create mode 100644 src/lib/progress.ts
+
+diff --git a/server/agent/tools/arachiTools.ts b/server/agent/tools/arachiTools.ts
+index feb2012..13cc025 100644
+--- a/server/agent/tools/arachiTools.ts
++++ b/server/agent/tools/arachiTools.ts
+@@ -29,6 +29,7 @@ function rfqView(r: api.ArachiRfq | Omit<api.ArachiRfq, "display_id">) {
+     stackable: r.stackable === null || r.stackable === undefined ? undefined : r.stackable ? "Stackable" : "Non-stackable",
+     details: Array.isArray(r.required_fields) && r.required_fields.length > 0 ? r.required_fields : undefined,
+     notes: r.additional_notes || undefined,
++    subject: r.subject || undefined,
+     status: r.status,
+     created_at: r.created_at,
+   };
+@@ -306,6 +307,12 @@ export const createRfq: AgentTool = {
+     adr: { type: "string", description: "Dangerous goods (ADR) details, e.g. \"Klass 3\"; empty = not dangerous / not specified.", default: "" },
+     temperature: { type: "string", description: "Temperature requirement (reefer), e.g. \"+2 to +8 °C\"; empty = none.", default: "" },
+     notes: { type: "string", description: "Additional information and special instructions for carriers.", default: "" },
++    subject: {
++      type: "string",
++      description:
++        "The RFQ's subject/group (\"başlıq\", \"qrup\", \"mövzu\"): the customer's own label for grouping RFQs, e.g. the client, the country or the project (\"Sifarişçi: Azersun\", \"Gürcüstan yükləri\"). Only set it when the user mentioned one; it is not shown to carriers and is not the cargo type or the notes. Empty = none.",
++      default: "",
++    },
+   },
+   async confirm(raw, ctx) {
+     refuseWhenNotWanted(ctx.text);
+@@ -333,6 +340,7 @@ export const createRfq: AgentTool = {
+       ["Təhlükəli yük (ADR)", p.adr],
+       ["Temperatur", p.temperature],
+       ["Əlavə məlumat", p.notes],
++      ["Başlıq (qrup)", p.subject],
+     ];
+     const lines = rows.filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== "").map(([k, v]) => `• ${k}: ${v}`);
+     const warnings = [...checked.warnings, ...rfqWarnings(p)].map((w) => `⚠ ${w}`);
+@@ -372,6 +380,7 @@ export const createRfq: AgentTool = {
+       transportation_mode: TRANSPORT_MODES[p.transport_mode as string],
+       required_fields: fields,
+       additional_notes: notes,
++      subject: String(p.subject ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+       ...(ctx.attachmentUrl ? { attachment_url: ctx.attachmentUrl } : {}),
+     });
+     const number = (await api.listRfqs()).find((r) => r.id === rfq.id)?.display_id;
+@@ -420,6 +429,7 @@ function paramsFromRfq(rfq: api.ArachiRfq, overrides: Record<string, unknown>):
+     container_type: line(/^Container Type:\s*(.+)$/i),
+     container_count: Number(line(/^Container Count:\s*(\d+)/i) || 0),
+     notes: String(overrides.notes ?? "").trim() || notes,
++    subject: keep("subject", rfq.subject ?? ""),
+   };
+ }
+ 
+@@ -507,7 +517,7 @@ export const listRfqs: AgentTool = {
+     const rows = (await api.listRfqs()).filter(
+       (r) =>
+         (status === "all" || r.status === status) &&
+-        (!q || [r.origin, r.destination, r.cargo_type, r.additional_notes].join(" ").toLowerCase().includes(q)),
++        (!q || [r.origin, r.destination, r.cargo_type, r.additional_notes, r.subject].join(" ").toLowerCase().includes(q)),
+     );
+     return {
+       total: rows.length,
+diff --git a/server/arachi/api.ts b/server/arachi/api.ts
+index 8a0008c..e546555 100644
+--- a/server/arachi/api.ts
++++ b/server/arachi/api.ts
+@@ -21,6 +21,8 @@ export interface ArachiRfq {
+   transportation_mode?: string | null;
+   required_fields?: string[] | null;
+   additional_notes?: string | null;
++  /** The customer's own group/title for the RFQ (client, country, project); never shown to carriers. */
++  subject?: string | null;
+   status: string;
+   created_at?: string;
+   quotes_count?: number;
+@@ -106,6 +108,8 @@ export interface NewRfq {
+   /** The "ixtiyari parametrlər" and volume lines exactly as the panel writes them ("Incoterm: FOB" ...). */
+   required_fields: string[];
+   additional_notes: string;
++  /** The RFQ's subject (group); empty = none. */
++  subject?: string;
+   /** A file the carriers see on the quote page ("Sənədə Bax"), from uploadAttachment. */
+   attachment_url?: string;
+ }
+diff --git a/server/arachi/client.ts b/server/arachi/client.ts
+index b092028..9af4e6f 100644
+--- a/server/arachi/client.ts
++++ b/server/arachi/client.ts
+@@ -48,11 +48,22 @@ async function send(method: string, path: string, headers: Record<string, string
+   return { res, parsed, text };
+ }
+ 
++/** The plan arachi.co reports for the customer (AI request limit, demo end). */
++export interface SubscriptionInfo {
++  plan: string;
++  label: string;
++  ai_limit: number | null;
++  ai_period: "month" | "total";
++  is_demo: boolean;
++  trial_ends_at: string | null;
++}
++
+ export interface Exchanged {
+   token: string;
+   /** Seconds the arachi.co token stays valid. */
+   expiresIn: number;
+   user: { id: number; email: string; name: string; plan: string };
++  subscription?: SubscriptionInfo;
+ }
+ 
+ /**
+@@ -71,9 +82,9 @@ export async function exchangeTicket(ticket: string): Promise<Exchanged> {
+     const message = detailOf(parsed) ?? "arachi.co girişi təsdiqləmədi.";
+     throw new ArachiError(res.status === 403 ? 403 : res.status >= 500 ? 502 : 401, message);
+   }
+-  const data = parsed as { token?: string; expires_in?: number; user?: Exchanged["user"] };
++  const data = parsed as { token?: string; expires_in?: number; user?: Exchanged["user"]; subscription?: SubscriptionInfo };
+   if (!data?.token || !data.user) throw new ArachiError(502, "arachi.co gözlənilməz cavab verdi.");
+-  return { token: data.token, expiresIn: Number(data.expires_in) || 12 * 3600, user: data.user };
++  return { token: data.token, expiresIn: Number(data.expires_in) || 12 * 3600, user: data.user, subscription: data.subscription };
+ }
+ 
+ export interface CallOptions {
+diff --git a/server/auth/accounts.ts b/server/auth/accounts.ts
+index f7f19fe..436a72e 100644
+--- a/server/auth/accounts.ts
++++ b/server/auth/accounts.ts
+@@ -1,6 +1,7 @@
+ import { createHash, randomBytes } from "node:crypto";
+ import { arachiMode, config } from "../config";
+ import { openToken, sealToken } from "../arachi/vault";
++import type { SubscriptionInfo } from "../arachi/client";
+ import { db, now, transaction } from "../db";
+ import { HttpError } from "../http";
+ import { publicUrl } from "../links";
+@@ -193,21 +194,30 @@ const SSO_PASSWORD = "!arachi-sso";
+  * customer another's chats. The email column only holds a placeholder (the real email
+  * lives in arachi.co); the display name is the customer's company name.
+  */
+-export async function upsertArachiUser(input: { customerId: number; name: string }): Promise<User> {
++export async function upsertArachiUser(input: { customerId: number; name: string; subscription?: SubscriptionInfo }): Promise<User> {
+   const name = input.name.trim().slice(0, 100);
+   return transaction(async () => {
+-    const existing = await db().get<User>(`SELECT ${USER_COLUMNS} FROM users u WHERE u.arachi_customer_id = ?`, input.customerId);
+-    if (existing) {
+-      if (existing.name !== name) {
+-        await db().run("UPDATE users SET name = ? WHERE id = ?", name, existing.id);
+-        return { ...existing, name };
++    let user = await db().get<User>(`SELECT ${USER_COLUMNS} FROM users u WHERE u.arachi_customer_id = ?`, input.customerId);
++    if (user) {
++      if (user.name !== name) {
++        await db().run("UPDATE users SET name = ? WHERE id = ?", name, user.id);
++        user = { ...user, name };
+       }
+-      return existing;
++    } else {
++      user = (await db().get<User>(
++        "INSERT INTO users (email, name, password_hash, created_at, arachi_customer_id) VALUES (?, ?, ?, ?, ?) RETURNING id, email, name, created_at",
++        `arachi-${input.customerId}@sso.invalid`, name, SSO_PASSWORD, now(), input.customerId,
++      ))!;
+     }
+-    return (await db().get<User>(
+-      "INSERT INTO users (email, name, password_hash, created_at, arachi_customer_id) VALUES (?, ?, ?, ?, ?) RETURNING id, email, name, created_at",
+-      `arachi-${input.customerId}@sso.invalid`, name, SSO_PASSWORD, now(), input.customerId,
+-    ))!;
++    // The plan is refreshed at every sign-in from arachi.co (upgrade, demo end).
++    const sub = input.subscription;
++    if (sub) {
++      await db().run(
++        "UPDATE users SET sub_plan = ?, sub_label = ?, sub_ai_limit = ?, sub_ai_period = ?, sub_trial_ends_at = ? WHERE id = ?",
++        sub.plan, sub.label, sub.ai_limit, sub.ai_period, sub.trial_ends_at, user.id,
++      );
++    }
++    return user;
+   });
+ }
+ 
+diff --git a/server/db/migrations/0011_subscription.sql b/server/db/migrations/0011_subscription.sql
+new file mode 100644
+index 0000000..cb1748e
+--- /dev/null
++++ b/server/db/migrations/0011_subscription.sql
+@@ -0,0 +1,16 @@
++-- Plan və Aİ sorğu limiti: arachi.co-dan SSO zamanı gəlir, burada saxlanılır (sorğu sayğacı söhbət silinsə də azalmır).
++
++ALTER TABLE users ADD COLUMN sub_plan text;
++ALTER TABLE users ADD COLUMN sub_label text;
++ALTER TABLE users ADD COLUMN sub_ai_limit integer;
++ALTER TABLE users ADD COLUMN sub_ai_period text;
++ALTER TABLE users ADD COLUMN sub_trial_ends_at text;
++
++CREATE TABLE ai_usage (
++  user_id bigint NOT NULL REFERENCES users (id) ON DELETE CASCADE,
++  period text NOT NULL,
++  used integer NOT NULL DEFAULT 0,
++  PRIMARY KEY (user_id, period)
++);
++
++ALTER TABLE ai_usage ENABLE ROW LEVEL SECURITY;
+diff --git a/server/db/sqliteSchema.ts b/server/db/sqliteSchema.ts
+index 104c503..31347b5 100644
+--- a/server/db/sqliteSchema.ts
++++ b/server/db/sqliteSchema.ts
+@@ -254,4 +254,19 @@ export const migrations: string[] = [
+   `
+   ALTER TABLE confirmations ADD COLUMN files TEXT;
+   `,
++
++  // 17: plan and AI request limit from arachi.co, with a usage counter (see migrations/0011_subscription.sql).
++  `
++  ALTER TABLE users ADD COLUMN sub_plan TEXT;
++  ALTER TABLE users ADD COLUMN sub_label TEXT;
++  ALTER TABLE users ADD COLUMN sub_ai_limit INTEGER;
++  ALTER TABLE users ADD COLUMN sub_ai_period TEXT;
++  ALTER TABLE users ADD COLUMN sub_trial_ends_at TEXT;
++  CREATE TABLE ai_usage (
++    user_id INTEGER NOT NULL REFERENCES users (id) ON DELETE CASCADE,
++    period TEXT NOT NULL,
++    used INTEGER NOT NULL DEFAULT 0,
++    PRIMARY KEY (user_id, period)
++  );
++  `,
+ ];
+diff --git a/server/domain/confirmations.ts b/server/domain/confirmations.ts
+index 9bdd0bb..e60057d 100644
+--- a/server/domain/confirmations.ts
++++ b/server/domain/confirmations.ts
+@@ -57,12 +57,22 @@ function fileSize(file: UploadedFile): number {
+ export function toConfirmation(row: StoredConfirmation): Confirmation {
+   const choices = parseChoices(row);
+   const files = storedFiles(row);
++  let subject: string | undefined;
++  if (row.tool === "create_rfq") {
++    try {
++      const params = JSON.parse(row.params) as { subject?: unknown };
++      subject = typeof params.subject === "string" ? params.subject : "";
++    } catch {
++      subject = "";
++    }
++  }
+   return {
+     id: row.id,
+     tool: row.tool,
+     text: row.summary,
+     status: expired(row) ? "expired" : row.status,
+     result: row.result,
++    ...(subject !== undefined ? { subject } : {}),
+     ...(choices ? { choices } : {}),
+     ...(files.length ? { files: files.map((f) => ({ name: f.name, size: fileSize(f) })) } : {}),
+   };
+@@ -87,6 +97,7 @@ export async function createConfirmation(
+   );
+   return {
+     id, tool, text: summary, status: "pending", result: "",
++    ...(tool === "create_rfq" ? { subject: typeof params.subject === "string" ? params.subject : "" } : {}),
+     ...(choices ? { choices } : {}),
+     ...(files?.length ? { files: files.map((f) => ({ name: f.name, size: fileSize(f) })) } : {}),
+   };
+diff --git a/server/domain/quota.ts b/server/domain/quota.ts
+new file mode 100644
+index 0000000..95d59ea
+--- /dev/null
++++ b/server/domain/quota.ts
+@@ -0,0 +1,67 @@
++import type { Quota } from "../../shared/protocol";
++import { db } from "../db";
++import { HttpError } from "../http";
++
++/**
++ * The AI request allowance of the plan arachi.co reported at sign-in (demo: 100 for the whole
++ * demo; paid plans: per calendar month). Counted in its own table so deleting a conversation
++ * never gives requests back. A user without a plan (not signed in through arachi.co) is not limited.
++ */
++
++interface SubRow {
++  sub_plan: string | null;
++  sub_label: string | null;
++  sub_ai_limit: number | null;
++  sub_ai_period: string | null;
++  sub_trial_ends_at: string | null;
++}
++
++export const DEMO_EXPIRED_MESSAGE = "Demo müddətiniz bitib. Davam etmək üçün arachi.co-da plan seçib ödəniş edin.";
++
++/** "m:2026-10" for the monthly allowance, "total" for the demo's. */
++export function periodKey(period: "month" | "total", at: Date = new Date()): string {
++  return period === "month" ? `m:${at.toISOString().slice(0, 7)}` : "total";
++}
++
++export async function quotaFor(userId: number, at: Date = new Date()): Promise<Quota | null> {
++  const row = await db().get<SubRow>(
++    "SELECT sub_plan, sub_label, sub_ai_limit, sub_ai_period, sub_trial_ends_at FROM users WHERE id = ?",
++    userId,
++  );
++  if (!row || !row.sub_plan) return null;
++  const period: "month" | "total" = row.sub_ai_period === "total" ? "total" : "month";
++  const limit = row.sub_ai_limit === null || row.sub_ai_limit === undefined ? null : Number(row.sub_ai_limit);
++  const usage = await db().get<{ used: number }>("SELECT used FROM ai_usage WHERE user_id = ? AND period = ?", userId, periodKey(period, at));
++  const used = Number(usage?.used ?? 0);
++  const isDemo = row.sub_plan === "demo";
++  const trialEnd = row.sub_trial_ends_at ? Date.parse(row.sub_trial_ends_at.endsWith("Z") || /[+-]\d\d:\d\d$/.test(row.sub_trial_ends_at) ? row.sub_trial_ends_at : `${row.sub_trial_ends_at}Z`) : NaN;
++  const expired = isDemo && Number.isFinite(trialEnd) && trialEnd <= at.getTime();
++  return {
++    plan: row.sub_plan,
++    label: row.sub_label || row.sub_plan,
++    limit,
++    used,
++    remaining: limit === null ? null : Math.max(0, limit - used),
++    period,
++    isDemo,
++    trialEndsAt: row.sub_trial_ends_at,
++    expired,
++  };
++}
++
++/** Counts one request for the user, or refuses it (demo over, allowance used up). Returns the allowance after it. */
++export async function consumeRequest(userId: number, at: Date = new Date()): Promise<Quota | null> {
++  const quota = await quotaFor(userId, at);
++  if (!quota) return null;
++  if (quota.expired) throw new HttpError(402, DEMO_EXPIRED_MESSAGE);
++  if (quota.limit !== null && quota.used >= quota.limit) {
++    const where = quota.period === "month" ? `Bu ay üçün ${quota.limit} sorğu limiti dolub. Limit növbəti ayın əvvəlində yenilənir.` : `Demo üçün ${quota.limit} sorğu limiti dolub.`;
++    throw new HttpError(402, `${where} Əlavə sorğu üçün arachi.co-da planı seçin və ya yeniləyin.`);
++  }
++  await db().run(
++    "INSERT INTO ai_usage (user_id, period, used) VALUES (?, ?, 1) ON CONFLICT (user_id, period) DO UPDATE SET used = ai_usage.used + 1",
++    userId, periodKey(quota.period, at),
++  );
++  const used = quota.used + 1;
++  return { ...quota, used, remaining: quota.limit === null ? null : Math.max(0, quota.limit - used) };
++}
+diff --git a/server/routes/auth.ts b/server/routes/auth.ts
+index 3247d07..910b635 100644
+--- a/server/routes/auth.ts
++++ b/server/routes/auth.ts
+@@ -15,6 +15,7 @@ import {
+ import { arachiMode, config } from "../config";
+ import { HttpError, readJson, send, SMALL_BODY_BYTES } from "../http";
+ import { clientIp, limit } from "../rateLimit";
++import { quotaFor } from "../domain/quota";
+ 
+ /** Requests per client address for each form: [max, window in minutes]. */
+ const limits: Record<string, [number, number]> = {
+@@ -66,7 +67,9 @@ function field(body: unknown, key: string): string {
+ /** /api/auth/* — register, login, logout, current user, password reset. */
+ export async function handleAuth(req: IncomingMessage, res: ServerResponse, action: string) {
+   if (req.method === "GET" && action === "me") {
+-    return send(res, 200, { user: publicUser(await requireUser(req)) } satisfies AuthResponse);
++    const me = await requireUser(req);
++    const quota = await quotaFor(me.id);
++    return send(res, 200, { user: { ...publicUser(me), ...(quota ? { quota } : {}) } } satisfies AuthResponse);
+   }
+   if (req.method !== "POST") throw new HttpError(405, "Bu əməliyyat dəstəklənmir.");
+ 
+diff --git a/server/routes/chat.ts b/server/routes/chat.ts
+index d59d241..4ceab7b 100644
+--- a/server/routes/chat.ts
++++ b/server/routes/chat.ts
+@@ -19,6 +19,8 @@ import {
+ } from "../domain/conversations";
+ import { HttpError, readJson, send } from "../http";
+ import { attachConfirmations, createConfirmation, takeOutcomes } from "../domain/confirmations";
++import { currentUserId } from "../auth/current";
++import { consumeRequest } from "../domain/quota";
+ 
+ function parseChatRequest(body: unknown): ChatRequest {
+   const b = body as Partial<ChatRequest> | null;
+@@ -59,6 +61,8 @@ export async function handleChat(req: IncomingMessage, res: ServerResponse) {
+ 
+   const existing = conversationId ? await findConversation(conversationId) : undefined;
+   if (conversationId && !existing) throw new HttpError(404, "Söhbət tapılmadı.");
++  // The plan's request allowance: refused before anything is saved or any model is called.
++  const quota = await consumeRequest(currentUserId());
+   const id = existing?.id ?? (await createConversation(titleFor(message.text, message.files)));
+   await addMessage(id, { role: "user", text: message.text, attachments: attachmentInfo(message.files) });
+ 
+@@ -66,7 +70,7 @@ export async function handleChat(req: IncomingMessage, res: ServerResponse) {
+   const refusal = scopeRefusal(message.text, message.files.length);
+   if (refusal) {
+     await addMessage(id, { role: "assistant", text: refusal });
+-    const body: ChatResponse = { conversationId: id, reply: refusal, toolCalls: [], downloads: [], confirmations: [], cards: [] };
++    const body: ChatResponse = { conversationId: id, reply: refusal, toolCalls: [], downloads: [], confirmations: [], cards: [], ...(quota ? { quota } : {}) };
+     return send(res, 200, body);
+   }
+ 
+@@ -94,6 +98,7 @@ export async function handleChat(req: IncomingMessage, res: ServerResponse) {
+       downloads: result.downloads,
+       confirmations: result.confirmations,
+       cards: result.cards,
++      ...(quota ? { quota } : {}),
+     };
+     send(res, 200, body);
+   } catch (err) {
+diff --git a/server/routes/confirmations.test.ts b/server/routes/confirmations.test.ts
+index a186a5a..28a42b2 100644
+--- a/server/routes/confirmations.test.ts
++++ b/server/routes/confirmations.test.ts
+@@ -422,3 +422,44 @@ test("a bad file index is refused, a refused upload still creates the RFQ and sa
+   assert.match(res.body.message!.text, /Fayl əlavə olunmadı/);
+   assert.equal((arachiData.rfqs[arachiData.rfqs.length - 1] as Record<string, unknown>).attachment_url, undefined);
+ });
++
++/** The RFQ card with a subject (group) the agent filled from what the user said. */
++async function prepareRfqWithSubject(subject: string) {
++  toolCallingProvider("create_rfq", { ...RFQ_DEFAULTS, origin: "Bakı", destination: "Poti", volume_unit: "CBM", volume_amount: 20, subject });
++  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "Bakıdan Potiyə sorğu yarat", files: [] } });
++  return chat.body.confirmations[0];
++}
++
++test("the subject is shown on the card and goes to arachi.co with the RFQ, not into the notes", async () => {
++  const c = await prepareRfqWithSubject("Sifarişçi: Azersun");
++  assert.equal(c.subject, "Sifarişçi: Azersun");
++  assert.match(c.text, /Başlıq \(qrup\): Sifarişçi: Azersun/);
++  const yes = await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "create", carrierIds: [] });
++  assert.equal(yes.body.confirmation.status, "done");
++  const created = arachiData.rfqs[arachiData.rfqs.length - 1] as unknown as { subject?: string; additional_notes?: string };
++  assert.equal(created.subject, "Sifarişçi: Azersun");
++  assert.doesNotMatch(created.additional_notes ?? "", /Azersun/);
++});
++
++test("the subject can be changed or cleared on the card before pressing the button", async () => {
++  const edited = await prepareRfqWithSubject("Köhnə qrup");
++  const yes = await request<ConfirmationResponse>("POST", `/api/confirmations/${edited.id}`, {
++    approve: true, mode: "create", carrierIds: [], subject: "  Gürcüstan\n  yükləri ",
++  });
++  assert.equal(yes.body.confirmation.status, "done");
++  assert.equal((arachiData.rfqs[arachiData.rfqs.length - 1] as unknown as { subject?: string }).subject, "Gürcüstan yükləri");
++
++  const cleared = await prepareRfqWithSubject("Silinəcək");
++  await request<ConfirmationResponse>("POST", `/api/confirmations/${cleared.id}`, { approve: true, mode: "create", carrierIds: [], subject: "" });
++  assert.equal((arachiData.rfqs[arachiData.rfqs.length - 1] as unknown as { subject?: string }).subject, "");
++});
++
++test("a card without a subject offers an empty field, and a long subject is cut to 120 characters", async () => {
++  toolCallingProvider("create_rfq", { ...RFQ_DEFAULTS, origin: "Bakı", destination: "Poti", volume_unit: "CBM", volume_amount: 20 });
++  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "Bakıdan Potiyə sorğu yarat", files: [] } });
++  const c = chat.body.confirmations[0];
++  assert.equal(c.subject, "");
++  assert.doesNotMatch(c.text, /Başlıq/);
++  await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "create", carrierIds: [], subject: "x".repeat(300) });
++  assert.equal(((arachiData.rfqs[arachiData.rfqs.length - 1] as unknown as { subject?: string }).subject ?? "").length, 120);
++});
+diff --git a/server/routes/confirmations.ts b/server/routes/confirmations.ts
+index 1eda72b..31cce4e 100644
+--- a/server/routes/confirmations.ts
++++ b/server/routes/confirmations.ts
+@@ -29,7 +29,7 @@ const answered: Record<string, string> = {
+  * parameters the user was shown; the outcome is added to the chat.
+  */
+ export async function handleConfirmation(req: IncomingMessage, res: ServerResponse, id: string) {
+-  const body = (await readJson(req, SMALL_BODY_BYTES)) as { approve?: unknown; mode?: unknown; carrierIds?: unknown; attachFile?: unknown } | null;
++  const body = (await readJson(req, SMALL_BODY_BYTES)) as { approve?: unknown; mode?: unknown; carrierIds?: unknown; attachFile?: unknown; subject?: unknown } | null;
+   if (typeof body?.approve !== "boolean") throw new HttpError(400, "Sorğunun formatı yanlışdır.");
+   const stored = await findConfirmation(id);
+   if (!stored) throw new HttpError(404, "Təsdiq tapılmadı.");
+@@ -79,7 +79,12 @@ export async function handleConfirmation(req: IncomingMessage, res: ServerRespon
+       attachNote = ` ⚠ Fayl əlavə olunmadı (${err instanceof Error ? err.message : "xəta"}): daşıyıcılar yalnız sahələri görəcək.`;
+     }
+   }
+-  const run = await tools.execute(stored.tool, JSON.parse(stored.params), ctx);
++  // The subject (group) may be edited on the card; it is the only field the card lets the user change.
++  const params = JSON.parse(stored.params) as Record<string, unknown>;
++  if (stored.tool === "create_rfq" && typeof body.subject === "string") {
++    params.subject = body.subject.replace(/\s+/g, " ").trim().slice(0, 120);
++  }
++  const run = await tools.execute(stored.tool, params, ctx);
+   let outcome = run.ok
+     ? (tool?.done?.(JSON.parse(run.content)) ?? "Hazırdır.")
+     : `Alınmadı: ${run.content.replace(/^Error: /, "")}`;
+diff --git a/server/routes/quota.test.ts b/server/routes/quota.test.ts
+new file mode 100644
+index 0000000..63ad2c3
+--- /dev/null
++++ b/server/routes/quota.test.ts
+@@ -0,0 +1,176 @@
++import assert from "node:assert/strict";
++import { createServer, type Server } from "node:http";
++import type { AddressInfo } from "node:net";
++import { after, afterEach, before, beforeEach, test } from "node:test";
++import { app } from "../app";
++import { db } from "../db";
++import { setProvider } from "../agent/providers";
++import type { ModelProvider, ModelStep } from "../agent/providers/types";
++import { consumeRequest, periodKey, quotaFor } from "../domain/quota";
++import { freshDb } from "../test/helpers";
++import type { ChatResponse, ConversationListData } from "../../shared/protocol";
++
++let server: Server;
++let base: string;
++
++before(async () => {
++  server = createServer(app);
++  await new Promise<void>((r) => server.listen(0, r));
++  base = `http://localhost:${(server.address() as AddressInfo).port}`;
++});
++after(() => server.close());
++afterEach(() => setProvider(undefined));
++
++type Msg = { fake: string };
++
++function fakeProvider() {
++  let n = 0;
++  const provider: ModelProvider<Msg> = {
++    name: "anthropic",
++    model: "fake",
++    ownsTranscript: (t): t is Msg[] => t.every((m) => typeof m === "object" && m !== null && "fake" in m),
++    userMessage: (text, attachments) => ({ fake: `user:${text}:${attachments.length}` }),
++    dropAttachments: (m) => m,
++    async generate(): Promise<ModelStep<Msg>> {
++      n++;
++      return { kind: "answer", message: { fake: `answer:${n}` }, text: `Cavab ${n}` };
++    },
++    toolResults: () => ({ fake: "results" }),
++    describeError: () => null,
++  };
++  setProvider(provider as ModelProvider);
++}
++
++async function signUp(email: string) {
++  const res = await fetch(`${base}/api/auth/register`, {
++    method: "POST",
++    body: JSON.stringify({ email, password: "parol1234", name: "" }),
++  });
++  const cookie = res.headers.get("set-cookie")!.split(";")[0];
++  const request = async <T>(method: string, path: string, body?: unknown) => {
++    const r = await fetch(`${base}${path}`, { method, headers: { cookie }, body: body === undefined ? undefined : JSON.stringify(body) });
++    return { status: r.status, body: (await r.json()) as T };
++  };
++  const id = Number((await db().get<{ id: number }>("SELECT id FROM users WHERE lower(email) = ?", email.toLowerCase()))!.id);
++  return {
++    id,
++    chat: (text: string, conversationId: number | null = null) =>
++      request<ChatResponse & { error?: string }>("POST", "/api/chat", { conversationId, message: { text, files: [] } }),
++    list: () => request<ConversationListData>("GET", "/api/conversations"),
++    remove: (cid: number) => request<{ ok: boolean }>("DELETE", `/api/conversations/${cid}`),
++    me: () => request<{ user: { quota?: { limit: number | null; used: number; remaining: number | null; expired: boolean; plan: string } } }>("GET", "/api/auth/me"),
++  };
++}
++
++async function setPlan(userId: number, sub: { plan: string; label?: string; limit: number | null; period?: "month" | "total"; trialEnds?: string | null }) {
++  await db().run(
++    "UPDATE users SET sub_plan = ?, sub_label = ?, sub_ai_limit = ?, sub_ai_period = ?, sub_trial_ends_at = ? WHERE id = ?",
++    sub.plan, sub.label ?? sub.plan, sub.limit, sub.period ?? "month", sub.trialEnds ?? null, userId,
++  );
++}
++
++let user: Awaited<ReturnType<typeof signUp>>;
++
++beforeEach(async () => {
++  await freshDb();
++  await db().run("DELETE FROM users");
++  user = await signUp("quota@arachi.az");
++  fakeProvider();
++});
++
++test("a user without a plan is not limited and has no quota", async () => {
++  assert.equal(await quotaFor(user.id), null);
++  for (let i = 0; i < 3; i++) assert.equal((await user.chat(`mesaj ${i}`)).status, 200);
++  assert.equal((await user.me()).body.user.quota, undefined);
++});
++
++test("the demo allowance counts every message and refuses the one after the limit", async () => {
++  await setPlan(user.id, { plan: "demo", label: "Demo", limit: 3, period: "total" });
++  const first = await user.chat("bir");
++  assert.equal(first.status, 200);
++  assert.equal(first.body.quota?.used, 1);
++  assert.equal(first.body.quota?.remaining, 2);
++  assert.equal((await user.chat("iki", first.body.conversationId)).status, 200);
++  const third = await user.chat("üç", first.body.conversationId);
++  assert.equal(third.status, 200);
++  assert.equal(third.body.quota?.remaining, 0);
++
++  const fourth = await user.chat("dörd", first.body.conversationId);
++  assert.equal(fourth.status, 402);
++  assert.match(fourth.body.error ?? "", /limiti dolub/);
++  // The refused message is neither saved nor counted.
++  assert.equal((await quotaFor(user.id))?.used, 3);
++});
++
++test("deleting a conversation does not give the requests back", async () => {
++  await setPlan(user.id, { plan: "demo", limit: 2, period: "total" });
++  const a = await user.chat("bir");
++  assert.equal((await user.chat("iki", a.body.conversationId)).status, 200);
++  assert.equal((await user.remove(a.body.conversationId)).status, 200);
++  const blocked = await user.chat("üç");
++  assert.equal(blocked.status, 402);
++  assert.equal((await quotaFor(user.id))?.used, 2);
++});
++
++test("an ended demo refuses messages with the payment hint", async () => {
++  await setPlan(user.id, { plan: "demo", limit: 100, period: "total", trialEnds: new Date(Date.now() - 86_400_000).toISOString() });
++  const res = await user.chat("salam");
++  assert.equal(res.status, 402);
++  assert.match(res.body.error ?? "", /Demo müddətiniz bitib/);
++  assert.equal((await user.me()).body.user.quota?.expired, true);
++  assert.equal((await user.list()).body.conversations.length, 0);
++});
++
++test("a demo end time without a timezone is read as UTC", async () => {
++  const future = new Date(Date.now() + 5 * 86_400_000).toISOString().replace("Z", "");
++  await setPlan(user.id, { plan: "demo", limit: 100, period: "total", trialEnds: future });
++  assert.equal((await quotaFor(user.id))?.expired, false);
++  const past = new Date(Date.now() - 60_000).toISOString().replace("Z", "");
++  await setPlan(user.id, { plan: "demo", limit: 100, period: "total", trialEnds: past });
++  assert.equal((await quotaFor(user.id))?.expired, true);
++});
++
++test("a monthly plan renews with the calendar month", async () => {
++  await setPlan(user.id, { plan: "standart", label: "Standart", limit: 2, period: "month" });
++  const oct = new Date("2026-10-20T10:00:00Z");
++  await consumeRequest(user.id, oct);
++  await consumeRequest(user.id, oct);
++  await assert.rejects(() => consumeRequest(user.id, oct), /Bu ay üçün 2 sorğu limiti dolub/);
++  const nov = new Date("2026-11-01T00:05:00Z");
++  const q = await consumeRequest(user.id, nov);
++  assert.equal(q?.used, 1);
++  assert.equal(q?.remaining, 1);
++  assert.equal(periodKey("month", nov), "m:2026-11");
++  assert.equal(periodKey("total", nov), "total");
++});
++
++test("an unlimited plan only counts", async () => {
++  await setPlan(user.id, { plan: "pro", label: "Pro", limit: null, period: "month" });
++  const q = await consumeRequest(user.id);
++  assert.equal(q?.limit, null);
++  assert.equal(q?.remaining, null);
++  assert.equal(q?.used, 1);
++});
++
++test("the plan reported at sign-in is stored for the user", async () => {
++  const { upsertArachiUser } = await import("../auth/accounts");
++  const u = await upsertArachiUser({
++    customerId: 9001,
++    name: "Demo MMC",
++    subscription: { plan: "demo", label: "Demo", ai_limit: 100, ai_period: "total", is_demo: true, trial_ends_at: "2026-11-01T00:00:00" },
++  });
++  const q = await quotaFor(u.id);
++  assert.equal(q?.plan, "demo");
++  assert.equal(q?.limit, 100);
++  assert.equal(q?.isDemo, true);
++  // Signing in again after an upgrade replaces it.
++  await upsertArachiUser({
++    customerId: 9001,
++    name: "Demo MMC",
++    subscription: { plan: "business", label: "Business", ai_limit: 1000, ai_period: "month", is_demo: false, trial_ends_at: null },
++  });
++  const upgraded = await quotaFor(u.id);
++  assert.equal(upgraded?.plan, "business");
++  assert.equal(upgraded?.limit, 1000);
++  assert.equal(upgraded?.period, "month");
++});
+diff --git a/server/routes/sso.ts b/server/routes/sso.ts
+index 38b4bd5..2ac36c5 100644
+--- a/server/routes/sso.ts
++++ b/server/routes/sso.ts
+@@ -42,7 +42,7 @@ export async function handleSso(req: IncomingMessage, res: ServerResponse) {
+       return errorPage(res, 400, "Giriş linki düzgün deyil. arachi.co-dan 'Aİ istifadə et' düyməsini yenidən basın.");
+     }
+     const exchanged = await exchangeTicket(ticket);
+-    const user = await upsertArachiUser({ customerId: exchanged.user.id, name: exchanged.user.name || "Müştəri" });
++    const user = await upsertArachiUser({ customerId: exchanged.user.id, name: exchanged.user.name || "Müştəri", subscription: exchanged.subscription });
+     const { token } = await createSession(user.id, { token: exchanged.token, expiresInSeconds: exchanged.expiresIn });
+     res.writeHead(302, {
+       location: "/",
+diff --git a/shared/protocol.ts b/shared/protocol.ts
+index 44e52f8..b569ff4 100644
+--- a/shared/protocol.ts
++++ b/shared/protocol.ts
+@@ -66,9 +66,28 @@ export interface CarrierChoices {
+ /** What the user chose on an RFQ card: create and send to the chosen carriers, only create, or create and make a link. */
+ export type ConfirmMode = "send" | "create" | "link";
+ 
++/** The plan's AI request allowance of the signed-in user (from arachi.co). */
++export interface Quota {
++  plan: string;
++  label: string;
++  /** Requests allowed in the period; null = unlimited. */
++  limit: number | null;
++  used: number;
++  /** Requests left; null = unlimited. */
++  remaining: number | null;
++  /** "month" = renewed every calendar month, "total" = for the whole demo. */
++  period: "month" | "total";
++  isDemo: boolean;
++  trialEndsAt: string | null;
++  /** The demo period is over: nothing more can be asked until a plan is paid. */
++  expired: boolean;
++}
++
+ export interface ConfirmAnswer {
+   mode: ConfirmMode;
+   carrierIds: number[];
++  /** The RFQ's subject (group) as the user left it on the card; absent = as prepared. */
++  subject?: string;
+   /** Index (in Confirmation.files) of the file carriers should see on the RFQ; absent = none. */
+   attachFile?: number;
+ }
+@@ -81,6 +100,8 @@ export interface Confirmation {
+   choices?: CarrierChoices;
+   /** For a new RFQ made from attached files: the files that can be shown to carriers (names only). */
+   files?: { name: string; size: number }[];
++  /** For a new RFQ: its subject (group) as prepared; the user may edit it on the card. */
++  subject?: string;
+   /** What will happen, written by the server from the exact action (recipients included). */
+   text: string;
+   /** pending → running → done | failed after "Bəli", declined after "Xeyr", expired when left too long. */
+@@ -98,7 +119,8 @@ export interface ChatResponse {
+   /** Actions waiting for the user's "Bəli" / "Xeyr", shown under the reply. */
+   confirmations: Confirmation[];
+   /** What the tools did in this turn. */
+-  cards: ResultCard[];
++  cards: ResultCard[];  /** The AI request allowance after this message (absent without a plan). */
++  quota?: Quota;
+ }
+ 
+ /** POST /api/confirmations/:id { approve } — the user's answer to a confirmation. */
+@@ -297,7 +319,7 @@ export interface MonthlyReportData {
+ 
+ /** The signed-in user, from /api/auth/me, login, register and password reset. */
+ export interface AuthResponse {
+-  user: { id: number; email: string; name: string };
++  user: { id: number; email: string; name: string; quota?: Quota };
+ }
+ 
+ /** GET /api/rfqs — every RFQ of the signed-in user, newest first. */
+diff --git a/src/App.tsx b/src/App.tsx
+index 513feb9..b11e0f1 100644
+--- a/src/App.tsx
++++ b/src/App.tsx
+@@ -10,6 +10,8 @@ import UserMenu from "./components/UserMenu";
+ import Welcome from "./components/Welcome";
+ import Icon from "./components/Icon";
+ import { arachiSiteUrl, type User } from "./lib/auth";
++import type { Quota } from "../shared/protocol";
++import { chatSteps, useProgress } from "./lib/progress";
+ 
+ function notice(text: string): Message {
+   return { id: crypto.randomUUID(), role: "assistant", text, attachments: [], createdAt: Date.now() };
+@@ -23,6 +25,9 @@ export default function App({ user }: { user: User }) {
+   // The saved conversation on screen; null = a new one, created by its first message.
+   const [activeId, setActiveId] = useState<number | null>(null);
+   const [drawerOpen, setDrawerOpen] = useState(false);
++  const [quota, setQuota] = useState<Quota | undefined>(user.quota);
++  const [steps, setSteps] = useState<string[]>(["Mesaj oxunur…"]);
++  const progress = useProgress(busy, steps);
+ 
+   async function refreshList() {
+     try {
+@@ -89,10 +94,12 @@ export default function App({ user }: { user: User }) {
+       createdAt: Date.now(),
+     };
+     setMessages((prev) => [...prev, userMessage]);
++    setSteps(chatSteps(files.length > 0, text));
+     setBusy(true);
+     try {
+       const res = await sendToAgent({ text, files, conversationId: activeId });
+       setActiveId(res.conversationId);
++      if (res.quota) setQuota(res.quota);
+       setMessages((prev) => [
+         ...prev,
+         {
+@@ -109,8 +116,14 @@ export default function App({ user }: { user: User }) {
+     } catch (err) {
+       // The message may have been saved (and a conversation created) before the error.
+       if (err instanceof AgentRequestError && err.conversationId) setActiveId(err.conversationId);
+-      const detail = err instanceof Error ? ` (${err.message})` : "";
+-      setMessages((prev) => [...prev, notice(`Xəta baş verdi, zəhmət olmasa yenidən cəhd edin.${detail}`)]);
++      if (err instanceof AgentRequestError && err.status === 402) {
++        // Demo over or the plan's request allowance used up: not an error to retry.
++        setQuota((q) => (q ? { ...q, expired: q.expired || /Demo müddəti/.test(err.message), remaining: /limiti dolub/.test(err.message) ? 0 : q.remaining } : q));
++        setMessages((prev) => [...prev, notice(err.message)]);
++      } else {
++        const detail = err instanceof Error ? ` (${err.message})` : "";
++        setMessages((prev) => [...prev, notice(`Xəta baş verdi, zəhmət olmasa yenidən cəhd edin.${detail}`)]);
++      }
+     } finally {
+       setBusy(false);
+       void refreshList();
+@@ -159,12 +172,13 @@ export default function App({ user }: { user: User }) {
+             <a href="/" aria-current="page">Söhbət</a>
+             {window.self === window.top && <a href={`${arachiSiteUrl}/customer`}>arachi.co paneli</a>}
+           </nav>
+-          <UserMenu user={user} />
++          <UserMenu user={user} quota={quota} />
+         </header>
+         <div className="chat-title" title={title}>{title}</div>
+         <MessageList
+           messages={loading ? [] : messages}
+           busy={busy || loading}
++          progress={busy ? progress : undefined}
+           onConfirm={handleConfirm}
+           empty={<Welcome name={user.name} disabled={busy || loading} onPick={(text) => void handleSend(text, [])} />}
+         />
+diff --git a/src/components/ConfirmCard.tsx b/src/components/ConfirmCard.tsx
+index f5ab6d0..d260b18 100644
+--- a/src/components/ConfirmCard.tsx
++++ b/src/components/ConfirmCard.tsx
+@@ -1,5 +1,6 @@
+ import { useState } from "react";
+ import type { ConfirmAnswer, Confirmation } from "../../shared/protocol";
++import { useProgress } from "../lib/progress";
+ 
+ const statusText: Record<Confirmation["status"], string> = {
+   pending: "",
+@@ -39,8 +40,14 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
+   const [selected, setSelected] = useState<number[]>([]);
+   const [linkOnly, setLinkOnly] = useState(false);
+   const [attach, setAttach] = useState<number | null>(null);
++  // The subject (group) the RFQ was prepared with; the user may edit it before pressing the button.
++  const [subject, setSubject] = useState<string | null>(null);
++  const [stepMode, setStepMode] = useState<"create" | "send" | "link">("create");
+ 
+   async function answer(approve: boolean, choice?: ConfirmAnswer) {
++    setStepMode(choice?.mode ?? "create");
++    if (choice && subject !== null) choice = { ...choice, subject };
++    else if (approve && !choice && subject !== null && confirmation.tool === "create_rfq") choice = { mode: "create", carrierIds: [], subject };
+     setBusy(true);
+     setCancelling(!approve);
+     setError("");
+@@ -57,6 +64,16 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
+   const pending = confirmation.status === "pending";
+   const choices = confirmation.choices;
+   const words = wording(confirmation.tool, Boolean(choices));
++  const creating = confirmation.tool === "create_rfq";
++  const stepsFor =
++    creating && stepMode === "send"
++      ? ["RFQ yaradılır…", "Daşıyıcılara göndərilir…", "Nəticə hazırlanır…"]
++      : creating && stepMode === "link"
++        ? ["RFQ yaradılır…", "Link hazırlanır…", "Nəticə hazırlanır…"]
++        : creating
++          ? ["RFQ yaradılır…", "Nəticə hazırlanır…"]
++          : [words.busy, "Nəticə hazırlanır…"];
++  const busyText = useProgress(busy && !cancelling, stepsFor, 1500);
+   const status = confirmation.status === "done" ? words.done : confirmation.status === "declined" ? words.declined : statusText[confirmation.status];
+ 
+   function toggle(id: number) {
+@@ -67,6 +84,24 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
+     setSelected((prev) => (ids.every((id) => prev.includes(id)) ? prev.filter((id) => !ids.includes(id)) : [...new Set([...prev, ...ids])]));
+   }
+ 
++  const subjectBox =
++    pending && creating && confirmation.subject !== undefined ? (
++      <div className="subject-edit">
++        <label className="picker-row">
++          <span>Başlıq (qrup):</span>
++          <input
++            type="text"
++            maxLength={120}
++            disabled={busy}
++            value={subject ?? confirmation.subject}
++            placeholder="məs: Sifarişçi: Azersun (məcburi deyil)"
++            onChange={(e) => setSubject(e.target.value)}
++          />
++        </label>
++        <p className="muted attach-hint">Sorğunu qruplaşdırmaq üçündür; daşıyıcılara göstərilmir. Sonra panelda bu başlıqla axtara bilərsiniz.</p>
++      </div>
++    ) : null;
++
+   const files = confirmation.files ?? [];
+   const attachBox =
+     pending && files.length > 0 ? (
+@@ -152,11 +187,12 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
+             <span>Heç kimə göndərmə, yalnız link yarat</span>
+           </label>
+         </div>
++        {subjectBox}
+         {attachBox}
+         <div className="confirm-actions">
+           {linkOnly ? (
+             <button type="button" className="send-button" disabled={busy} onClick={() => void answer(true, { mode: "link", carrierIds: [], ...(attach !== null ? { attachFile: attach } : {}) })}>
+-              {busy && !cancelling ? words.busy : "Yarat və link al"}
++              {busy && !cancelling ? busyText : "Yarat və link al"}
+             </button>
+           ) : (
+             <button
+@@ -165,7 +201,7 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
+               disabled={busy || selected.length === 0}
+               onClick={() => void answer(true, { mode: "send", carrierIds: selected, ...(attach !== null ? { attachFile: attach } : {}) })}
+             >
+-              {busy && !cancelling ? words.busy : `Yarat və seçilənlərə göndər${selected.length ? ` (${selected.length})` : ""}`}
++              {busy && !cancelling ? busyText : `Yarat və seçilənlərə göndər${selected.length ? ` (${selected.length})` : ""}`}
+             </button>
+           )}
+           <button type="button" className="confirm-no" disabled={busy} onClick={() => void answer(true, { mode: "create", carrierIds: [], ...(attach !== null ? { attachFile: attach } : {}) })}>
+@@ -183,6 +219,7 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
+   return (
+     <div className={`confirm-card ${confirmation.status}`}>
+       <p className="confirm-text">{confirmation.text}</p>
++      {subjectBox}
+       {attachBox}
+       {pending ? (
+         <div className="confirm-actions">
+@@ -192,7 +229,7 @@ export default function ConfirmCard({ confirmation, onAnswer }: Props) {
+             disabled={busy}
+             onClick={() => void answer(true, attach !== null ? { mode: "create", carrierIds: [], attachFile: attach } : undefined)}
+           >
+-            {busy && !cancelling ? words.busy : words.yes}
++            {busy && !cancelling ? busyText : words.yes}
+           </button>
+           <button type="button" className="confirm-no" disabled={busy} onClick={() => void answer(false)}>
+             {cancelling ? "Ləğv edilir…" : "Xeyr"}
+diff --git a/src/components/MessageList.tsx b/src/components/MessageList.tsx
+index f085eaf..ef46dec 100644
+--- a/src/components/MessageList.tsx
++++ b/src/components/MessageList.tsx
+@@ -10,12 +10,14 @@ import ResultCards from "./ResultCards";
+ interface Props {
+   messages: Message[];
+   busy: boolean;
++  /** What the agent is doing now (shown beside the typing dots). */
++  progress?: string;
+   onConfirm?: (confirmationId: string, approve: boolean, answer?: ConfirmAnswer) => Promise<void>;
+   /** Shown instead of the list while there are no messages (the greeting). */
+   empty?: ReactNode;
+ }
+ 
+-export default function MessageList({ messages, busy, onConfirm, empty }: Props) {
++export default function MessageList({ messages, busy, progress, onConfirm, empty }: Props) {
+   const endRef = useRef<HTMLDivElement>(null);
+ 
+   useEffect(() => {
+@@ -71,10 +73,11 @@ export default function MessageList({ messages, busy, onConfirm, empty }: Props)
+           <span className="avatar" aria-hidden="true">
+             <AiMascot size={32} mini />
+           </span>
+-          <div className="bubble typing" aria-label="AI yazır">
++          <div className="bubble typing" aria-label={progress || "AI yazır"}>
+             <span />
+             <span />
+             <span />
++            {progress && <em className="typing-step">{progress}</em>}
+           </div>
+         </div>
+       )}
+diff --git a/src/components/UserMenu.tsx b/src/components/UserMenu.tsx
+index 8add3e2..bc35840 100644
+--- a/src/components/UserMenu.tsx
++++ b/src/components/UserMenu.tsx
+@@ -1,9 +1,31 @@
+-import { logout, type User } from "../lib/auth";
++import type { Quota } from "../../shared/protocol";
++import { arachiSiteUrl, logout, type User } from "../lib/auth";
+ 
+-/** The signed-in user's name and a logout button, at the end of the header. */
+-export default function UserMenu({ user }: { user: User }) {
++/** What is left of the plan's AI requests, as a short line. */
++function quotaText(q: Quota): { text: string; warn: boolean } {
++  if (q.expired) return { text: "Demo bitib", warn: true };
++  if (q.limit === null) return { text: q.label, warn: false };
++  const left = q.remaining ?? 0;
++  const unit = q.period === "month" ? " / ay" : "";
++  return { text: `${q.label}: ${left} / ${q.limit} sorğu qalıb${unit}`, warn: left === 0 || left <= Math.ceil(q.limit * 0.1) };
++}
++
++/** The signed-in user's name, plan allowance and a logout button, at the end of the header. */
++export default function UserMenu({ user, quota }: { user: User; quota?: Quota }) {
++  const q = quota ? quotaText(quota) : null;
+   return (
+     <div className="user-menu">
++      {q && (
++        <span className={`quota-chip${q.warn ? " warn" : ""}`} title="Planınızdakı Aİ sorğu limiti">
++          {q.text}
++          {q.warn && (
++            <>
++              {" · "}
++              <a href={`${arachiSiteUrl}/customer`} target="_top">Plan seç</a>
++            </>
++          )}
++        </span>
++      )}
+       <span className="user-name" title={user.name}>{user.name || "Müştəri"}</span>
+       <button type="button" onClick={() => void logout()}>Çıxış</button>
+     </div>
+diff --git a/src/lib/agent.ts b/src/lib/agent.ts
+index 3ce63ba..498f3c5 100644
+--- a/src/lib/agent.ts
++++ b/src/lib/agent.ts
+@@ -18,6 +18,7 @@ export class AgentRequestError extends Error {
+   constructor(
+     message: string,
+     readonly conversationId?: number,
++    readonly status?: number,
+   ) {
+     super(message);
+   }
+@@ -56,6 +57,7 @@ export async function sendToAgent(req: AgentRequest): Promise<AgentResponse> {
+     throw new AgentRequestError(
+       data && "error" in data ? data.error : "Serverlə əlaqə qurulmadı.",
+       data && "error" in data ? data.conversationId : undefined,
++      res.status,
+     );
+   }
+   return data;
+diff --git a/src/lib/progress.ts b/src/lib/progress.ts
+new file mode 100644
+index 0000000..73e1c05
+--- /dev/null
++++ b/src/lib/progress.ts
+@@ -0,0 +1,31 @@
++import { useEffect, useState } from "react";
++
++/**
++ * The name of the sub-process happening now, instead of a bare "loading": it moves through
++ * `steps` while `active` is true and stays on the last one until the work ends.
++ */
++export function useProgress(active: boolean, steps: string[], intervalMs = 1600): string {
++  const [index, setIndex] = useState(0);
++  useEffect(() => {
++    if (!active) {
++      setIndex(0);
++      return;
++    }
++    setIndex(0);
++    const timer = setInterval(() => setIndex((i) => Math.min(i + 1, steps.length - 1)), intervalMs);
++    return () => clearInterval(timer);
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [active, steps.join("|"), intervalMs]);
++  return steps[Math.min(index, steps.length - 1)] ?? "";
++}
++
++/** Steps shown while the agent works on a message. */
++export function chatSteps(hasFiles: boolean, text: string): string[] {
++  const t = text.toLowerCase();
++  const steps = hasFiles ? ["Fayl oxunur…", "Məlumatlar çıxarılır…"] : ["Mesaj oxunur…"];
++  if (/(göndər|send|отправ)/.test(t)) steps.push("Daşıyıcılar yoxlanılır…");
++  else if (/(rfq|sorğu|yarat|create)/.test(t)) steps.push("Sahələr yoxlanılır…");
++  else steps.push("arachi.co-dan məlumat alınır…");
++  steps.push("Cavab hazırlanır…");
++  return steps;
++}
+diff --git a/src/styles.css b/src/styles.css
+index fe7b45a..02bdff9 100644
+--- a/src/styles.css
++++ b/src/styles.css
+@@ -968,3 +968,12 @@ p.error:not(.small) {
+ 
+ .attach-choice { margin-top: var(--s3); padding-top: var(--s2); border-top: 1px dashed var(--border); }
+ .attach-hint { margin: 2px 0 0 26px; font-size: 12px; }
++
++/* Plan / sorğu limiti, başlıq sahəsi və əməliyyat mərhələləri */
++.quota-chip { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: #eef3ff; color: #0037b8; white-space: nowrap; }
++.quota-chip.warn { background: #fff4db; color: #8a5a00; }
++.quota-chip a { color: inherit; font-weight: 600; }
++.typing-step { font-style: normal; font-size: 13px; color: var(--muted, #56627f); margin-left: 8px; align-self: center; }
++.subject-edit { margin: 10px 0 4px; }
++.subject-edit input { flex: 1; min-width: 0; padding: 6px 10px; border: 1px solid #dce4f7; border-radius: 8px; font: inherit; }
++@media (max-width: 640px) { .quota-chip { max-width: 140px; overflow: hidden; text-overflow: ellipsis; } }
+-- 
+2.56.0.windows.2
+

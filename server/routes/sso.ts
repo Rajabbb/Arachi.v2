@@ -42,7 +42,7 @@ export async function handleSso(req: IncomingMessage, res: ServerResponse) {
       return errorPage(res, 400, "Giriş linki düzgün deyil. arachi.co-dan 'Aİ istifadə et' düyməsini yenidən basın.");
     }
     const exchanged = await exchangeTicket(ticket);
-    const user = await upsertArachiUser({ customerId: exchanged.user.id, name: exchanged.user.name || "Müştəri" });
+    const user = await upsertArachiUser({ customerId: exchanged.user.id, name: exchanged.user.name || "Müştəri", subscription: exchanged.subscription });
     const { token } = await createSession(user.id, { token: exchanged.token, expiresInSeconds: exchanged.expiresIn });
     res.writeHead(302, {
       location: "/",

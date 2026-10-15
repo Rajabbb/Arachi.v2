@@ -18,6 +18,7 @@ export class AgentRequestError extends Error {
   constructor(
     message: string,
     readonly conversationId?: number,
+    readonly status?: number,
   ) {
     super(message);
   }
@@ -56,6 +57,7 @@ export async function sendToAgent(req: AgentRequest): Promise<AgentResponse> {
     throw new AgentRequestError(
       data && "error" in data ? data.error : "Serverlə əlaqə qurulmadı.",
       data && "error" in data ? data.conversationId : undefined,
+      res.status,
     );
   }
   return data;

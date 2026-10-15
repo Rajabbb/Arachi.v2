@@ -10,6 +10,8 @@ import UserMenu from "./components/UserMenu";
 import Welcome from "./components/Welcome";
 import Icon from "./components/Icon";
 import { arachiSiteUrl, type User } from "./lib/auth";
+import type { Quota } from "../shared/protocol";
+import { chatSteps, useProgress } from "./lib/progress";
 
 function notice(text: string): Message {
   return { id: crypto.randomUUID(), role: "assistant", text, attachments: [], createdAt: Date.now() };
@@ -23,6 +25,9 @@ export default function App({ user }: { user: User }) {
   // The saved conversation on screen; null = a new one, created by its first message.
   const [activeId, setActiveId] = useState<number | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [quota, setQuota] = useState<Quota | undefined>(user.quota);
+  const [steps, setSteps] = useState<string[]>(["Mesaj oxunur…"]);
+  const progress = useProgress(busy, steps);
 
   async function refreshList() {
     try {
@@ -89,10 +94,12 @@ export default function App({ user }: { user: User }) {
       createdAt: Date.now(),
     };
     setMessages((prev) => [...prev, userMessage]);
+    setSteps(chatSteps(files.length > 0, text));
     setBusy(true);
     try {
       const res = await sendToAgent({ text, files, conversationId: activeId });
       setActiveId(res.conversationId);
+      if (res.quota) setQuota(res.quota);
       setMessages((prev) => [
         ...prev,
         {
@@ -109,8 +116,14 @@ export default function App({ user }: { user: User }) {
     } catch (err) {
       // The message may have been saved (and a conversation created) before the error.
       if (err instanceof AgentRequestError && err.conversationId) setActiveId(err.conversationId);
-      const detail = err instanceof Error ? ` (${err.message})` : "";
-      setMessages((prev) => [...prev, notice(`Xəta baş verdi, zəhmət olmasa yenidən cəhd edin.${detail}`)]);
+      if (err instanceof AgentRequestError && err.status === 402) {
+        // Demo over or the plan's request allowance used up: not an error to retry.
+        setQuota((q) => (q ? { ...q, expired: q.expired || /Demo müddəti/.test(err.message), remaining: /limiti dolub/.test(err.message) ? 0 : q.remaining } : q));
+        setMessages((prev) => [...prev, notice(err.message)]);
+      } else {
+        const detail = err instanceof Error ? ` (${err.message})` : "";
+        setMessages((prev) => [...prev, notice(`Xəta baş verdi, zəhmət olmasa yenidən cəhd edin.${detail}`)]);
+      }
     } finally {
       setBusy(false);
       void refreshList();
@@ -159,12 +172,13 @@ export default function App({ user }: { user: User }) {
             <a href="/" aria-current="page">Söhbət</a>
             {window.self === window.top && <a href={`${arachiSiteUrl}/customer`}>arachi.co paneli</a>}
           </nav>
-          <UserMenu user={user} />
+          <UserMenu user={user} quota={quota} />
         </header>
         <div className="chat-title" title={title}>{title}</div>
         <MessageList
           messages={loading ? [] : messages}
           busy={busy || loading}
+          progress={busy ? progress : undefined}
           onConfirm={handleConfirm}
           empty={<Welcome name={user.name} disabled={busy || loading} onPick={(text) => void handleSend(text, [])} />}
         />

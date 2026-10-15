@@ -21,6 +21,8 @@ export interface ArachiRfq {
   transportation_mode?: string | null;
   required_fields?: string[] | null;
   additional_notes?: string | null;
+  /** The customer's own group/title for the RFQ (client, country, project); never shown to carriers. */
+  subject?: string | null;
   status: string;
   created_at?: string;
   quotes_count?: number;
@@ -106,6 +108,8 @@ export interface NewRfq {
   /** The "ixtiyari parametrlər" and volume lines exactly as the panel writes them ("Incoterm: FOB" ...). */
   required_fields: string[];
   additional_notes: string;
+  /** The RFQ's subject (group); empty = none. */
+  subject?: string;
   /** A file the carriers see on the quote page ("Sənədə Bax"), from uploadAttachment. */
   attachment_url?: string;
 }

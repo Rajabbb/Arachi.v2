@@ -29,6 +29,7 @@ function rfqView(r: api.ArachiRfq | Omit<api.ArachiRfq, "display_id">) {
     stackable: r.stackable === null || r.stackable === undefined ? undefined : r.stackable ? "Stackable" : "Non-stackable",
     details: Array.isArray(r.required_fields) && r.required_fields.length > 0 ? r.required_fields : undefined,
     notes: r.additional_notes || undefined,
+    subject: r.subject || undefined,
     status: r.status,
     created_at: r.created_at,
   };
@@ -306,6 +307,12 @@ export const createRfq: AgentTool = {
     adr: { type: "string", description: "Dangerous goods (ADR) details, e.g. \"Klass 3\"; empty = not dangerous / not specified.", default: "" },
     temperature: { type: "string", description: "Temperature requirement (reefer), e.g. \"+2 to +8 °C\"; empty = none.", default: "" },
     notes: { type: "string", description: "Additional information and special instructions for carriers.", default: "" },
+    subject: {
+      type: "string",
+      description:
+        "The RFQ's subject/group (\"başlıq\", \"qrup\", \"mövzu\"): the customer's own label for grouping RFQs, e.g. the client, the country or the project (\"Sifarişçi: Azersun\", \"Gürcüstan yükləri\"). Only set it when the user mentioned one; it is not shown to carriers and is not the cargo type or the notes. Empty = none.",
+      default: "",
+    },
   },
   async confirm(raw, ctx) {
     refuseWhenNotWanted(ctx.text);
@@ -333,6 +340,7 @@ export const createRfq: AgentTool = {
       ["Təhlükəli yük (ADR)", p.adr],
       ["Temperatur", p.temperature],
       ["Əlavə məlumat", p.notes],
+      ["Başlıq (qrup)", p.subject],
     ];
     const lines = rows.filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== "").map(([k, v]) => `• ${k}: ${v}`);
     const warnings = [...checked.warnings, ...rfqWarnings(p)].map((w) => `⚠ ${w}`);
@@ -372,6 +380,7 @@ export const createRfq: AgentTool = {
       transportation_mode: TRANSPORT_MODES[p.transport_mode as string],
       required_fields: fields,
       additional_notes: notes,
+      subject: String(p.subject ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
       ...(ctx.attachmentUrl ? { attachment_url: ctx.attachmentUrl } : {}),
     });
     const number = (await api.listRfqs()).find((r) => r.id === rfq.id)?.display_id;
@@ -420,6 +429,7 @@ function paramsFromRfq(rfq: api.ArachiRfq, overrides: Record<string, unknown>): 
     container_type: line(/^Container Type:\s*(.+)$/i),
     container_count: Number(line(/^Container Count:\s*(\d+)/i) || 0),
     notes: String(overrides.notes ?? "").trim() || notes,
+    subject: keep("subject", rfq.subject ?? ""),
   };
 }
 
@@ -507,7 +517,7 @@ export const listRfqs: AgentTool = {
     const rows = (await api.listRfqs()).filter(
       (r) =>
         (status === "all" || r.status === status) &&
-        (!q || [r.origin, r.destination, r.cargo_type, r.additional_notes].join(" ").toLowerCase().includes(q)),
+        (!q || [r.origin, r.destination, r.cargo_type, r.additional_notes, r.subject].join(" ").toLowerCase().includes(q)),
     );
     return {
       total: rows.length,

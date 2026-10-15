@@ -968,3 +968,12 @@ p.error:not(.small) {
 
 .attach-choice { margin-top: var(--s3); padding-top: var(--s2); border-top: 1px dashed var(--border); }
 .attach-hint { margin: 2px 0 0 26px; font-size: 12px; }
+
+/* Plan / sorğu limiti, başlıq sahəsi və əməliyyat mərhələləri */
+.quota-chip { font-size: 12px; padding: 4px 10px; border-radius: 999px; background: #eef3ff; color: #0037b8; white-space: nowrap; }
+.quota-chip.warn { background: #fff4db; color: #8a5a00; }
+.quota-chip a { color: inherit; font-weight: 600; }
+.typing-step { font-style: normal; font-size: 13px; color: var(--muted, #56627f); margin-left: 8px; align-self: center; }
+.subject-edit { margin: 10px 0 4px; }
+.subject-edit input { flex: 1; min-width: 0; padding: 6px 10px; border: 1px solid #dce4f7; border-radius: 8px; font: inherit; }
+@media (max-width: 640px) { .quota-chip { max-width: 140px; overflow: hidden; text-overflow: ellipsis; } }

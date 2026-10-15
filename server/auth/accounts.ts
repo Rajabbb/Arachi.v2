@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { arachiMode, config } from "../config";
 import { openToken, sealToken } from "../arachi/vault";
+import type { SubscriptionInfo } from "../arachi/client";
 import { db, now, transaction } from "../db";
 import { HttpError } from "../http";
 import { publicUrl } from "../links";
@@ -193,21 +194,30 @@ const SSO_PASSWORD = "!arachi-sso";
  * customer another's chats. The email column only holds a placeholder (the real email
  * lives in arachi.co); the display name is the customer's company name.
  */
-export async function upsertArachiUser(input: { customerId: number; name: string }): Promise<User> {
+export async function upsertArachiUser(input: { customerId: number; name: string; subscription?: SubscriptionInfo }): Promise<User> {
   const name = input.name.trim().slice(0, 100);
   return transaction(async () => {
-    const existing = await db().get<User>(`SELECT ${USER_COLUMNS} FROM users u WHERE u.arachi_customer_id = ?`, input.customerId);
-    if (existing) {
-      if (existing.name !== name) {
-        await db().run("UPDATE users SET name = ? WHERE id = ?", name, existing.id);
-        return { ...existing, name };
+    let user = await db().get<User>(`SELECT ${USER_COLUMNS} FROM users u WHERE u.arachi_customer_id = ?`, input.customerId);
+    if (user) {
+      if (user.name !== name) {
+        await db().run("UPDATE users SET name = ? WHERE id = ?", name, user.id);
+        user = { ...user, name };
       }
-      return existing;
+    } else {
+      user = (await db().get<User>(
+        "INSERT INTO users (email, name, password_hash, created_at, arachi_customer_id) VALUES (?, ?, ?, ?, ?) RETURNING id, email, name, created_at",
+        `arachi-${input.customerId}@sso.invalid`, name, SSO_PASSWORD, now(), input.customerId,
+      ))!;
     }
-    return (await db().get<User>(
-      "INSERT INTO users (email, name, password_hash, created_at, arachi_customer_id) VALUES (?, ?, ?, ?, ?) RETURNING id, email, name, created_at",
-      `arachi-${input.customerId}@sso.invalid`, name, SSO_PASSWORD, now(), input.customerId,
-    ))!;
+    // The plan is refreshed at every sign-in from arachi.co (upgrade, demo end).
+    const sub = input.subscription;
+    if (sub) {
+      await db().run(
+        "UPDATE users SET sub_plan = ?, sub_label = ?, sub_ai_limit = ?, sub_ai_period = ?, sub_trial_ends_at = ? WHERE id = ?",
+        sub.plan, sub.label, sub.ai_limit, sub.ai_period, sub.trial_ends_at, user.id,
+      );
+    }
+    return user;
   });
 }
 
