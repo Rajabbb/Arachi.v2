@@ -25,6 +25,10 @@ export interface ToolContext {
   files: UploadedFile[];
   /** The text of the user's current message. */
   text: string;
+  /** The user's earlier messages in this conversation (what they already said, e.g. the transport mode). */
+  earlierText?: string;
+  /** The parameters come from an existing RFQ (a copy), not from what the user wrote now: skip source checks. */
+  trustedParams?: boolean;
   /** Files the tool generated for the user to download. */
   downloads: Download[];
   /**

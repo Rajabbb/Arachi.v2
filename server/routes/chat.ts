@@ -83,8 +83,22 @@ export async function handleChat(req: IncomingMessage, res: ServerResponse) {
     // Notes in front of the message: what the user decided on prepared actions, and the language to answer in.
     const notes = [...outcomes, languageNote(message.text)].filter(Boolean);
     const text = notes.length ? `[System note, not written by the user: ${notes.join(" ")}]\n\n${message.text}` : message.text;
-    const result = await runTurn(previous, text, message.files, model, (tool, params, summary, choices) =>
-      createConfirmation(id, tool, params, summary, choices, tool === "create_rfq" ? attachableFiles(message.files) : undefined),
+    // What the user already said in this conversation (a transport mode named earlier still counts).
+    const earlierText = existing
+      ? (await conversationMessages(existing.id))
+          .filter((m) => m.role === "user")
+          .slice(-8)
+          .map((m) => m.text)
+          .join("\n")
+      : "";
+    const result = await runTurn(
+      previous,
+      text,
+      message.files,
+      model,
+      (tool, params, summary, choices) =>
+        createConfirmation(id, tool, params, summary, choices, tool === "create_rfq" ? attachableFiles(message.files) : undefined),
+      earlierText,
     );
     await saveContext(id, remember(turns, result.transcript.slice(previous.length), model));
     // A reply that names the tools is replaced in code, whatever the model wrote.

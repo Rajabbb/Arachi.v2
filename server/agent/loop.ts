@@ -47,6 +47,7 @@ export async function runTurn<M>(
   files: UploadedFile[],
   provider: ModelProvider<M> = defaultProvider() as ModelProvider<M>,
   askUser?: ToolContext["askUser"],
+  earlierText = "",
 ): Promise<TurnResult> {
   const attachments = await Promise.all(files.map(toAttachment));
   if (attachments.length === 0 && !text.trim()) {
@@ -59,7 +60,7 @@ export async function runTurn<M>(
   const messages: M[] = [...transcript, provider.userMessage(text, attachments)];
   const toolCalls: ToolCallSummary[] = [];
   const definitions = tools.definitions();
-  const ctx = { ...emptyContext(files, text), askUser };
+  const ctx = { ...emptyContext(files, text), askUser, earlierText };
 
   const abort = (reply: string): TurnResult => ({
     reply,

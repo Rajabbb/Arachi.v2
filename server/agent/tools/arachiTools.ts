@@ -261,6 +261,31 @@ function refuseWhenNotWanted(userText: string) {
   }
 }
 
+/** What the user must have written for each transport mode to be taken as said (az/en/ru). */
+const MODE_EVIDENCE: Record<string, RegExp> = {
+  Quru: /(?<![\p{L}])(?:quru|avtomobil|avto|t[ıi]r|f[uü]ra|yük\s*maşın|maşın|truck|road|lorry|ftl|ltl|автомобил|авто|фур|грузовик)/iu,
+  "Dəniz": /(?<![\p{L}])(?:dəniz|deniz|gəmi|gemi|konteyner|container|sea|ship|vessel|liman|port|fcl|lcl|reefer|море|морск|контейнер)/iu,
+  Hava: /(?<![\p{L}])(?:hava|təyyarə|tayyare|aviadaşıma|aviadasima|air|plane|flight|авиа|самол)/iu,
+  "Dəmiryolu": /(?<![\p{L}])(?:dəmiryol|dəmir\s*yol|qatar|vaqon|rail|train|wagon|жд|желез|поезд|вагон)/iu,
+};
+
+/**
+ * The model tends to fill the transport mode from the route (Beijing to Baku = sea). It is optional and must be what the
+ * user said: the mode is dropped unless the user's words (this message, earlier ones, readable files) point to it.
+ * Returns the note to show when it was dropped.
+ */
+function dropUnsaidMode(
+  p: Record<string, unknown>,
+  said: string | null,
+): string | null {
+  const mode = String(p.transport_mode ?? "");
+  if (!mode || said === null) return null; // unreadable file (PDF/image): the document may say it
+  const evidence = MODE_EVIDENCE[mode];
+  if (evidence && evidence.test(said)) return null;
+  p.transport_mode = "";
+  return `Daşınma növü (${mode}) mesajda yazılmayıb, ona görə boş saxlandı. Lazımdırsa «✎ Sahələri düzəlt» ilə seçin.`;
+}
+
 export const createRfq: AgentTool = {
   name: "create_rfq",
   description:
@@ -323,7 +348,14 @@ export const createRfq: AgentTool = {
   },
   async confirm(raw, ctx) {
     refuseWhenNotWanted(ctx.text);
-    const checked = normalizeRfq(raw, await sourceText(ctx));
+    const source = await sourceText(ctx);
+    const prepared = { ...raw };
+    // Not for a copy of an existing RFQ: its mode was set by the user earlier.
+    const modeNote = ctx.trustedParams
+      ? null
+      : dropUnsaidMode(prepared, source === null ? null : `${source.text}\n${ctx.earlierText ?? ""}`);
+    const checked = normalizeRfq(prepared, source);
+    if (modeNote) checked.warnings.unshift(modeNote);
     const p = checked.params;
     requireMandatory(p);
     if (String(p.quote_deadline ?? "").trim()) refusePastOfferDue(String(p.quote_deadline));
@@ -521,7 +553,7 @@ export const duplicateRfq: AgentTool = {
   async confirm(p, ctx) {
     const rfq = await rfqOrThrow(p.rfq_id as number);
     const resolved = copyParams(rfq, p);
-    const plan = await createRfq.confirm!(resolved, ctx);
+    const plan = await createRfq.confirm!(resolved, { ...ctx, trustedParams: true });
     if (!plan) return null;
     return { ...plan, tool: "create_rfq", summary: `RFQ #${rfq.display_id} kopyası. ${plan.summary}` };
   },

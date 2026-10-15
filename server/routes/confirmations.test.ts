@@ -245,7 +245,7 @@ test("create_rfq is refused when the user said not to create it, and creates not
 /** The RFQ card has a carrier picker; what the user ticks is exactly who gets the email. */
 async function prepareRfq() {
   toolCallingProvider("create_rfq", { ...RFQ_DEFAULTS, origin: "Mersin", destination: "Baltimor, ABŞ", volume_unit: "Palet", volume_amount: 40, transport_mode: "Dəniz", container_type: "20DC", container_count: 2, loading_date: "2026-10-13", delivery_deadline: "2026-10-30" });
-  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "sorğu yarat, daşıyıcını seçəcəm", files: [] } });
+  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "dəniz ilə sorğu yarat, daşıyıcını seçəcəm", files: [] } });
   return chat.body.confirmations[0];
 }
 
@@ -325,7 +325,7 @@ test("sea freight: the port is asked for, a truck type becomes a reefer containe
 
   // A named port, or any road/rail route, is fine.
   toolCallingProvider("create_rfq", { ...RFQ_DEFAULTS, origin: "Mersin", destination: "Baltimor, ABŞ", transport_mode: "Dəniz", truck_type: "Refrijerator", container_type: "20DC", container_count: 2, temperature: "+3 °C" });
-  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "sorğu yarat", files: [] } });
+  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "dəniz ilə sorğu yarat", files: [] } });
   const c = chat.body.confirmations[0];
   assert.match(c.text, /Konteyner: 2 × 20 reefer/);
   assert.doesNotMatch(c.text, /Maşın növü/);
@@ -530,4 +530,39 @@ test("fields the card does not show cannot be changed through edits", async () =
   assert.equal(rfq.origin, "Mingəçevir");
   assert.equal(rfq.status, "open");
   assert.notEqual(rfq.customer_id, 999);
+});
+
+test("the transport mode is not taken from the route: unless the user said it, it is left empty", async () => {
+  toolCallingProvider("create_rfq", { origin: "Pekin, Çin", destination: "Bakı, Azərbaycan", cargo_type: "Prius avtomobili", transport_mode: "Dəniz" });
+  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "mənə pekindən bakıya 2 ədəd prius maşını gətimək üçün sorğu yarat", files: [] } });
+  const c = chat.body.confirmations[0];
+  assert.ok(c, "the card is still offered");
+  assert.doesNotMatch(c.text, /Daşınma növü: Dəniz/);
+  assert.match(c.text, /Daşınma növü \(Dəniz\) mesajda yazılmayıb/);
+  assert.equal(c.fields?.transport_mode, "");
+  const yes = await request<ConfirmationResponse>("POST", `/api/confirmations/${c.id}`, { approve: true, mode: "create", carrierIds: [] });
+  assert.equal(yes.body.confirmation.status, "done");
+  assert.equal(lastRfq().transportation_mode, "");
+});
+
+test("a transport mode the user named is kept, in this message or an earlier one", async () => {
+  toolCallingProvider("create_rfq", { origin: "Pekin, Çin", destination: "Bakı", cargo_type: "Prius", transport_mode: "Dəniz" });
+  const named = await request<ChatResponse>("POST", "/api/chat", { message: { text: "Pekindən Bakıya gəmi ilə 2 prius üçün sorğu yarat", files: [] } });
+  assert.match(named.body.confirmations[0].text, /Daşınma növü: Dəniz/);
+
+  // Said earlier in the same conversation, not repeated now.
+  toolCallingProvider("get_dashboard", {});
+  const first = await request<ChatResponse>("POST", "/api/chat", { message: { text: "yük dəniz yolu ilə gələcək", files: [] } });
+  toolCallingProvider("create_rfq", { origin: "Mersin", destination: "Bakı", cargo_type: "Un", transport_mode: "Dəniz", container_type: "20DC", container_count: 1 });
+  const later = await request<ChatResponse>("POST", "/api/chat", {
+    conversationId: first.body.conversationId,
+    message: { text: "Mersindən Bakıya un üçün sorğu yarat", files: [] },
+  });
+  assert.match(later.body.confirmations[0].text, /Daşınma növü: Dəniz/);
+});
+
+test("a different mode than the one the user named is not kept either", async () => {
+  toolCallingProvider("create_rfq", { origin: "Bakı", destination: "Berlin", cargo_type: "Un", transport_mode: "Dəniz" });
+  const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "Bakıdan Berlinə un üçün tırla sorğu yarat", files: [] } });
+  assert.doesNotMatch(chat.body.confirmations[0].text, /Daşınma növü: Dəniz/);
 });
