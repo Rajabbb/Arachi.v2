@@ -124,7 +124,7 @@ test("attachments become inline data and text parts", async () => {
   assert.match(parts[2].text!, /c\.csv[\s\S]*Bakı,Milan/);
   assert.match(parts[3].text!, /d\.gif.*not supported/);
   assert.match(parts[4].text!, /e\.docx.*not supported/);
-  assert.deepEqual(parts[5], { text: "Bax" });
+  assert.match(parts[5].text!, /^\[Bu gün Bakı vaxtı ilə: \d{4}-\d{2}-\d{2}[^\n]*\n\s*Bax$/);
 });
 
 test("blocked or cut-off answers leave the transcript unchanged", async () => {

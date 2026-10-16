@@ -43,8 +43,8 @@ test("a full RFQ is written exactly like the panel writes it", async () => {
     volume_amount: 15,
     volume_unit: "Palet",
     transport_mode: "Quru",
-    loading_date: "2026-10-12T10:30",
-    delivery_deadline: "2026-10-20",
+    loading_date: "2099-10-12T10:30",
+    delivery_deadline: "2099-10-20",
     truck_type: "Tentli",
     hs_code: "6109.10",
     stackable: "Non-stackable",
@@ -60,10 +60,10 @@ test("a full RFQ is written exactly like the panel writes it", async () => {
   assert.equal(row.transportation_mode, "Quru (Road)");
   assert.equal(row.stackable, "Non-stackable");
   assert.equal(row.shipment_type, "LTL");
-  assert.equal(row.deadline, "2026-10-12T10:30");
+  assert.equal(row.deadline, "2099-10-12T10:30");
   assert.equal(row.send_option, "none");
   assert.deepEqual(row.required_fields, [
-    "Loading Date: 2026-10-12 10:30 AM",
+    "Loading Date: 2099-10-12 10:30 AM",
     "Truck Type: Tentli",
     "HS Code: 6109.10",
     "Stackable / Non-stackable: Non-stackable",
@@ -71,7 +71,7 @@ test("a full RFQ is written exactly like the panel writes it", async () => {
     "Incoterm: FOB",
     "Dangerous Goods (ADR): Klass 3",
     "Temperature Requirement: +2 to +8 °C",
-    "Delivery Deadline: 2026-10-20",
+    "Delivery Deadline: 2099-10-20",
     "Additional Information: Çox ehtiyatla",
     "Həcm / Palet: 15 Palet",
   ]);

@@ -30,12 +30,18 @@ export function isSpreadsheet(file: UploadedFile): boolean {
 export async function readSpreadsheet(file: UploadedFile): Promise<{ sheet: string; rows: string[][] }[]> {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(Buffer.from(file.data, "base64") as unknown as ArrayBuffer);
+  // One damaged sheet must not make the whole workbook unreadable.
   return workbook.worksheets.map((ws) => {
     const rows: string[][] = [];
-    ws.eachRow((row) => {
-      const values = row.values as unknown[];
-      rows.push(values.slice(1).map((v) => cellText(v)));
-    });
+    try {
+      ws.eachRow((row) => {
+        if (rows.length >= 500) return;
+        const values = Array.isArray(row.values) ? (row.values as unknown[]) : Object.values(row.values ?? {});
+        rows.push(values.slice(1).map((v) => cellText(v)));
+      });
+    } catch {
+      rows.push([`(vərəq "${ws.name}" tam oxuna bilmədi)`]);
+    }
     return { sheet: ws.name, rows };
   });
 }

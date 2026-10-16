@@ -244,7 +244,7 @@ test("create_rfq is refused when the user said not to create it, and creates not
 
 /** The RFQ card has a carrier picker; what the user ticks is exactly who gets the email. */
 async function prepareRfq() {
-  toolCallingProvider("create_rfq", { ...RFQ_DEFAULTS, origin: "Mersin", destination: "Baltimor, ABŞ", volume_unit: "Palet", volume_amount: 40, transport_mode: "Dəniz", container_type: "20DC", container_count: 2, loading_date: "2026-10-13", delivery_deadline: "2026-10-30" });
+  toolCallingProvider("create_rfq", { ...RFQ_DEFAULTS, origin: "Mersin", destination: "Baltimor, ABŞ", volume_unit: "Palet", volume_amount: 40, transport_mode: "Dəniz", container_type: "20DC", container_count: 2, loading_date: "2099-10-13", delivery_deadline: "2099-10-30" });
   const chat = await request<ChatResponse>("POST", "/api/chat", { message: { text: "dəniz ilə sorğu yarat, daşıyıcını seçəcəm", files: [] } });
   return chat.body.confirmations[0];
 }

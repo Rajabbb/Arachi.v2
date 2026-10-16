@@ -30,7 +30,7 @@ function fakeProvider(fail = false) {
     name: "anthropic",
     model: "fake",
     ownsTranscript: (t): t is Msg[] => t.every((m) => typeof m === "object" && m !== null && "fake" in m),
-    userMessage: (text, attachments) => ({ fake: `user:${text}:${attachments.length}` }),
+    userMessage: (text, attachments) => ({ fake: `user:${text.replace(/^\[Bu gün[^\]]*\]\n/, "")}:${attachments.length}` }),
     dropAttachments: (m) => m,
     async generate(_system, messages): Promise<ModelStep<Msg>> {
       seen.push(messages.map((m) => m.fake));

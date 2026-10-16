@@ -257,3 +257,12 @@ test("template \"standard\" sends the built-in text", async () => {
   await call("send_rfq_to_carriers", { rfq_id: rfq.number, template: "standard" });
   assert.equal(arachiData.mails[0].templateId, undefined);
 });
+
+test("list_offers gives the counts the panel shows (an offer implies delivered and viewed)", async () => {
+  const { rfq, carriers } = await setup();
+  await call("send_rfq_to_carriers", { rfq_id: rfq.number });
+  offerFrom(carriers[0].id, rfqDb(rfq), 900, 5);
+  arachiData.quotes[1].mail_status = "delivered";
+  const { summary } = (await call("list_offers", { rfq_id: rfq.number })).result;
+  assert.deepEqual(summary, { sent: 2, delivered: 2, not_delivered: 0, viewed: 1, offers_received: 1, email_carriers: 2 });
+});

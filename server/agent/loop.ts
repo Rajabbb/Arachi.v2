@@ -6,6 +6,7 @@ import { provider as defaultProvider } from "./providers";
 import type { ModelProvider } from "./providers/types";
 import { tools } from "./tools";
 import { emptyContext, type ToolContext } from "./tools/registry";
+import { dateLine } from "./tools/guards";
 
 export class AgentError extends Error {}
 
@@ -57,7 +58,8 @@ export async function runTurn<M>(
   // A conversation started with another provider can't be continued here
   // (the formats differ), so it starts over.
   const transcript: M[] = provider.ownsTranscript(previous) ? previous : [];
-  const messages: M[] = [...transcript, provider.userMessage(text, attachments)];
+  // The model has no clock: the real date goes with every message (the cached system prompt stays unchanged).
+  const messages: M[] = [...transcript, provider.userMessage(`${dateLine()}\n${text}`, attachments)];
   const toolCalls: ToolCallSummary[] = [];
   const definitions = tools.definitions();
   const ctx = { ...emptyContext(files, text), askUser, earlierText };

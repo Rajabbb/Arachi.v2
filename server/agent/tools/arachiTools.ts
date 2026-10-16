@@ -6,6 +6,7 @@ import { RFQ_EDIT_FIELDS, type CarrierChoices } from "../../../shared/protocol";
 import { toAttachment } from "../files";
 import { checkRfq } from "./sourceCheck";
 import { applyCargoItems, cargoItemLine, cleanCargoItems } from "./cargoItems";
+import { oversizeWarnings, refusePastDate, totalMismatchWarning } from "./guards";
 
 export { recipientLines };
 
@@ -385,6 +386,8 @@ export const createRfq: AgentTool = {
     const p = checked.params;
     requireMandatory(p);
     if (String(p.quote_deadline ?? "").trim()) refusePastOfferDue(String(p.quote_deadline));
+    if (String(p.loading_date ?? "").trim()) refusePastDate("Yükləmə tarixi", String(p.loading_date));
+    if (String(p.delivery_deadline ?? "").trim()) refusePastDate("Çatdırılma tarixi", String(p.delivery_deadline));
     rfqFieldLines(p); // validates numbers and dates before the user is asked
     const rows: [string, unknown][] = [
       ["Yükləmə yeri", p.origin],
@@ -410,7 +413,10 @@ export const createRfq: AgentTool = {
       ["Başlıq (qrup)", p.subject],
     ];
     const lines = rows.filter(([, v]) => v !== undefined && v !== null && String(v).trim() !== "").map(([k, v]) => `• ${k}: ${v}`);
-    const warnings = [...checked.warnings, ...rfqWarnings(p)].map((w) => `⚠ ${w}`);
+    const itemList = cleanCargoItems(p.cargo_items);
+    const scanned = [String(p.notes ?? ""), ...itemList.map((i) => `${i.dimensions ?? ""} ${i.notes ?? ""}`), source?.text ?? "", ctx.text ?? ""].join("\n");
+    const mismatch = itemList.length >= 2 ? totalMismatchWarning(scanned, Number(p.weight_kg) || 0) : null;
+    const warnings = [...checked.warnings, ...rfqWarnings(p), ...oversizeWarnings(scanned), ...(mismatch ? [mismatch] : [])].map((w) => `⚠ ${w}`);
     const choices = await carrierChoices();
     const history = await routeHistoryLine(String(p.origin), String(p.destination));
     return {
@@ -430,6 +436,8 @@ export const createRfq: AgentTool = {
     const p = normalizeRfq(raw).params;
     requireMandatory(p);
     if (String(p.quote_deadline ?? "").trim()) refusePastOfferDue(String(p.quote_deadline));
+    if (String(p.loading_date ?? "").trim()) refusePastDate("Yükləmə tarixi", String(p.loading_date));
+    if (String(p.delivery_deadline ?? "").trim()) refusePastDate("Çatdırılma tarixi", String(p.delivery_deadline));
     const amount = p.volume_amount as number;
     const fields = rfqFieldLines(p);
     const loading = (p.loading_date as string).trim();
@@ -492,6 +500,8 @@ export function applyRfqEdits(stored: Record<string, unknown>, edits: Record<str
   const p = normalizeRfq(resolved.params).params;
   requireMandatory(p);
   if (String(p.quote_deadline ?? "").trim()) refusePastOfferDue(String(p.quote_deadline));
+  if (String(p.loading_date ?? "").trim()) refusePastDate("Yükləmə tarixi", String(p.loading_date));
+  if (String(p.delivery_deadline ?? "").trim()) refusePastDate("Çatdırılma tarixi", String(p.delivery_deadline));
   rfqFieldLines(p); // validates numbers and dates
   return p;
 }
@@ -849,8 +859,19 @@ export const listOffers: AgentTool = {
   async run(p) {
     const rfq = await rfqOrThrow(p.rfq_id as number);
     const [got, who] = await Promise.all([api.offers(rfq.id), api.recipients(rfq.id)]);
+    // The counts the panel shows (cumulative: an offer implies it was opened and delivered), computed here so nobody has to count.
+    const real = who.filter((r) => !r.is_public);
+    const summary = {
+      sent: who.length,
+      delivered: who.filter((r) => r.is_viewed || r.has_submitted || r.mail_status === "delivered").length,
+      not_delivered: who.filter((r) => !r.is_viewed && !r.has_submitted && r.mail_status === "failed").length,
+      viewed: who.filter((r) => r.is_viewed || r.has_submitted).length,
+      offers_received: who.filter((r) => r.has_submitted).length,
+      email_carriers: real.length,
+    };
     return {
       rfq: { number: rfq.display_id, route: `${rfq.origin} → ${rfq.destination}`, status: rfq.status },
+      summary,
       offers: got.map(offerView),
       carriers: who.map((r) => ({
         quote_id: r.quote_id,

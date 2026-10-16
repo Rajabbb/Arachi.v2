@@ -26,7 +26,7 @@ function fakeProvider(steps: ModelStep<Msg>[]): ModelProvider<Msg> & { seen: Msg
     model: "fake",
     seen,
     ownsTranscript: (t): t is Msg[] => t.every((m) => typeof m === "object" && m !== null && "fake" in m),
-    userMessage: (text, attachments) => ({ fake: `user:${text}:${attachments.length}` }),
+    userMessage: (text, attachments) => ({ fake: `user:${text.replace(/^\[Bu gün[^\]]*\]\n/, "")}:${attachments.length}` }),
     dropAttachments: (m) => ({ fake: m.fake.replace(/:\d+$/, ":0") }),
     async generate(_system, messages) {
       seen.push([...messages]);
