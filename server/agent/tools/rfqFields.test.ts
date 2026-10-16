@@ -3,7 +3,7 @@ import { after, before, beforeEach, test } from "node:test";
 import { call, freshDb, RFQ_DEFAULTS } from "../../test/helpers";
 import { arachiData, installFakeArachi } from "../../test/fakeArachi";
 import { tools } from ".";
-import { resolveParams } from "./registry";
+import { emptyContext, resolveParams } from "./registry";
 import { customerPrice } from "./documentTools";
 import { panelDate } from "./arachiTools";
 
@@ -167,4 +167,39 @@ test("a card is made for every tool that reports, and read tools show what they 
   await call("get_dashboard", {}, ctx);
   assert.deepEqual(ctx.cards.map((c) => c.title.split(":")[0].replace(/ \d+.*/, "")), ["RFQ #1 yaradıldı", "RFQ siyahısı", "Ümumi göstəricilər"].map((t) => t.split(":")[0].replace(/ \d+.*/, "")));
   assert.match(ctx.cards[1].items![0], /#1 · Bakı → Berlin/);
+});
+
+test("several different cargo items go into one RFQ; totals and the combined name are computed", async () => {
+  const asked: string[] = [];
+  const ctx = emptyContext();
+  ctx.askUser = async (_t, _p, summary) => {
+    asked.push(summary);
+    return { id: "c1", text: summary, status: "pending", result: "" };
+  };
+  const items = [
+    { name: "Meyvə", weight_kg: 5000, hs_code: "0808" },
+    { name: "Xalça", weight_kg: 3000.5, pallets: 4, stackable: "Non-stackable" },
+    { name: "Mebel", volume_m3: 10, incoterm: "fob" },
+    { name: "  " },
+  ];
+  const plan = await call("create_rfq", { origin: "Bakı", destination: "Moskva", cargo_type: "x", incoterm: "DAP", cargo_items: items }, ctx);
+  assert.equal(JSON.parse(plan.content).status, "waiting_for_user");
+  assert.match(asked[0], /Yük 1: Meyvə — 5000 kq · HS 0808 · DAP/);
+  assert.match(asked[0], /Yük 3: Mebel — 10 m³ · FOB/);
+  assert.match(asked[0], /Çəki: 8000\.5 kq \(cəmi\)/);
+
+  await call("create_rfq", { origin: "Bakı", destination: "Moskva", cargo_type: "x", incoterm: "DAP", cargo_items: items });
+  const r = stored();
+  assert.equal((r.cargo_items as unknown[]).length, 3);
+  assert.equal(r.cargo_type, "Meyvə + Xalça + Mebel");
+  assert.equal(r.weight_kg, 8000.5);
+  assert.deepEqual((r.cargo_items as { incoterm?: string }[]).map((i) => i.incoterm), ["DAP", "DAP", "FOB"]);
+});
+
+test("a single cargo item is an ordinary RFQ", async () => {
+  await call("create_rfq", { origin: "Bakı", destination: "Tbilisi", cargo_type: "Un", weight_kg: 900, cargo_items: [{ name: "Un", weight_kg: 5 }] });
+  const r = stored();
+  assert.equal(r.cargo_type, "Un");
+  assert.equal(r.weight_kg, 900);
+  assert.ok(!r.cargo_items);
 });

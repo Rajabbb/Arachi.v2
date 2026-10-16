@@ -23,7 +23,8 @@ export const arachiData = {
   categories: [] as Category[],
   subCategories: [] as Category[],
   customerQuotes: [] as Record<string, unknown>[],
-  mails: [] as { to: string; quoteId: number; reminder: boolean }[],
+  mails: [] as { to: string; quoteId: number; reminder: boolean; templateId?: number }[],
+  templates: [] as { id: number; name: string; subject: string; body: string; is_default: boolean }[],
   calls: [] as string[],
   next: 1,
   /** When set, every call fails with this status (e.g. 401 = arachi.co session ended). */
@@ -40,6 +41,7 @@ export function resetArachi() {
   arachiData.rfqs = [];
   arachiData.quotes = [];
   arachiData.mails = [];
+  arachiData.templates = [];
   arachiData.categories = [];
   arachiData.subCategories = [];
   arachiData.customerQuotes = [];
@@ -72,11 +74,17 @@ function handle(method: string, path: string, body: any, customerId: number, for
   }
   if (method === "POST" && path === "/requests/create") {
     if (body.customer_id !== customerId) return json(403, { detail: "İcazə rədd edildi." });
+    const items = Array.isArray(body.cargo_items) && body.cargo_items.length >= 2 ? body.cargo_items : null;
     const rfq: Rfq = { id: arachiData.next++, customer_id: customerId, status: "open", ...body, created_at: "2026-01-01" };
+    if (items) {
+      rfq.cargo_type = items.map((i: { name: string }) => i.name).join(" + ");
+      rfq.weight_kg = items.reduce((a: number, i: { weight_kg?: number }) => a + (i.weight_kg ?? 0), 0);
+    }
     arachiData.rfqs.push(rfq);
     if (body.send_option !== "none") throw new Error("the agent must create RFQs without sending");
     return json(200, { status: "success", emailed_count: 0, request_details: rfq });
   }
+  if (method === "GET" && path === "/api/email-templates") return json(200, { status: "success", templates: arachiData.templates });
   if (method === "GET" && (m = path.match(/^\/carriers\/customer\/(\d+)$/))) {
     if (Number(m[1]) !== customerId) return json(403, { detail: "İcazə rədd edildi." });
     return json(200, arachiData.carriers.filter((c) => c.customer_id === customerId));
@@ -103,7 +111,7 @@ function handle(method: string, path: string, body: any, customerId: number, for
         price: null, currency: "AZN", transit_time_days: null, is_winner: false, extra_details: {}, quote_history: [],
       };
       arachiData.quotes.push(quote);
-      arachiData.mails.push({ to: carrier.email, quoteId: quote.id, reminder: false });
+      arachiData.mails.push({ to: carrier.email, quoteId: quote.id, reminder: false, templateId: body.template_id });
       sent.push({ carrier_id: id, company_name: carrier.company_name, email: carrier.email });
     }
     if (sent.length === 0) return json(400, { detail: "Göndəriləcək yeni daşıyıcı tapılmadı." });

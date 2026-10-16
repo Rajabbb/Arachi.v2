@@ -234,3 +234,26 @@ test("list_rfqs counts everything, searches, and caps what it returns", async ()
   assert.equal(berlin.total, 15);
   assert.equal(berlin.shown, 15);
 });
+
+test("send_rfq_to_carriers uses a saved template by name, the default when none is named, and rejects an unknown name", async () => {
+  const { rfq, carriers } = await setup();
+  arachiData.templates = [
+    { id: 11, name: "Standart AZ", subject: "", body: "Salam", is_default: true },
+    { id: 12, name: "English", subject: "RFQ", body: "Hello", is_default: false },
+  ];
+  const listed = (await call("list_email_templates", {})).result;
+  assert.equal(listed.total, 2);
+
+  await assert.rejects(call("send_rfq_to_carriers", { rfq_id: rfq.number, template: "yoxdur" }), /tapılmadı/);
+  await call("send_rfq_to_carriers", { rfq_id: rfq.number, audience: "specific", carrier_ids: [carriers[0].id], template: "english" });
+  assert.equal(arachiData.mails[0].templateId, 12);
+  await call("send_rfq_to_carriers", { rfq_id: rfq.number, audience: "specific", carrier_ids: [carriers[1].id] });
+  assert.equal(arachiData.mails[1].templateId, 11, "default template when none is named");
+});
+
+test("template \"standard\" sends the built-in text", async () => {
+  const { rfq } = await setup();
+  arachiData.templates = [{ id: 11, name: "Standart AZ", subject: "", body: "Salam", is_default: true }];
+  await call("send_rfq_to_carriers", { rfq_id: rfq.number, template: "standard" });
+  assert.equal(arachiData.mails[0].templateId, undefined);
+});

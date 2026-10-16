@@ -5,6 +5,7 @@ import { categoryOrThrow, isMine, recipientLines, rfqOrThrow, subCategoryOrThrow
 import { RFQ_EDIT_FIELDS, type CarrierChoices } from "../../../shared/protocol";
 import { toAttachment } from "../files";
 import { checkRfq } from "./sourceCheck";
+import { applyCargoItems, cargoItemLine, cleanCargoItems } from "./cargoItems";
 
 export { recipientLines };
 
@@ -30,6 +31,7 @@ function rfqView(r: api.ArachiRfq | Omit<api.ArachiRfq, "display_id">) {
     details: Array.isArray(r.required_fields) && r.required_fields.length > 0 ? r.required_fields : undefined,
     notes: r.additional_notes || undefined,
     subject: r.subject || undefined,
+    cargo_items: Array.isArray(r.cargo_items) && r.cargo_items.length >= 2 ? r.cargo_items : undefined,
     status: r.status,
     created_at: r.created_at,
   };
@@ -228,6 +230,7 @@ function normalizeRfq(p: Record<string, unknown>, source: { text: string; fromFi
       out.container_type = `${size} reefer`;
     }
   }
+  applyCargoItems(out);
   return checkRfq(out, source);
 }
 
@@ -295,6 +298,29 @@ export const createRfq: AgentTool = {
     destination: { type: "string", description: "Unloading place (city, country or full address), e.g. \"İstanbul, Türkiyə\"." },
     cargo_type: { type: "string", description: "What the cargo is, e.g. textile, furniture, food." },
     weight_kg: { type: "number", description: "Gross weight in kilograms (convert tonnes to kg); 0 = not specified (optional).", default: 0 },
+    cargo_items: {
+      type: "array",
+      description:
+        "Use ONLY when the same shipment (same loading and unloading place) carries 2 or more DIFFERENT cargo items, e.g. 5 tonnes of fruit, 3 tonnes of carpets and 2 pallets of furniture: one entry per item, at most 10. They all ship together in ONE RFQ and the carrier gives one total price. Give each item only what the user said (name; weight_kg, volume_m3, pallets, dimensions, hs_code, incoterm, adr, stackable, temperature, notes). The total weight and volume and the combined cargo name are computed automatically, so then leave weight_kg, volume_amount, hs_code, stackable, incoterm, adr and temperature empty at the top level (a value given there applies to every item that has none). For a single cargo leave this empty. Different routes are different RFQs, not items.",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          weight_kg: { type: "number" },
+          volume_m3: { type: "number" },
+          pallets: { type: "integer" },
+          dimensions: { type: "string" },
+          hs_code: { type: "string" },
+          incoterm: { type: "string" },
+          adr: { type: "string" },
+          stackable: { type: "string", enum: ["", "Stackable", "Non-stackable"] },
+          temperature: { type: "string" },
+          notes: { type: "string" },
+        },
+        required: ["name"],
+      },
+      default: [],
+    },
     volume_amount: {
       type: "number",
       description: "The quantity: number of pallets, or volume in cubic metres, depending on volume_unit; 0 = not specified (optional).",
@@ -364,7 +390,8 @@ export const createRfq: AgentTool = {
       ["Yükləmə yeri", p.origin],
       ["Boşaltma yeri", p.destination],
       ["Yükün növü", p.cargo_type],
-      ["Çəki", Number(p.weight_kg) > 0 ? `${p.weight_kg} kq` : ""],
+      ...cleanCargoItems(p.cargo_items).map((it, n): [string, unknown] => [`Yük ${n + 1}`, cargoItemLine(it)]),
+      ["Çəki", Number(p.weight_kg) > 0 ? `${p.weight_kg} kq${cleanCargoItems(p.cargo_items).length >= 2 ? " (cəmi)" : ""}` : ""],
       ["Həcm / Palet", Number(p.volume_amount) > 0 ? `${p.volume_amount} ${p.volume_unit}` : ""],
       ["Daşınma növü", p.transport_mode],
       ["Yükləmə tarixi", p.loading_date ? panelDate("loading_date", String(p.loading_date)) : ""],
@@ -422,6 +449,7 @@ export const createRfq: AgentTool = {
       required_fields: fields,
       additional_notes: notes,
       subject: String(p.subject ?? "").replace(/\s+/g, " ").trim().slice(0, 120),
+      ...(cleanCargoItems(p.cargo_items).length >= 2 ? { cargo_items: cleanCargoItems(p.cargo_items) as unknown as Record<string, unknown>[] } : {}),
       ...(ctx.attachmentUrl ? { attachment_url: ctx.attachmentUrl } : {}),
     });
     const number = (await api.listRfqs()).find((r) => r.id === rfq.id)?.display_id;
@@ -489,6 +517,7 @@ function paramsFromRfq(rfq: api.ArachiRfq, overrides: Record<string, unknown>): 
   return {
     origin: keep("origin", rfq.origin),
     destination: keep("destination", rfq.destination),
+    cargo_items: Array.isArray(rfq.cargo_items) && rfq.cargo_items.length >= 2 ? rfq.cargo_items : [],
     cargo_type: keep("cargo_type", rfq.cargo_type ?? ""),
     weight_kg: keep("weight_kg", rfq.weight_kg ?? 0),
     volume_amount: keep("volume_amount", vol ? Number(vol[1].replace(",", ".")) : (rfq.volume_m3 ?? 0)),
@@ -668,6 +697,40 @@ export const addCarriers: AgentTool = {
   },
 };
 
+/**
+ * The saved e-mail template a send uses. Empty = the company's default template (if it has one);
+ * "standard" = Arachi's built-in text (returns undefined).
+ */
+async function templateOrThrow(name: unknown): Promise<api.ArachiEmailTemplate | undefined> {
+  const wanted = String(name ?? "").trim().toLowerCase();
+  if (wanted === "standard" || wanted === "standart") return undefined;
+  const all = await api.listEmailTemplates();
+  if (!wanted) return all.find((t) => t.is_default);
+  const exact = all.filter((t) => t.name.trim().toLowerCase() === wanted);
+  const found = exact.length ? exact : all.filter((t) => t.name.toLowerCase().includes(wanted));
+  if (found.length === 1) return found[0];
+  if (found.length > 1) throw new Error(`Bu adla bir neçə şablon var: ${found.map((t) => t.name).join(", ")}. Dəqiq adı yazın.`);
+  throw new Error(
+    all.length
+      ? `"${String(name)}" adlı şablon tapılmadı. Mövcud şablonlar: ${all.map((t) => t.name).join(", ")}.`
+      : "Saxlanmış email şablonu yoxdur: sorğu standart mətnlə göndərilir.",
+  );
+}
+
+export const listEmailTemplates: AgentTool = {
+  name: "list_email_templates",
+  description:
+    "Lists the user's saved e-mail templates (the text that goes to carriers with an RFQ), with the default one marked. Templates are written and edited in the panel; send_rfq_to_carriers can use one by name.",
+  params: {},
+  async run() {
+    const all = await api.listEmailTemplates();
+    return {
+      total: all.length,
+      templates: all.map((t) => ({ name: t.name, is_default: t.is_default, subject: t.subject || undefined, text: t.body })),
+    };
+  },
+};
+
 /** The carriers a send would reach: those chosen (or all) that have not been sent this RFQ yet. */
 async function dueCarriers(rfq: api.ArachiRfq, p: Record<string, unknown>) {
   const wanted = (p.carrier_ids as number[]) ?? [];
@@ -700,18 +763,33 @@ export const sendRfqToCarriers: AgentTool = {
     category: { type: "string", description: "Category name for audience=category.", default: "" },
     subcategory: { type: "string", description: "Optional subcategory name for audience=category.", default: "" },
     carrier_ids: { type: "array", description: "Carrier ids for audience=specific.", items: { type: "integer" }, default: [] },
+    template: {
+      type: "string",
+      description:
+        "Name of a saved e-mail template to use (see list_email_templates). Leave empty to use the default template if there is one; \"standard\" = Arachi's built-in text. Only set it when the user named a template.",
+      default: "",
+    },
   },
   async confirm(p) {
     const rfq = await rfqOrThrow(p.rfq_id as number);
     if (rfq.status !== "open") return null;
     const due = await dueCarriers(rfq, p);
     if (due.length === 0) return null;
+    const template = await templateOrThrow(p.template);
     return {
       summary:
-        `RFQ #${rfq.display_id} (${rfq.origin} → ${rfq.destination}) ${due.length} daşıyıcıya email ilə göndəriləcək:\n` +
+        `RFQ #${rfq.display_id} (${rfq.origin} → ${rfq.destination}) ${due.length} daşıyıcıya email ilə göndəriləcək` +
+        `${template ? ` («${template.name}» şablonu ilə)` : ""}:\n` +
         recipientLines(due.map((c) => `${c.company_name}: ${c.email}`)),
       // Exactly the carriers shown, even if the base changes before "Bəli".
-      params: { rfq_id: rfq.display_id, audience: "specific", carrier_ids: due.map((c) => c.id), category: "", subcategory: "" },
+      params: {
+        rfq_id: rfq.display_id,
+        audience: "specific",
+        carrier_ids: due.map((c) => c.id),
+        category: "",
+        subcategory: "",
+        template: template ? template.name : "standard",
+      },
     };
   },
   done(result) {
@@ -723,9 +801,11 @@ export const sendRfqToCarriers: AgentTool = {
     if (rfq.status !== "open") throw new Error(`RFQ #${rfq.display_id} artıq açıq deyil (${rfq.status}).`);
     const due = await dueCarriers(rfq, p);
     if (due.length === 0) throw new Error("Göndəriləcək yeni daşıyıcı yoxdur: ya baza boşdur, ya da hamısına artıq göndərilib.");
-    const res = await api.sendRfq(rfq.id, { carrier_ids: due.map((c) => c.id) });
+    const template = await templateOrThrow(p.template);
+    const res = await api.sendRfq(rfq.id, { carrier_ids: due.map((c) => c.id), ...(template ? { template_id: template.id } : {}) });
     return {
       rfq_id: rfq.display_id,
+      template: template?.name,
       sent: res.sent.length,
       carriers: res.sent.map((s) => s.company_name),
       recipients: res.sent.map((s) => ({ name: s.company_name, email: s.email })),

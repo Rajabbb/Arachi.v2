@@ -13,6 +13,7 @@ import {
   getDashboard,
   getQuoteLink,
   listCarriers,
+  listEmailTemplates,
   listOffers,
   listRfqs,
   selectWinner,
@@ -39,6 +40,7 @@ export const tools = new ToolRegistry()
   // Sending (needs the user's "Bəli")
   .register(sendRfqToCarriers)
   .register(getQuoteLink)
+  .register(listEmailTemplates)
   // Offers
   .register(listOffers)
   .register(compareOffers)

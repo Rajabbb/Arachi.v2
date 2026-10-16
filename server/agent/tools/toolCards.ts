@@ -87,6 +87,16 @@ export const cardFor: Record<string, CardFn> = {
     };
   },
 
+  list_email_templates(result) {
+    const r = result as R;
+    return {
+      title: `Email şablonları: ${r.total}`,
+      tone: "info",
+      items: items((r.templates as R[]).map((t) => `${t.name}${t.is_default ? " ★ (standart)" : ""}`)),
+      note: r.total ? undefined : "Şablon paneldə yaradılır: RFQ yaradarkən «Öz Şablonumu Daxil Et».",
+    };
+  },
+
   add_carriers(result) {
     const r = result as R;
     const added = (r.added as R[]) ?? [];

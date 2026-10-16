@@ -23,6 +23,8 @@ export interface ArachiRfq {
   additional_notes?: string | null;
   /** The customer's own group/title for the RFQ (client, country, project); never shown to carriers. */
   subject?: string | null;
+  /** Two or more different cargo items shipped together in this RFQ (empty for an ordinary RFQ). */
+  cargo_items?: Record<string, unknown>[] | null;
   status: string;
   created_at?: string;
   quotes_count?: number;
@@ -110,6 +112,8 @@ export interface NewRfq {
   additional_notes: string;
   /** The RFQ's subject (group); empty = none. */
   subject?: string;
+  /** Two or more different cargo items in one RFQ (see cargoItems.ts); totals are recomputed by arachi.co. */
+  cargo_items?: Record<string, unknown>[];
   /** A file the carriers see on the quote page ("Sənədə Bax"), from uploadAttachment. */
   attachment_url?: string;
 }
@@ -145,7 +149,20 @@ export interface SendResult {
   public_link?: string;
 }
 
-export async function sendRfq(requestId: number, body: { carrier_ids?: number[]; send_to_all?: boolean }): Promise<SendResult> {
+export interface ArachiEmailTemplate {
+  id: number;
+  name: string;
+  subject: string;
+  body: string;
+  is_default: boolean;
+}
+
+/** The company's saved e-mail templates for RFQ e-mails (default first). */
+export async function listEmailTemplates(): Promise<ArachiEmailTemplate[]> {
+  return (await arachi<{ templates?: ArachiEmailTemplate[] }>("GET", "/api/email-templates")).templates ?? [];
+}
+
+export async function sendRfq(requestId: number, body: { carrier_ids?: number[]; send_to_all?: boolean; template_id?: number }): Promise<SendResult> {
   return arachi("POST", `/requests/${requestId}/send`, { json: body });
 }
 
